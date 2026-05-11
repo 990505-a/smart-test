@@ -1,0 +1,15 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "testcase_agent": {
+      "path": "./src/app/agents/testcase/agent.py:agent"
+    },
+    "web_agent": {
+      "path": "./src/app/agents/web/agent.py:agent"
+    },
+    "api_agent": {
+      "path": "./src/app/agents/api/agent.py:agent"
+    }
+  },
+  "env": ".env"
+}
