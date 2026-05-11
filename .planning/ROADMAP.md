@@ -50,12 +50,12 @@ Plans:
   3. User can download an Excel file with professional formatting (headers, borders, alignment, auto-wrap) and standardized case numbering (TC-[PROJECT]-[MODULE]-[NNN])
   4. Previously parsed documents are cached via MD5 hash and not re-processed on repeated uploads
   5. Skills are loaded from SKILL.md files on the filesystem and injected into the agent via the SkillsMiddleware onion layer
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md — PDF processing pipeline: PDFProcessor with MD5 caching, PDFContextMiddleware with session isolation
+- [ ] 02-02-PLAN.md — Skills system and Excel export: 5 SKILL.md files, Excel export tool with field extraction
+- [ ] 02-03-PLAN.md — Agent wiring: middleware chain, system prompt, tool registration, integration
 
 ### Phase 3: RAG Knowledge System
 **Goal**: Users can leverage a RAG knowledge base to generate test cases grounded in real project documentation, with the agent refusing to generate without retrieved context
@@ -120,7 +120,7 @@ Plans:
   2. User receives executable Playwright TypeScript scripts with test.step organization and soft assertions, validated by the syntax checker tool
   3. User sees coverage metrics (data type coverage and status code coverage) calculated for the generated test suite
   4. User can approve or reject agent actions at critical stages via Human-in-the-Loop interrupts displayed in the UI, preventing unsupervised destructive operations
-  5. User can retrieve source-code-level interface information through Graphify MCP integration and view graphical test reports via the chart-visualization skill
+  5. User can retrieve source-code-level interface information through Graphify MCP integration and view graphical reports via the chart-visualization skill
 **Plans**: TBD
 
 Plans:
@@ -146,12 +146,12 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Infrastructure + Frontend Shell | 0/4 | Planning complete | - |
-| 2. TestCase Agent MVP | 0/? | Not started | - |
+| 2. TestCase Agent MVP | 0/3 | Planning complete | - |
 | 3. RAG Knowledge System | 0/? | Not started | - |
 | 4. Advanced TestCase | 0/? | Not started | - |
 | 5. Web Automation Agent | 0/? | Not started | - |
