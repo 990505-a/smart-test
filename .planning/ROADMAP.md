@@ -33,7 +33,7 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 **Plans**: 4 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Backend infrastructure: Python project, DeepAgents agent stubs, graph.json, start_server.py
+- [x] 01-01-PLAN.md — Backend infrastructure: Python project, DeepAgents agent stubs, graph.json, start_server.py
 - [ ] 01-02-PLAN.md — Frontend shell: Next.js 15 project, layout, theme, resizable panels, providers
 - [ ] 01-03-PLAN.md — Chat features: SSE streaming, file upload, thread management, agent tabs, MCP client
 - [ ] 01-04-PLAN.md — Infrastructure services: LightRAG lightweight storage, MCP integration

@@ -7,8 +7,8 @@
 
 ### 核心基础设施 (Infrastructure)
 
-- [ ] **INFRA-01**: 部署 LangGraph API 服务器（端口 2026），支持多 Agent 路由（graph.json 配置）
-- [ ] **INFRA-02**: 配置 DeepAgents 框架（>= 0.5.5），集成 FilesystemBackend + CompositeBackend
+- [x] **INFRA-01**: 部署 LangGraph API 服务器（端口 2026），支持多 Agent 路由（graph.json 配置）
+- [x] **INFRA-02**: 配置 DeepAgents 框架（>= 0.5.5），集成 FilesystemBackend + CompositeBackend
 - [ ] **INFRA-03**: 配置 LightRAG 轻量存储（NanoVectorDB 向量 + NetworkX 图 + JSON KV），不依赖外部数据库
 - [ ] **INFRA-04**: 部署 LightRAG Server（轻量模式），支持 6 种查询模式
 - [ ] **INFRA-05**: 原生安装 Ollama（Windows exe），配置嵌入模型（qwen3-embedding:0.6b，1024 维度）
@@ -131,8 +131,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
+| INFRA-01 | Phase 1 | Complete |
+| INFRA-02 | Phase 1 | Complete |
 | INFRA-03 | Phase 1 | Pending |
 | INFRA-04 | Phase 1 | Pending |
 | INFRA-05 | Phase 1 | Pending |
