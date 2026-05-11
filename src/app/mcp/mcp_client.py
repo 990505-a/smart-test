@@ -4,7 +4,7 @@ Phase 1 configures connection strings but agents don't use MCP tools yet.
 MCP services (Docling, Graphify, Playwright) are non-blocking dependencies.
 """
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from app.core.config import settings
+from ..core.config import settings
 
 
 async def get_mcp_client() -> MultiServerMCPClient:
