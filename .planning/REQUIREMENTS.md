@@ -9,10 +9,10 @@
 
 - [x] **INFRA-01**: 部署 LangGraph API 服务器（端口 2026），支持多 Agent 路由（graph.json 配置）
 - [x] **INFRA-02**: 配置 DeepAgents 框架（>= 0.5.5），集成 FilesystemBackend + CompositeBackend
-- [ ] **INFRA-03**: 配置 LightRAG 轻量存储（NanoVectorDB 向量 + NetworkX 图 + JSON KV），不依赖外部数据库
-- [ ] **INFRA-04**: 部署 LightRAG Server（轻量模式），支持 6 种查询模式
+- [x] **INFRA-03**: 配置 LightRAG 轻量存储（NanoVectorDB 向量 + NetworkX 图 + JSON KV），不依赖外部数据库
+- [x] **INFRA-04**: 部署 LightRAG Server（轻量模式），支持 6 种查询模式
 - [ ] **INFRA-05**: 原生安装 Ollama（Windows exe），配置嵌入模型（qwen3-embedding:0.6b，1024 维度）
-- [ ] **INFRA-06**: 集成 MCP 协议（SSE/stdio 传输），配置 Docling/Graphify/Playwright MCP 服务
+- [x] **INFRA-06**: 集成 MCP 协议（SSE/stdio 传输），配置 Docling/Graphify/Playwright MCP 服务
 - [ ] **INFRA-07**: 实现 X-Space-Id 多工作空间隔离（不同知识库空间，无需用户登录认证）
 - [ ] **INFRA-08**: 配置连接池（httpx.AsyncClient）、指数退避重试、熔断器模式
 
@@ -21,7 +21,7 @@
 - [ ] **PARS-01**: 实现 PDF 解析器（PyMuPDF4LLM，mode="page"，extract_images=True）
 - [ ] **PARS-02**: 实现图片解析（豆包 Vision 多模态模型，LLMImageBlobParser）
 - [ ] **PARS-03**: 实现 Excel 文件解析（openpyxl）
-- [ ] **PARS-04**: 实现 base64 → 文件转换管道（前端上传 → 后端解析）
+- [x] **PARS-04**: 实现 base64 → 文件转换管道（前端上传 → 后端解析）
 - [ ] **PARS-05**: MD5 哈希缓存机制避免重复解析
 - [ ] **PARS-06**: 双模型动态切换中间件（检测图片 → 切换 Doubao Vision，纯文本 → DeepSeek）
 
@@ -86,15 +86,15 @@
 ### 前端聊天界面 (Frontend)
 
 - [x] **UI-01**: Next.js 15.4.4 + React 19 + Tailwind CSS 4 + Shadcn/ui 项目搭建
-- [ ] **UI-02**: 流式对话界面（@langchain/langgraph-sdk，SSE 实时消息渲染）
-- [ ] **UI-03**: 文件上传（拖放 + 粘贴，支持 PDF/JPEG/PNG/GIF/WebP）
-- [ ] **UI-04**: 图片 → base64 → image_url 块（OpenAI 兼容格式）
-- [ ] **UI-05**: PDF → base64 → additional_kwargs.attachments
+- [x] **UI-02**: 流式对话界面（@langchain/langgraph-sdk，SSE 实时消息渲染）
+- [x] **UI-03**: 文件上传（拖放 + 粘贴，支持 PDF/JPEG/PNG/GIF/WebP）
+- [x] **UI-04**: 图片 → base64 → image_url 块（OpenAI 兼容格式）
+- [x] **UI-05**: PDF → base64 → additional_kwargs.attachments
 - [ ] **UI-06**: RAG 开关按钮（enableRag 状态，ContextType 接口传递）
 - [ ] **UI-07**: 多模态开关（ENABLE_PDF_MULTIMODAL 参数控制）
-- [ ] **UI-08**: 会话线程管理（状态过滤、无限滚动、时间分组）
+- [x] **UI-08**: 会话线程管理（状态过滤、无限滚动、时间分组）
 - [x] **UI-09**: 可调整面板布局（react-resizable-panels，侧边栏任务/文件）
-- [ ] **UI-10**: 多 Agent 路由切换（TestCase/Web/API Agent 选择）
+- [x] **UI-10**: 多 Agent 路由切换（TestCase/Web/API Agent 选择）
 - [x] **UI-11**: 暗色/亮色主题切换
 - [x] **UI-12**: URL 状态管理（nuqs）
 - [ ] **UI-13**: 中断处理（Interrupt），支持工具调用审批
@@ -133,16 +133,16 @@
 |-------------|-------|--------|
 | INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 1 | Complete |
-| INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 1 | Pending |
+| INFRA-03 | Phase 1 | Complete |
+| INFRA-04 | Phase 1 | Complete |
 | INFRA-05 | Phase 1 | Pending |
-| INFRA-06 | Phase 1 | Pending |
+| INFRA-06 | Phase 1 | Complete |
 | INFRA-07 | Phase 7 | Pending |
 | INFRA-08 | Phase 7 | Pending |
 | PARS-01 | Phase 2 | Pending |
 | PARS-02 | Phase 4 | Pending |
 | PARS-03 | Phase 4 | Pending |
-| PARS-04 | Phase 1 | Pending |
+| PARS-04 | Phase 1 | Complete |
 | PARS-05 | Phase 2 | Pending |
 | PARS-06 | Phase 4 | Pending |
 | MIDW-01 | Phase 2 | Pending |
@@ -186,15 +186,15 @@
 | API-08 | Phase 6 | Pending |
 | API-09 | Phase 6 | Pending |
 | UI-01 | Phase 1 | Complete |
-| UI-02 | Phase 1 | Pending |
-| UI-03 | Phase 1 | Pending |
-| UI-04 | Phase 1 | Pending |
-| UI-05 | Phase 1 | Pending |
+| UI-02 | Phase 1 | Complete |
+| UI-03 | Phase 1 | Complete |
+| UI-04 | Phase 1 | Complete |
+| UI-05 | Phase 1 | Complete |
 | UI-06 | Phase 3 | Pending |
 | UI-07 | Phase 4 | Pending |
-| UI-08 | Phase 1 | Pending |
+| UI-08 | Phase 1 | Complete |
 | UI-09 | Phase 1 | Complete |
-| UI-10 | Phase 1 | Pending |
+| UI-10 | Phase 1 | Complete |
 | UI-11 | Phase 1 | Complete |
 | UI-12 | Phase 1 | Complete |
 | UI-13 | Phase 6 | Pending |
