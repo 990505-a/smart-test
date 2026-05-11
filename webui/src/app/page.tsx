@@ -1,19 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, Suspense } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { useQueryState } from "nuqs";
 import { getConfig, saveConfig, StandaloneConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { ClientProvider } from "@/providers/ClientProvider";
+import { ChatProvider } from "@/providers/ChatProvider";
 import { Settings, SquarePen, Sun, Moon, MessagesSquare } from "lucide-react";
 import { useTheme } from "next-themes";
 import {
@@ -22,94 +14,14 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { AGENT_CONFIG, AgentKey } from "@/app/types/types";
+import { AgentTabs } from "@/app/components/AgentTabs";
+import { ChatInterface } from "@/app/components/ChatInterface";
+import { ThreadList } from "@/app/components/ThreadList";
+import { ConfigDialog } from "@/app/components/ConfigDialog";
+import { Assistant } from "@langchain/langgraph-sdk";
 
 // ---------------------------------------------------------------------------
-// ConfigDialog – lets the user set deploymentUrl / assistantId
-// ---------------------------------------------------------------------------
-function ConfigDialog({
-  open,
-  onOpenChange,
-  onSave,
-  initialConfig,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (config: StandaloneConfig) => void;
-  initialConfig?: StandaloneConfig | null;
-}) {
-  const [deploymentUrl, setDeploymentUrl] = useState(
-    initialConfig?.deploymentUrl ?? ""
-  );
-  const [assistantId, setAssistantId] = useState(
-    initialConfig?.assistantId ?? ""
-  );
-  const [langsmithApiKey, setLangsmithApiKey] = useState(
-    initialConfig?.langsmithApiKey ?? ""
-  );
-
-  useEffect(() => {
-    if (open && initialConfig) {
-      setDeploymentUrl(initialConfig.deploymentUrl ?? "");
-      setAssistantId(initialConfig.assistantId ?? "");
-      setLangsmithApiKey(initialConfig.langsmithApiKey ?? "");
-    }
-  }, [open, initialConfig]);
-
-  const handleSave = () => {
-    if (!deploymentUrl.trim() || !assistantId.trim()) return;
-    onSave({
-      deploymentUrl: deploymentUrl.trim(),
-      assistantId: assistantId.trim(),
-      langsmithApiKey: langsmithApiKey.trim() || undefined,
-    });
-    onOpenChange(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle>平台配置</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <label className="text-right text-sm col-span-1">部署地址</label>
-            <Input
-              className="col-span-3"
-              placeholder="http://localhost:2026"
-              value={deploymentUrl}
-              onChange={(e) => setDeploymentUrl(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <label className="text-right text-sm col-span-1">助手ID</label>
-            <Input
-              className="col-span-3"
-              placeholder="testcase_agent"
-              value={assistantId}
-              onChange={(e) => setAssistantId(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <label className="text-right text-sm col-span-1">API Key</label>
-            <Input
-              className="col-span-3"
-              placeholder="可选"
-              value={langsmithApiKey}
-              onChange={(e) => setLangsmithApiKey(e.target.value)}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button onClick={handleSave}>保存</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ThemeToggle – switches between light and dark mode
+// ThemeToggle -- switches between light and dark mode
 // ---------------------------------------------------------------------------
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -127,7 +39,7 @@ function ThemeToggle() {
 }
 
 // ---------------------------------------------------------------------------
-// HomePageInner – the main layout with header, tabs, and resizable panels
+// HomePageInner -- the main layout with header, tabs, and resizable panels
 // ---------------------------------------------------------------------------
 function HomePageInner({
   config,
@@ -146,13 +58,51 @@ function HomePageInner({
     defaultValue: "testcase",
   });
 
+  // Thread list mutation callback
+  const mutateThreadsRef = useRef<(() => void) | null>(null);
+
+  const handleMutateReady = useCallback((mutate: () => void) => {
+    mutateThreadsRef.current = mutate;
+  }, []);
+
+  const handleHistoryRevalidate = useCallback(() => {
+    mutateThreadsRef.current?.();
+  }, []);
+
   const handleAgentChange = (value: string) => {
     setActiveAgent(value);
     setThreadId(null); // Clear thread on agent switch to prevent state leakage
   };
 
+  const handleThreadSelect = useCallback(
+    (id: string) => {
+      setThreadId(id);
+    },
+    [setThreadId],
+  );
+
+  const handleNewChat = useCallback(() => {
+    setThreadId(null);
+  }, [setThreadId]);
+
+  // Construct activeAssistant from agent config
   const currentConfig = AGENT_CONFIG[activeAgent as AgentKey];
   const assistantId = currentConfig?.graphKey ?? "testcase_agent";
+
+  const activeAssistant = useMemo<Assistant>(
+    () => ({
+      assistant_id: assistantId,
+      graph_id: assistantId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      metadata: {},
+      config: {},
+      version: 1,
+      name: currentConfig?.label ?? "TestCase",
+      context: {},
+    }),
+    [assistantId, currentConfig?.label],
+  );
 
   return (
     <>
@@ -181,13 +131,10 @@ function HomePageInner({
           </div>
 
           {/* Agent tabs */}
-          <Tabs value={activeAgent ?? "testcase"} onValueChange={handleAgentChange}>
-            <TabsList>
-              <TabsTrigger value="testcase">{AGENT_CONFIG.testcase.label}</TabsTrigger>
-              <TabsTrigger value="web">{AGENT_CONFIG.web.label}</TabsTrigger>
-              <TabsTrigger value="api">{AGENT_CONFIG.api.label}</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <AgentTabs
+            activeAgent={activeAgent ?? "testcase"}
+            onAgentChange={handleAgentChange}
+          />
 
           {/* Right actions */}
           <div className="flex items-center gap-2">
@@ -205,7 +152,7 @@ function HomePageInner({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setThreadId(null)}
+              onClick={handleNewChat}
               disabled={!threadId}
               className="border-primary bg-primary text-primary-foreground hover:bg-primary/80"
             >
@@ -227,20 +174,11 @@ function HomePageInner({
                   minSize={20}
                   className="min-w-[300px]"
                 >
-                  {/* ThreadList placeholder - will be implemented in Plan 03 */}
-                  <div className="flex h-full flex-col items-center justify-center border-r p-4">
-                    <p className="text-sm text-muted-foreground">
-                      对话列表 (待实现)
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-2"
-                      onClick={() => setSidebar(null)}
-                    >
-                      关闭侧栏
-                    </Button>
-                  </div>
+                  <ThreadList
+                    onThreadSelect={handleThreadSelect}
+                    onMutateReady={handleMutateReady}
+                    onClose={() => setSidebar(null)}
+                  />
                 </ResizablePanel>
                 <ResizableHandle />
               </>
@@ -250,16 +188,12 @@ function HomePageInner({
               id="chat"
               className="relative flex flex-col"
             >
-              {/* ChatInterface placeholder - will be implemented in Plan 03 */}
-              <div className="flex h-full flex-col items-center justify-center p-4">
-                <p className="text-lg font-medium">智能测试平台</p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  当前助手: {currentConfig?.label ?? "用例生成"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  聊天界面将在后续计划中实现
-                </p>
-              </div>
+              <ChatProvider
+                activeAssistant={activeAssistant}
+                onHistoryRevalidate={handleHistoryRevalidate}
+              >
+                <ChatInterface assistantId={assistantId} />
+              </ChatProvider>
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>
@@ -269,7 +203,7 @@ function HomePageInner({
 }
 
 // ---------------------------------------------------------------------------
-// HomePageContent – loads config, wraps in ClientProvider
+// HomePageContent -- loads config, wraps in ClientProvider
 // ---------------------------------------------------------------------------
 function HomePageContent() {
   const [config, setConfig] = useState<StandaloneConfig | null>(null);
@@ -332,7 +266,7 @@ function HomePageContent() {
 }
 
 // ---------------------------------------------------------------------------
-// HomePage – Suspense wrapper (required by nuqs)
+// HomePage -- Suspense wrapper (required by nuqs)
 // ---------------------------------------------------------------------------
 export default function HomePage() {
   return (
