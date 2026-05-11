@@ -8,6 +8,19 @@ class Settings(BaseSettings):
     langgraph_api_url: str = "http://localhost:2026"
     workspace_dir: Path = Path(__file__).parent.parent.parent.parent / "workspace"
 
+    # LightRAG
+    lightrag_port: int = 9621
+    lightrag_llm_binding: str = "openai"
+    lightrag_llm_model: str = "deepseek-chat"
+    lightrag_llm_binding_host: str = "https://api.deepseek.com/v1"
+    lightrag_embedding_binding: str = "ollama"
+    lightrag_embedding_binding_host: str = "http://localhost:11434"
+    lightrag_embedding_model: str = "qwen3-embedding:0.6b"
+    lightrag_embedding_dim: int = 1024
+
+    # MCP
+    docling_mcp_url: str = "http://localhost:8976/sse"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
