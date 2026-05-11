@@ -85,7 +85,7 @@
 
 ### 前端聊天界面 (Frontend)
 
-- [ ] **UI-01**: Next.js 15.4.4 + React 19 + Tailwind CSS 4 + Shadcn/ui 项目搭建
+- [x] **UI-01**: Next.js 15.4.4 + React 19 + Tailwind CSS 4 + Shadcn/ui 项目搭建
 - [ ] **UI-02**: 流式对话界面（@langchain/langgraph-sdk，SSE 实时消息渲染）
 - [ ] **UI-03**: 文件上传（拖放 + 粘贴，支持 PDF/JPEG/PNG/GIF/WebP）
 - [ ] **UI-04**: 图片 → base64 → image_url 块（OpenAI 兼容格式）
@@ -93,10 +93,10 @@
 - [ ] **UI-06**: RAG 开关按钮（enableRag 状态，ContextType 接口传递）
 - [ ] **UI-07**: 多模态开关（ENABLE_PDF_MULTIMODAL 参数控制）
 - [ ] **UI-08**: 会话线程管理（状态过滤、无限滚动、时间分组）
-- [ ] **UI-09**: 可调整面板布局（react-resizable-panels，侧边栏任务/文件）
+- [x] **UI-09**: 可调整面板布局（react-resizable-panels，侧边栏任务/文件）
 - [ ] **UI-10**: 多 Agent 路由切换（TestCase/Web/API Agent 选择）
-- [ ] **UI-11**: 暗色/亮色主题切换
-- [ ] **UI-12**: URL 状态管理（nuqs）
+- [x] **UI-11**: 暗色/亮色主题切换
+- [x] **UI-12**: URL 状态管理（nuqs）
 - [ ] **UI-13**: 中断处理（Interrupt），支持工具调用审批
 - [ ] **UI-14**: 子智能体可视化展示
 
@@ -185,7 +185,7 @@
 | API-07 | Phase 6 | Pending |
 | API-08 | Phase 6 | Pending |
 | API-09 | Phase 6 | Pending |
-| UI-01 | Phase 1 | Pending |
+| UI-01 | Phase 1 | Complete |
 | UI-02 | Phase 1 | Pending |
 | UI-03 | Phase 1 | Pending |
 | UI-04 | Phase 1 | Pending |
@@ -193,10 +193,10 @@
 | UI-06 | Phase 3 | Pending |
 | UI-07 | Phase 4 | Pending |
 | UI-08 | Phase 1 | Pending |
-| UI-09 | Phase 1 | Pending |
+| UI-09 | Phase 1 | Complete |
 | UI-10 | Phase 1 | Pending |
-| UI-11 | Phase 1 | Pending |
-| UI-12 | Phase 1 | Pending |
+| UI-11 | Phase 1 | Complete |
+| UI-12 | Phase 1 | Complete |
 | UI-13 | Phase 6 | Pending |
 | UI-14 | Phase 5 | Pending |
 
