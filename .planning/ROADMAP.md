@@ -152,7 +152,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 |-------|----------------|--------|-----------|
 | 1. Core Infrastructure + Frontend Shell | 4/4 | Complete | 2026-05-11 |
 | 2. TestCase Agent MVP | 3/3 | Complete | 2026-05-12 |
-| 3. RAG Knowledge System | 2/2 | Complete | 2026-05-12 |
+| 3. RAG Knowledge System | 2/2 | Complete    | 2026-05-12 |
 | 4. Advanced TestCase | 0/? | Not started | - |
 | 5. Web Automation Agent | 0/? | Not started | - |
 | 6. API Automation Agent | 0/? | Not started | - |
