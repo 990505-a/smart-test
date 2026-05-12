@@ -1,7 +1,7 @@
 """TestCase Agent - fully wired with middleware chain, tools, and system prompt.
 
 Architecture (onion middleware model):
-    |-- SkillsMiddleware (outer)     -> loads 5 SKILL.md files into system prompt
+    |-- SkillsMiddleware (outer)     -> loads 6 SKILL.md files into system prompt (incl. wiki-query)
     |   |-- PDFContextMiddleware (inner) -> injects PDF document context into system prompt
     |   |-- LLM
 
@@ -10,14 +10,16 @@ Design decisions:
     - D-05: Separate FilesystemBackend for skills, rooted at src/app/ (not workspace)
     - D-06/MIDW-03: SYSTEM_PROMPT passed to PDFContextMiddleware for immutable fallback pattern
     - D-01/D-03/D-14: System prompt enforces 5-stage mandatory workflow with quality red-lines
-    - D-09/D-10/D-11: Excel export tool registered as sole agent tool
+    - D-09/D-10/D-11: Excel export tool registered as core agent tool
+    - D-16: No middleware changes for wiki-mcp. Tools registered via tools= parameter only.
+    - D-05/D-10: wiki-mcp tools loaded via MCP client as LangChain BaseTool objects (no @tool wrapping)
 
 Out of scope (future phases):
-    - RAG knowledge retrieval integration (Phase 3)
     - Dynamic model selection for multimodal (Phase 4)
     - test-data-generator Skill (Phase 4)
 """
 
+import asyncio
 from pathlib import Path
 
 from deepagents import create_deep_agent as create_agent
@@ -28,6 +30,7 @@ from dotenv import load_dotenv
 
 from app.middleware.pdf_context import PDFContextMiddleware
 from app.agents.testcase.tools import export_test_cases_to_excel
+from app.mcp.mcp_client import get_mcp_client
 
 load_dotenv()
 
@@ -154,11 +157,41 @@ pdf_middleware = PDFContextMiddleware(
 )
 
 # ============================================================================
+# wiki-mcp tool loading (D-04/D-05/D-16)
+# Uses asyncio.new_event_loop() to safely fetch tools at module import time.
+# Per RESEARCH Pitfall 3: avoids asyncio.run() which crashes inside running
+# event loops (e.g., LangGraph server). Graceful fallback if wiki-mcp unavailable.
+# ============================================================================
+
+
+def _load_wiki_tools() -> list:
+    """Try to load wiki-mcp tools at module import time.
+
+    Uses a new event loop to avoid conflicts with any running loop.
+    Returns empty list if wiki-mcp is unavailable (not installed, config missing, etc.)
+    so the agent degrades gracefully with just the Excel export tool.
+    """
+    try:
+        loop = asyncio.new_event_loop()
+        client = loop.run_until_complete(get_mcp_client())
+        tools = loop.run_until_complete(client.get_tools(server_name="wiki-mcp"))
+        loop.close()
+        return tools
+    except Exception:
+        return []
+
+
+wiki_tools = _load_wiki_tools()
+
+# ============================================================================
 # Agent creation (D-05 middleware order: Skills outer, PDF inner)
+# D-16: wiki-mcp tools added via tools= parameter, no middleware change.
+# Tools: export_test_cases_to_excel (Excel export) + wiki-mcp 6 tools
+# (list_wikis, list_pages, get_page, search, graph_query, reload)
 # ============================================================================
 agent = create_agent(
     model=llm,
-    tools=[export_test_cases_to_excel],
+    tools=[export_test_cases_to_excel] + wiki_tools,
     backend=file_backend,
     middleware=[
         skills_middleware,      # D-05 outer layer: loads SKILL.md into system prompt
