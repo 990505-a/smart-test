@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: in-progress
 stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-05-12T09:38:37Z"
+last_updated: "2026-05-12T09:40:00Z"
 last_activity: 2026-05-12
 progress:
   total_phases: 7
@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-11)
 
 **Core value:** AI Agent + Skills system to auto-generate high-quality, executable, traceable test assets (cases/scripts/reports)
-**Current focus:** Phase 03 — RAG Knowledge System
+**Current focus:** Phase 03 — RAG Knowledge System (wiki-mcp)
 
 ## Current Position
 
