@@ -31,7 +31,7 @@
 - [x] **MIDW-02**: 实现会话隔离（thread_id 级别独立的文档状态管理）
 - [x] **MIDW-03**: 实现不可变系统提示词模式（构造函数注入，请求覆写模式）
 - [ ] **MIDW-04**: 实现 DynamicModelSelection 中间件（洋葱模型第二层）
-- [ ] **MIDW-05**: 实现 RAGMiddleware（动态注入/移除 RAG 工具 + 系统提示词修改）
+- [ ] **MIDW-05**: 实现 RAGMiddleware（动态注入/移除 RAG 工具 + 系统提示词修改）— Superseded by D-10/D-16: wiki-mcp tools loaded at agent creation time via MCP client, no middleware needed
 - [x] **MIDW-06**: 实现 SkillsMiddleware（文件系统加载 SKILL.md 技能定义）
 
 ### Skills 技能体系 (Skills)
@@ -47,11 +47,11 @@
 
 ### RAG 知识库系统 (RAG)
 
-- [ ] **RAGS-01**: RAG MCP Server（7 个工具：rag_query/rag_query_data/rag_graph_search/rag_graph_get/rag_graph_labels/rag_document_status/rag_health）
+- [ ] **RAGS-01**: RAG MCP Server（7 个工具）— Superseded by D-11: wiki-mcp provides 6 tools via stdio MCP
 - [ ] **RAGS-02**: 多工作空间隔离（workspace_id 过滤，NanoVectorDB + NetworkX 目录级隔离）
-- [ ] **RAGS-03**: RAG-first 强制策略（无检索不设计，拒绝无上下文生成）
-- [ ] **RAGS-04**: 6 种查询模式支持（local/global/hybrid/naive/mix/bypass）
-- [ ] **RAGS-05**: 文档状态监控（处理进度跟踪，异步处理管道）
+- [ ] **RAGS-03**: RAG-first 强制策略（无检索不设计，拒绝无上下文生成）— Superseded by D-12: Agent queries wiki on demand
+- [ ] **RAGS-04**: 6 种查询模式支持（local/global/hybrid/naive/mix/bypass）— Superseded by D-13: wiki-mcp has its own query capabilities
+- [ ] **RAGS-05**: 文档状态监控（处理进度跟踪，异步处理管道）— Superseded by D-14: wiki-mcp reads pre-built files
 
 ### Excel 导出与格式化 (Export)
 
@@ -90,7 +90,7 @@
 - [x] **UI-03**: 文件上传（拖放 + 粘贴，支持 PDF/JPEG/PNG/GIF/WebP）
 - [x] **UI-04**: 图片 → base64 → image_url 块（OpenAI 兼容格式）
 - [x] **UI-05**: PDF → base64 → additional_kwargs.attachments
-- [ ] **UI-06**: RAG 开关按钮（enableRag 状态，ContextType 接口传递）
+- [ ] **UI-06**: RAG 开关按钮（enableRag 状态）— Superseded by D-15: Wiki tools always available, no toggle needed
 - [ ] **UI-07**: 多模态开关（ENABLE_PDF_MULTIMODAL 参数控制）
 - [x] **UI-08**: 会话线程管理（状态过滤、无限滚动、时间分组）
 - [x] **UI-09**: 可调整面板布局（react-resizable-panels，侧边栏任务/文件）
@@ -149,7 +149,7 @@
 | MIDW-02 | Phase 2 | Complete |
 | MIDW-03 | Phase 2 | Complete |
 | MIDW-04 | Phase 4 | Pending |
-| MIDW-05 | Phase 3 | Pending |
+| MIDW-05 | Phase 3 | Superseded (D-10/D-16) |
 | MIDW-06 | Phase 2 | Complete |
 | SKILL-01 | Phase 2 | Complete |
 | SKILL-02 | Phase 2 | Complete |
@@ -159,11 +159,11 @@
 | SKILL-06 | Phase 2 | Complete |
 | SKILL-07 | Phase 2 | Complete |
 | SKILL-08 | Phase 3 | Complete |
-| RAGS-01 | Phase 3 | Pending |
+| RAGS-01 | Phase 3 | Superseded (D-11) |
 | RAGS-02 | Phase 7 | Pending |
-| RAGS-03 | Phase 3 | Pending |
-| RAGS-04 | Phase 3 | Pending |
-| RAGS-05 | Phase 3 | Pending |
+| RAGS-03 | Phase 3 | Superseded (D-12) |
+| RAGS-04 | Phase 3 | Superseded (D-13) |
+| RAGS-05 | Phase 3 | Superseded (D-14) |
 | EXPT-01 | Phase 2 | Complete |
 | EXPT-02 | Phase 2 | Complete |
 | EXPT-03 | Phase 4 | Pending |
@@ -190,7 +190,7 @@
 | UI-03 | Phase 1 | Complete |
 | UI-04 | Phase 1 | Complete |
 | UI-05 | Phase 1 | Complete |
-| UI-06 | Phase 3 | Pending |
+| UI-06 | Phase 3 | Superseded (D-15) |
 | UI-07 | Phase 4 | Pending |
 | UI-08 | Phase 1 | Complete |
 | UI-09 | Phase 1 | Complete |
@@ -207,4 +207,4 @@
 
 ---
 *Requirements defined: 2026-05-11*
-*Last updated: 2026-05-11 after initial definition*
+*Last updated: 2026-05-12 after Phase 3 completion*

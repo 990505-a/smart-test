@@ -12,7 +12,7 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 
 - [ ] **Phase 1: Core Infrastructure + Frontend Shell** - Shared DeepAgents server, lightweight storage (no Docker), MCP services, and complete chat UI
 - [x] **Phase 2: TestCase Agent MVP** - Upload documents, generate test cases via 5-stage workflow with 4 skills, export to Excel (completed 2026-05-12)
-- [ ] **Phase 3: RAG Knowledge System** - wiki-mcp stdio MCP server, 6 knowledge query tools, wiki-query skill, agent tool registration
+- [x] **Phase 3: RAG Knowledge System** - wiki-mcp stdio MCP server, 6 knowledge query tools, wiki-query skill, agent tool registration (completed 2026-05-12)
 - [ ] **Phase 4: Advanced TestCase** - Dual-model switching, image/Excel parsing, quality scoring, test data generation, multi-format export
 - [ ] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills
 - [ ] **Phase 6: API Automation Agent** - MASTEST methodology, OpenAPI parsing, Graphify integration, Human-in-the-Loop, coverage reports
@@ -71,7 +71,7 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md — wiki-mcp foundation: config.py settings, MCP client stdio entry, wiki-query SKILL.md
-- [ ] 03-02-PLAN.md — Agent wiring and tests: wiki-mcp tool registration, integration test suite
+- [x] 03-02-PLAN.md — Agent wiring and tests: wiki-mcp tool registration, integration test suite
 
 **UI hint**: no
 
@@ -152,7 +152,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 |-------|----------------|--------|-----------|
 | 1. Core Infrastructure + Frontend Shell | 4/4 | Complete | 2026-05-11 |
 | 2. TestCase Agent MVP | 3/3 | Complete | 2026-05-12 |
-| 3. RAG Knowledge System | 1/2 | In Progress | - |
+| 3. RAG Knowledge System | 2/2 | Complete | 2026-05-12 |
 | 4. Advanced TestCase | 0/? | Not started | - |
 | 5. Web Automation Agent | 0/? | Not started | - |
 | 6. API Automation Agent | 0/? | Not started | - |
