@@ -11,8 +11,8 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - Decimal phases (e.g., 2.1): Urgent insertions via `/gsd:insert-phase`
 
 - [ ] **Phase 1: Core Infrastructure + Frontend Shell** - Shared DeepAgents server, lightweight storage (no Docker), MCP services, and complete chat UI
-- [x] **Phase 2: TestCase Agent MVP** - Upload documents, generate test cases via 5-stage workflow with 4 skills, export to Excel (completed 2026-05-12)
-- [ ] **Phase 3: RAG Knowledge System** - LightRAG MCP Server, RAG-first strategy, 6 query modes, knowledge query skill
+- [x] **Phase 2: TestCase Agent MVP** - Upload documents, generate test cases via 5-stage workflow with 4 skills, export to Excel (completed 2026-05-12)
+- [ ] **Phase 3: RAG Knowledge System** - wiki-mcp stdio MCP server, 6 knowledge query tools, wiki-query skill, agent tool registration
 - [ ] **Phase 4: Advanced TestCase** - Dual-model switching, image/Excel parsing, quality scoring, test data generation, multi-format export
 - [ ] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills
 - [ ] **Phase 6: API Automation Agent** - MASTEST methodology, OpenAPI parsing, Graphify integration, Human-in-the-Loop, coverage reports
@@ -58,22 +58,22 @@ Plans:
 - [x] 02-03-PLAN.md — Agent wiring: middleware chain, system prompt, tool registration, integration
 
 ### Phase 3: RAG Knowledge System
-**Goal**: Users can leverage a RAG knowledge base to generate test cases grounded in real project documentation, with the agent refusing to generate without retrieved context
+**Goal**: wiki-mcp knowledge query tools integrated into TestCase Agent via stdio MCP, with wiki-query skill guiding agent usage during requirement analysis and test strategy stages
 **Depends on**: Phase 2
 **Requirements**: MIDW-05, SKILL-08, RAGS-01, RAGS-03, RAGS-04, RAGS-05, UI-06
 **Success Criteria** (what must be TRUE):
-  1. User can toggle the RAG switch in the UI, and the agent dynamically gains/loses RAG MCP tools (7 tools: query, query_data, graph_search, graph_get, graph_labels, document_status, health)
-  2. When RAG is enabled, the agent enforces a RAG-first strategy — it queries the knowledge base before generating test cases and refuses to generate without retrieved context
-  3. User can issue queries using any of the 6 supported query modes (local, global, hybrid, naive, mix, bypass) and receive knowledge-grounded results with source attribution
-  4. User can track document processing status (upload progress, indexing state) through the async processing pipeline
-  5. The rag-query skill applies a hybrid retrieval strategy with strict citation requirements in all generated outputs
-**Plans**: TBD
+  1. wiki-mcp registers as stdio MCP server providing 6 tools (list_wikis, list_pages, get_page, search, graph_query, reload) to the TestCase Agent
+  2. Agent has wiki-query skill loaded via SkillsMiddleware, guiding when and how to query wiki knowledge during requirement-analysis and test-strategy stages
+  3. wiki-mcp configuration (command, args, config path) is managed through environment variables and config.py Settings
+  4. All integration tests pass: config settings, MCP client registration, SKILL.md validity, agent tool availability
+  5. Agent degrades gracefully when wiki-mcp is unavailable (tools list falls back to base tools only)
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — wiki-mcp foundation: config.py settings, MCP client stdio entry, wiki-query SKILL.md
+- [ ] 03-02-PLAN.md — Agent wiring and tests: wiki-mcp tool registration, integration test suite
 
-**UI hint**: yes
+**UI hint**: no
 
 ### Phase 4: Advanced TestCase
 **Goal**: Users can generate test cases from images and Excel files, with dual-model intelligence, quality scoring, test data generation, and multi-format export
@@ -151,8 +151,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Infrastructure + Frontend Shell | 4/4 | Complete | 2026-05-11 |
-| 2. TestCase Agent MVP | 1/3 | Complete    | 2026-05-12 |
-| 3. RAG Knowledge System | 0/? | Not started | - |
+| 2. TestCase Agent MVP | 3/3 | Complete | 2026-05-12 |
+| 3. RAG Knowledge System | 0/2 | Not started | - |
 | 4. Advanced TestCase | 0/? | Not started | - |
 | 5. Web Automation Agent | 0/? | Not started | - |
 | 6. API Automation Agent | 0/? | Not started | - |
