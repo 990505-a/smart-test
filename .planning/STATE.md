@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-05-11T12:51:39.321Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-05-12T01:57:00.673Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 7
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 7
+  completed_plans: 5
   percent: 0
 ---
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 2min | 2 tasks | 15 files |
 | Phase 01 P02 | 13min | 2 tasks | 39 files |
 | Phase 01 P03 | 19min | 2 tasks | 14 files |
+| Phase 02 P02 | 13min | 1 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Agent tab switching clears threadId to prevent state leakage
 - [Phase 01]: Used inline message object in useChat instead of SDK Message type to match StateType shape
 - [Phase 01]: Extracted ConfigDialog from inline page.tsx into separate component
+- [Phase 02]: Used @tool.func for direct testing of LangChain StructuredTool objects
+- [Phase 02]: Separated Excel export scope from RAG/MCP tools to keep plan focused on D-09/D-10/D-11
+- [Phase 02]: Removed CSV/JSON/multi-language/version-control from output-formatter as Phase 4+ scope
 
 ### Pending Todos
 
@@ -85,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-11T12:51:39.313Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-testcase-agent-mvp/02-CONTEXT.md
+Last session: 2026-05-12T01:57:00.665Z
+Stopped at: Completed 02-02-PLAN.md
+Resume file: None

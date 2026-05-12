@@ -54,7 +54,7 @@ Plans:
 
 Plans:
 - [ ] 02-01-PLAN.md — PDF processing pipeline: PDFProcessor with MD5 caching, PDFContextMiddleware with session isolation
-- [ ] 02-02-PLAN.md — Skills system and Excel export: 5 SKILL.md files, Excel export tool with field extraction
+- [x] 02-02-PLAN.md — Skills system and Excel export: 5 SKILL.md files, Excel export tool with field extraction
 - [ ] 02-03-PLAN.md — Agent wiring: middleware chain, system prompt, tool registration, integration
 
 ### Phase 3: RAG Knowledge System
