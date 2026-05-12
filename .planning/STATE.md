@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-05-12T01:54:56Z"
+stopped_at: Completed 02-01 and 02-02
+last_updated: "2026-05-12T02:00:00Z"
 last_activity: 2026-05-12
 progress:
   total_phases: 7
   completed_phases: 1
-  total_plans: 4
+  total_plans: 7
   completed_plans: 5
   percent: 0
 ---
@@ -55,6 +55,7 @@ Progress: [=====░░░░░] 14%
 | Phase 01 P01 | 2min | 2 tasks | 15 files |
 | Phase 01 P02 | 13min | 2 tasks | 39 files |
 | Phase 01 P03 | 19min | 2 tasks | 14 files |
+| Phase 02 P02 | 13min | 1 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Recent decisions affecting current work:
 - [Phase 02]: extract_images=False for basic PDF processor; multimodal deferred to Phase 4
 - [Phase 02]: PDFContextMiddleware uses v4 immutable pattern (request.system_message as base)
 - [Phase 02]: Session isolation via thread_id-keyed dicts with __default__ fallback
+- [Phase 02]: Used @tool.func for direct testing of LangChain StructuredTool objects
+- [Phase 02]: Separated Excel export scope from RAG/MCP tools to keep plan focused on D-09/D-10/D-11
+- [Phase 02]: Removed CSV/JSON/multi-language/version-control from output-formatter as Phase 4+ scope
 
 ### Pending Todos
 
@@ -88,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-12T01:54:56Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-05-12T02:00:00Z
+Stopped at: Completed 02-01 and 02-02
 Resume file: .planning/phases/02-testcase-agent-mvp/02-01-SUMMARY.md
