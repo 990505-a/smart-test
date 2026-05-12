@@ -55,7 +55,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — PDF processing pipeline: PDFProcessor with MD5 caching, PDFContextMiddleware with session isolation
 - [x] 02-02-PLAN.md — Skills system and Excel export: 5 SKILL.md files, Excel export tool with field extraction
-- [ ] 02-03-PLAN.md — Agent wiring: middleware chain, system prompt, tool registration, integration
+- [x] 02-03-PLAN.md — Agent wiring: middleware chain, system prompt, tool registration, integration
 
 ### Phase 3: RAG Knowledge System
 **Goal**: Users can leverage a RAG knowledge base to generate test cases grounded in real project documentation, with the agent refusing to generate without retrieved context
