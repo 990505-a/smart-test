@@ -19,6 +19,11 @@ async def get_mcp_client() -> MultiServerMCPClient:
                 "transport": "sse",
                 "url": settings.docling_mcp_url,
             },
+            "wiki-mcp": {
+                "transport": "stdio",
+                "command": settings.wiki_mcp_command,
+                "args": settings.wiki_mcp_args.split(),
+            },
             # Graphify and Playwright use stdio transport.
             # They will be configured with actual command paths when installed.
             # For Phase 1, only Docling (SSE) is configured.

@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # MCP
     docling_mcp_url: str = "http://localhost:8976/sse"
 
+    # wiki-mcp (Phase 3)
+    wiki_mcp_command: str = "npx"
+    wiki_mcp_args: str = "tsx D:/llm-wiki/wiki-mcp/src/index.ts --config=D:/llm-wiki/wiki-mcp/wiki-mcp-config.json"
+    wiki_mcp_config_path: str = "D:/llm-wiki/wiki-mcp/wiki-mcp-config.json"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
