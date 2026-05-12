@@ -43,7 +43,7 @@
 - [ ] **SKILL-05**: 质量评审技能（quality-review）— 四维评估（完整性30%+准确性25%+有效性25%+可执行性20%）
 - [x] **SKILL-06**: 输出格式化技能（output-formatter）— Markdown/CSV/JSON 多格式输出
 - [x] **SKILL-07**: 5 阶段强制工作流实现（需求分析 → 策略制定 → 用例设计 → 数据构造 → 质量自检）
-- [ ] **SKILL-08**: RAG 知识查询技能（rag-query）— 混合检索策略 + 严格引用要求
+- [x] **SKILL-08**: RAG 知识查询技能（rag-query）— 混合检索策略 + 严格引用要求
 
 ### RAG 知识库系统 (RAG)
 
@@ -158,7 +158,7 @@
 | SKILL-05 | Phase 4 | Pending |
 | SKILL-06 | Phase 2 | Complete |
 | SKILL-07 | Phase 2 | Complete |
-| SKILL-08 | Phase 3 | Pending |
+| SKILL-08 | Phase 3 | Complete |
 | RAGS-01 | Phase 3 | Pending |
 | RAGS-02 | Phase 7 | Pending |
 | RAGS-03 | Phase 3 | Pending |

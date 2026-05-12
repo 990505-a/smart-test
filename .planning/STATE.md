@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Phase 3 context gathered
-last_updated: "2026-05-12T07:59:14.345Z"
+status: in-progress
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-05-12T09:38:37Z"
 last_activity: 2026-05-12
 progress:
   total_phases: 7
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_plans: 9
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-11)
 
 **Core value:** AI Agent + Skills system to auto-generate high-quality, executable, traceable test assets (cases/scripts/reports)
-**Current focus:** Phase 02 — TestCase Agent MVP
+**Current focus:** Phase 03 — RAG Knowledge System
 
 ## Current Position
 
 Phase: 3
-Plan: Not started
-Status: Phase 02 complete, ready for Phase 03
+Plan: 01 (complete)
+Status: 03-01 complete, 03-02 next
 Last activity: 2026-05-12
 
-Progress: [██████████] 100%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -45,10 +45,11 @@ Progress: [██████████] 100%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | Phase 02 | 3 | 35min | 12min |
+| Phase 03 | 1 | 6min | 6min |
 
 **Recent Trend:**
 
-- Last 5 plans: 02-03 (8min), 02-02 (13min), 02-01 (14min), 01-03 (19min), 01-02 (13min)
+- Last 5 plans: 03-01 (6min), 02-03 (8min), 02-02 (13min), 02-01 (14min), 01-03 (19min)
 - Trend: Steady
 
 *Updated after each plan completion*
@@ -57,6 +58,7 @@ Progress: [██████████] 100%
 | Phase 01 P03 | 19min | 2 tasks | 14 files |
 | Phase 02 P02 | 13min | 1 tasks | 9 files |
 | Phase 02 P03 | 8min | 1 tasks | 1 files |
+| Phase 03 P01 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -85,6 +87,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Separate FilesystemBackend for SkillsMiddleware rooted at src/app/ to avoid path conflicts with workspace backend
 - [Phase 02]: Onion middleware order: SkillsMiddleware(outer) -> PDFContextMiddleware(inner) -> LLM
 - [Phase 02]: System prompt adapted from classroom reference with RAG/multimodal/test-data-generator removed for Phase 2 scope
+- [Phase 03]: wiki-mcp uses npx tsx src/index.ts (not node dist/index.js) because dist/ is not built
+- [Phase 03]: wiki_mcp_args stored as space-separated string with .split() for MCP client stdio pattern
+- [Phase 03]: wiki-query skill replaces original rag-query, using wiki-mcp's 6 tools via stdio MCP
 
 ### Pending Todos
 
@@ -96,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-12T07:59:14.339Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-rag-knowledge-system/03-CONTEXT.md
+Last session: 2026-05-12T09:38:37Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: .planning/phases/03-rag-knowledge-system/03-01-SUMMARY.md
