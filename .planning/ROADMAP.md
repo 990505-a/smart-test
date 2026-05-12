@@ -11,7 +11,7 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - Decimal phases (e.g., 2.1): Urgent insertions via `/gsd:insert-phase`
 
 - [ ] **Phase 1: Core Infrastructure + Frontend Shell** - Shared DeepAgents server, lightweight storage (no Docker), MCP services, and complete chat UI
-- [ ] **Phase 2: TestCase Agent MVP** - Upload documents, generate test cases via 5-stage workflow with 4 skills, export to Excel
+- [x] **Phase 2: TestCase Agent MVP** - Upload documents, generate test cases via 5-stage workflow with 4 skills, export to Excel (completed 2026-05-12)
 - [ ] **Phase 3: RAG Knowledge System** - LightRAG MCP Server, RAG-first strategy, 6 query modes, knowledge query skill
 - [ ] **Phase 4: Advanced TestCase** - Dual-model switching, image/Excel parsing, quality scoring, test data generation, multi-format export
 - [ ] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills
@@ -151,7 +151,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Infrastructure + Frontend Shell | 4/4 | Complete | 2026-05-11 |
-| 2. TestCase Agent MVP | 1/3 | In progress | - |
+| 2. TestCase Agent MVP | 1/3 | Complete    | 2026-05-12 |
 | 3. RAG Knowledge System | 0/? | Not started | - |
 | 4. Advanced TestCase | 0/? | Not started | - |
 | 5. Web Automation Agent | 0/? | Not started | - |
