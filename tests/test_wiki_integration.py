@@ -14,20 +14,20 @@ class TestWikiConfig:
     """D-08: wiki-mcp settings in config.py."""
 
     def test_config_has_wiki_mcp_command(self):
-        from app.core.config import Settings
+        from src.app.core.config import Settings
         s = Settings()
         assert hasattr(s, "wiki_mcp_command")
         assert s.wiki_mcp_command == "npx"
 
     def test_config_has_wiki_mcp_args(self):
-        from app.core.config import Settings
+        from src.app.core.config import Settings
         s = Settings()
         assert hasattr(s, "wiki_mcp_args")
         assert "tsx" in s.wiki_mcp_args
         assert "wiki-mcp" in s.wiki_mcp_args
 
     def test_config_has_wiki_mcp_config_path(self):
-        from app.core.config import Settings
+        from src.app.core.config import Settings
         s = Settings()
         assert hasattr(s, "wiki_mcp_config_path")
         assert "wiki-mcp-config.json" in s.wiki_mcp_config_path
@@ -37,7 +37,7 @@ class TestWikiMCPClient:
     """D-04: wiki-mcp stdio registration in mcp_client.py."""
 
     def test_mcp_client_imports(self):
-        from app.mcp.mcp_client import get_mcp_client
+        from src.app.mcp.mcp_client import get_mcp_client
         assert callable(get_mcp_client)
 
     def test_mcp_client_config_structure(self):
