@@ -13,7 +13,7 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - [ ] **Phase 1: Core Infrastructure + Frontend Shell** - Shared DeepAgents server, lightweight storage (no Docker), MCP services, and complete chat UI
 - [x] **Phase 2: TestCase Agent MVP** - Upload documents, generate test cases via 5-stage workflow with 4 skills, export to Excel (completed 2026-05-12)
 - [x] **Phase 3: RAG Knowledge System** - wiki-mcp stdio MCP server, 6 knowledge query tools, wiki-query skill, agent tool registration (completed 2026-05-12)
-- [ ] **Phase 4: Advanced TestCase** - Dual-model switching, image/Excel parsing, quality scoring, test data generation, multi-format export
+- [x] **Phase 4: Advanced TestCase** - Dual-model switching, image/Excel parsing, quality scoring, test data generation, multi-format export (completed 2026-05-13)
 - [ ] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills
 - [ ] **Phase 6: API Automation Agent** - MASTEST methodology, OpenAPI parsing, Graphify integration, Human-in-the-Loop, coverage reports
 - [ ] **Phase 7: Multi-Workspace & Infrastructure Hardening** - Workspace isolation, connection pooling, circuit breakers, retry logic
@@ -90,7 +90,7 @@ Plans:
 Plans:
 - [x] 04-01-PLAN.md — Backend middleware: DynamicModelSelection, FileContextMiddleware refactor, ImageProcessor, ExcelProcessor, config updates
 - [x] 04-02-PLAN.md — Export and Skills: unified export_test_cases (CSV/JSON/Markdown), test-data-generator SKILL.md
-- [ ] 04-03-PLAN.md — Integration wiring: 3-layer agent middleware, frontend multimodal toggle, system prompt update
+- [x] 04-03-PLAN.md — Integration wiring: 3-layer agent middleware, frontend multimodal toggle, system prompt update
 
 **UI hint**: yes
 
@@ -154,7 +154,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 1. Core Infrastructure + Frontend Shell | 4/4 | Complete | 2026-05-11 |
 | 2. TestCase Agent MVP | 3/3 | Complete | 2026-05-12 |
 | 3. RAG Knowledge System | 2/2 | Complete    | 2026-05-12 |
-| 4. Advanced TestCase | 2/3 | Executing | - |
+| 4. Advanced TestCase | 3/3 | Complete | 2026-05-13 |
 | 5. Web Automation Agent | 0/? | Not started | - |
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/? | Not started | - |

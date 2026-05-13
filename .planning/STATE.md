@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Wave 1 complete (04-01 + 04-02), executing 04-03
-last_updated: "2026-05-13T07:50:00.000Z"
+stopped_at: Phase 4 complete, ready for Phase 5
+last_updated: "2026-05-13T08:20:00.000Z"
 last_activity: 2026-05-13
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 12
-  completed_plans: 11
+  completed_plans: 12
   percent: 100
 ---
 
@@ -21,47 +21,51 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-11)
 
 **Core value:** AI Agent + Skills system to auto-generate high-quality, executable, traceable test assets (cases/scripts/reports)
-**Current focus:** Phase 04 — Advanced TestCase
+**Current focus:** Phase 5 — Web Automation Agent (next)
 
 ## Current Position
 
-Phase: 04 (Advanced TestCase) — EXECUTING
-Plan: 3 of 3 (Wave 2)
-Status: Wave 1 complete, ready for 04-03
+Phase: 04 (Advanced TestCase) — COMPLETE
+Plan: 3 of 3 (all complete)
+Status: Phase 4 finished, ready for Phase 5
 Last activity: 2026-05-13
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100% (Phase 4)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 12
+- Average duration: ~8min
+- Total execution time: ~1.5 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
+| Phase 01 | 4 | 36min | 9min |
 | Phase 02 | 3 | 35min | 12min |
 | Phase 03 | 2 | 10min | 5min |
+| Phase 04 | 3 | 23min | 8min |
 
 **Recent Trend:**
 
-- Last 5 plans: 03-02 (4min), 03-01 (6min), 02-03 (8min), 02-02 (13min), 02-01 (14min)
+- Last 5 plans: 04-03 (5min), 04-02 (7min), 04-01 (11min), 03-02 (4min), 03-01 (6min)
 - Trend: Steady
 
-*Updated after each plan completion*
 | Phase 01 P01 | 2min | 2 tasks | 15 files |
 | Phase 01 P02 | 13min | 2 tasks | 39 files |
 | Phase 01 P03 | 19min | 2 tasks | 14 files |
+| Phase 01 P04 | 2min | 1 tasks | 3 files |
+| Phase 02 P01 | 14min | 2 tasks | 15 files |
 | Phase 02 P02 | 13min | 1 tasks | 9 files |
 | Phase 02 P03 | 8min | 1 tasks | 1 files |
 | Phase 03 P01 | 6min | 2 tasks | 4 files |
 | Phase 03 P02 | 4min | 2 tasks | 2 files |
 | Phase 04 P01 | 11min | 2 tasks | 10 files |
 | Phase 04 P02 | 7min | 2 tasks | 4 files |
+| Phase 04 P03 | 5min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -75,7 +79,7 @@ Recent decisions affecting current work:
 - LightRAG二次開発 for RAG knowledge system
 - Playwright CLI mode over MCP for token efficiency
 - Three-domain Agent architecture (TestCase / Web / API)
-- [Phase 01]: Used Python 3.12 via uv for backend (deepagents 0.5.9, langgraph 1.1.10)
+- [Phase 01]: Used Python 3.12 via uv for backend (deepagents 0.2.8, langgraph 1.1.10)
 - [Phase 01]: Three agent stubs use five .parent calls for workspace_dir path resolution
 - [Phase 01]: Used react-resizable-panels v4 API (orientation, no autoSaveId/order)
 - [Phase 01]: Agent tab switching clears threadId to prevent state leakage
@@ -100,6 +104,9 @@ Recent decisions affecting current work:
 - [Phase 04]: Dual-source file extraction: attachments + inline image_url content blocks
 - [Phase 04]: Unified export_test_cases dispatches to format-specific private functions (_export_csv/_export_json/_export_markdown)
 - [Phase 04]: test-data-generator added as 7th skill with four concrete data categories (valid/boundary/invalid/security)
+- [Phase 04]: 3-layer onion middleware: Skills(outer) -> DynamicModel(middle) -> FileContext(inner)
+- [Phase 04]: GPT-4o as vision model (changed from Doubao Vision per user request)
+- [Phase 04]: Frontend multimodal toggle via Switch in ConfigDialog, persisted via localStorage
 
 ### Pending Todos
 
@@ -111,6 +118,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-13T07:45:00Z
-Stopped at: Wave 1 complete, executing 04-03
-Resume file: .planning/phases/04-advanced-testcase/04-03-PLAN.md
+Last session: 2026-05-13T08:15:00Z
+Stopped at: Phase 4 complete, ready for Phase 5
+Resume file: .planning/ROADMAP.md (Phase 5 next)
