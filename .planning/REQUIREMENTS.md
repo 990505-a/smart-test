@@ -19,18 +19,18 @@
 ### 文档解析与多模态 (Parsing)
 
 - [x] **PARS-01**: 实现 PDF 解析器（PyMuPDF4LLM，mode="page"，extract_images=True）
-- [ ] **PARS-02**: 实现图片解析（豆包 Vision 多模态模型，LLMImageBlobParser）
-- [ ] **PARS-03**: 实现 Excel 文件解析（openpyxl）
+- [x] **PARS-02**: 实现图片解析（豆包 Vision 多模态模型，LLMImageBlobParser）
+- [x] **PARS-03**: 实现 Excel 文件解析（openpyxl）
 - [x] **PARS-04**: 实现 base64 → 文件转换管道（前端上传 → 后端解析）
 - [x] **PARS-05**: MD5 哈希缓存机制避免重复解析
-- [ ] **PARS-06**: 双模型动态切换中间件（检测图片 → 切换 Doubao Vision，纯文本 → DeepSeek）
+- [x] **PARS-06**: 双模型动态切换中间件（检测图片 → 切换 Doubao Vision，纯文本 → DeepSeek）
 
 ### PDF 中间件 (Middleware)
 
 - [x] **MIDW-01**: 实现 PDFContextMiddleware（从 HumanMessage attachments 提取 base64 PDF → 解析 → 注入 SystemMessage）
 - [x] **MIDW-02**: 实现会话隔离（thread_id 级别独立的文档状态管理）
 - [x] **MIDW-03**: 实现不可变系统提示词模式（构造函数注入，请求覆写模式）
-- [ ] **MIDW-04**: 实现 DynamicModelSelection 中间件（洋葱模型第二层）
+- [x] **MIDW-04**: 实现 DynamicModelSelection 中间件（洋葱模型第二层）
 - [ ] **MIDW-05**: 实现 RAGMiddleware（动态注入/移除 RAG 工具 + 系统提示词修改）— Superseded by D-10/D-16: wiki-mcp tools loaded at agent creation time via MCP client, no middleware needed
 - [x] **MIDW-06**: 实现 SkillsMiddleware（文件系统加载 SKILL.md 技能定义）
 
@@ -140,15 +140,15 @@
 | INFRA-07 | Phase 7 | Pending |
 | INFRA-08 | Phase 7 | Pending |
 | PARS-01 | Phase 2 | Complete |
-| PARS-02 | Phase 4 | Pending |
-| PARS-03 | Phase 4 | Pending |
+| PARS-02 | Phase 4 | Complete |
+| PARS-03 | Phase 4 | Complete |
 | PARS-04 | Phase 1 | Complete |
 | PARS-05 | Phase 2 | Complete |
-| PARS-06 | Phase 4 | Pending |
+| PARS-06 | Phase 4 | Complete |
 | MIDW-01 | Phase 2 | Complete |
 | MIDW-02 | Phase 2 | Complete |
 | MIDW-03 | Phase 2 | Complete |
-| MIDW-04 | Phase 4 | Pending |
+| MIDW-04 | Phase 4 | Complete |
 | MIDW-05 | Phase 3 | Superseded (D-10/D-16) |
 | MIDW-06 | Phase 2 | Complete |
 | SKILL-01 | Phase 2 | Complete |

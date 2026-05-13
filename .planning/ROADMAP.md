@@ -88,7 +88,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Backend middleware: DynamicModelSelection, FileContextMiddleware refactor, ImageProcessor, ExcelProcessor, config updates
+- [x] 04-01-PLAN.md — Backend middleware: DynamicModelSelection, FileContextMiddleware refactor, ImageProcessor, ExcelProcessor, config updates
 - [ ] 04-02-PLAN.md — Export and Skills: unified export_test_cases (CSV/JSON/Markdown), test-data-generator SKILL.md
 - [ ] 04-03-PLAN.md — Integration wiring: 3-layer agent middleware, frontend multimodal toggle, system prompt update
 
