@@ -3,7 +3,13 @@
 Per D-09: LLM generates Markdown test cases -> backend parses Markdown -> openpyxl writes Excel.
 Per D-10: TC numbering convention TC-[PROJECT]-[MODULE]-[NNN].
 Per D-11: Professional formatting with header style, borders, alignment, auto-wrap.
+Per D-12: Unified export function supporting excel/csv/json/markdown formats.
+Per D-13: CSV export with UTF-8 BOM for ZenTao/TestRail compatibility.
+Per D-14: JSON export in Jira Xray format.
 """
+import csv
+import io
+import json
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +110,112 @@ def _flatten_preconditions(preconditions: list[str] | str | None) -> str:
     return "\n".join(lines)
 
 
+def _export_csv(test_cases: list[dict], output_path: str) -> str:
+    """Export test cases as CSV with UTF-8 BOM for ZenTao/TestRail compatibility.
+
+    Per D-13: UTF-8 BOM encoding, comma delimited, double-quote escaping,
+    10 standard columns compatible with ZenTao and TestRail import.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL)
+    writer.writerow(HEADERS)
+
+    for case in test_cases:
+        writer.writerow([
+            _extract_field(case, "id", "用例编号"),
+            _extract_field(case, "title", "用例标题"),
+            _extract_field(case, "module", "所属模块"),
+            _extract_field(case, "type", "用例类型"),
+            _extract_field(case, "priority", "优先级"),
+            _flatten_preconditions(_extract_field(case, "preconditions", "前置条件", default=None)),
+            _flatten_steps(_extract_field(case, "steps", "测试步骤", default=None)),
+            _flatten_test_data(_extract_field(case, "test_data", "测试数据", default=None)),
+            _flatten_expected_results(_extract_field(case, "expected_results", "预期结果", default=None)),
+            _extract_field(case, "remarks", "备注"),
+        ])
+
+    with open(output_path, "wb") as f:
+        f.write(b'\xef\xbb\xbf')  # UTF-8 BOM per D-13
+        f.write(buf.getvalue().encode("utf-8"))
+
+    return str(output_path.resolve())
+
+
+def _export_json(test_cases: list[dict], output_path: str) -> str:
+    """Export test cases as JSON compatible with Jira Xray.
+
+    Per D-14: Format is {"testCases": [{"testCaseKey": ..., "summary": ..., "steps": [...]}]}.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    xray_cases = []
+    for case in test_cases:
+        steps = _extract_field(case, "steps", "测试步骤", default=None) or []
+        xray_steps = []
+        if isinstance(steps, list):
+            for step in steps:
+                xray_steps.append({
+                    "action": step.get("action", step.get("操作描述", "")),
+                    "result": step.get("expected", step.get("预期结果", "")),
+                    "data": step.get("data", ""),
+                })
+
+        xray_cases.append({
+            "testCaseKey": _extract_field(case, "id", "用例编号"),
+            "summary": _extract_field(case, "title", "用例标题"),
+            "type": _extract_field(case, "type", "用例类型"),
+            "priority": _extract_field(case, "priority", "优先级"),
+            "status": "DRAFT",
+            "folder": _extract_field(case, "module", "所属模块"),
+            "steps": xray_steps,
+            "preconditions": _flatten_preconditions(
+                _extract_field(case, "preconditions", "前置条件", default=None)
+            ),
+            "labels": [_extract_field(case, "module", "所属模块")],
+        })
+
+    data = {"testCases": xray_cases}
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    return str(output_path.resolve())
+
+
+def _export_markdown(test_cases: list[dict], output_path: str) -> str:
+    """Export test cases as Markdown table format."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = ["# 测试用例\n"]
+    lines.append("| " + " | ".join(HEADERS) + " |")
+    lines.append("| " + " | ".join("---" for _ in HEADERS) + " |")
+
+    for case in test_cases:
+        row = [
+            _extract_field(case, "id", "用例编号"),
+            _extract_field(case, "title", "用例标题"),
+            _extract_field(case, "module", "所属模块"),
+            _extract_field(case, "type", "用例类型"),
+            _extract_field(case, "priority", "优先级"),
+            _flatten_preconditions(_extract_field(case, "preconditions", "前置条件", default=None)).replace("\n", " "),
+            _flatten_steps(_extract_field(case, "steps", "测试步骤", default=None)).replace("\n", " "),
+            _flatten_test_data(_extract_field(case, "test_data", "测试数据", default=None)).replace("\n", " "),
+            _flatten_expected_results(_extract_field(case, "expected_results", "预期结果", default=None)).replace("\n", " "),
+            _extract_field(case, "remarks", "备注"),
+        ]
+        lines.append("| " + " | ".join(str(v).replace("|", "\\|") for v in row) + " |")
+
+    content = "\n".join(lines)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return str(output_path.resolve())
+
+
 @tool
 def export_test_cases_to_excel(
     test_cases: list[dict[str, Any]],
@@ -184,3 +296,43 @@ def export_test_cases_to_excel(
 
     wb.save(str(output_path))
     return str(output_path.resolve())
+
+
+@tool
+def export_test_cases(
+    test_cases: list[dict[str, Any]],
+    output_path: str,
+    format: str = "excel",
+    sheet_name: str = "测试用例",
+) -> str:
+    """Export test cases in multiple formats.
+
+    Per D-12: Unified export function replacing separate format-specific functions.
+    Supported formats: excel (default), csv, json, markdown.
+
+    Args:
+        test_cases: List of test case dicts with EN or CN field names.
+        output_path: File path for the output file.
+        format: Output format - "excel", "csv", "json", or "markdown".
+        sheet_name: Excel sheet name (only used for excel format).
+
+    Returns:
+        Absolute path of the created file.
+
+    Raises:
+        ValueError: If test_cases list is empty or format is unsupported.
+    """
+    if not test_cases:
+        raise ValueError("测试用例列表为空，无法导出。")
+
+    fmt = format.lower().strip()
+    if fmt == "excel":
+        return export_test_cases_to_excel(test_cases, output_path, sheet_name)
+    elif fmt == "csv":
+        return _export_csv(test_cases, output_path)
+    elif fmt == "json":
+        return _export_json(test_cases, output_path)
+    elif fmt == "markdown":
+        return _export_markdown(test_cases, output_path)
+    else:
+        raise ValueError(f"不支持的导出格式: {format}。支持: excel, csv, json, markdown")
