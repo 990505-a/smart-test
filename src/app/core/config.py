@@ -5,6 +5,8 @@ from pathlib import Path
 class Settings(BaseSettings):
     deepseek_api_key: str = ""
     doubao_api_key: str = ""
+    openai_api_key: str = ""  # GPT-4o multimodal model (Phase 4)
+    enable_pdf_multimodal: bool = True  # Multimodal mode toggle (Phase 4)
     langgraph_api_url: str = "http://localhost:2026"
     workspace_dir: Path = Path(__file__).parent.parent.parent.parent / "workspace"
 

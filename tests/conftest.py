@@ -44,6 +44,7 @@ class MockModelRequest:
             messages=kwargs.get("messages", self.messages),
             system_message=kwargs.get("system_message", self.system_message),
         )
+        new_req.model = kwargs.get("model", getattr(self, "model", None))
         return new_req
 
 
@@ -58,6 +59,41 @@ def create_pdf_attachment(filename="doc.pdf", content=b"fake_pdf_content"):
     return {
         "type": "file",
         "mimeType": "application/pdf",
+        "data": base64.b64encode(content).decode(),
+        "metadata": {"filename": filename},
+    }
+
+
+@pytest.fixture
+def sample_excel_bytes():
+    """Create a minimal valid Excel file with test content."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "TestSheet"
+    ws.append(["Name", "Value", "Status"])
+    ws.append(["item1", 100, "active"])
+    ws.append(["item2", 200, "inactive"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def create_image_attachment(filename="test.png", content=b"fake_image_content"):
+    """Helper to create an image attachment dict for middleware tests."""
+    return {
+        "type": "file",
+        "mimeType": "image/png",
+        "data": base64.b64encode(content).decode(),
+        "metadata": {"filename": filename},
+    }
+
+
+def create_excel_attachment(filename="data.xlsx", content=b"fake_excel_content"):
+    """Helper to create an Excel attachment dict for middleware tests."""
+    return {
+        "type": "file",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "data": base64.b64encode(content).decode(),
         "metadata": {"filename": filename},
     }
