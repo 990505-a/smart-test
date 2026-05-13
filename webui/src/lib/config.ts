@@ -2,6 +2,7 @@ export interface StandaloneConfig {
   deploymentUrl: string;
   assistantId: string;
   langsmithApiKey?: string;
+  enablePdfMultimodal?: boolean;  // Phase 4: multimodal mode toggle
 }
 
 const CONFIG_KEY = "smart-test-platform-config";

@@ -6,6 +6,7 @@ import type { Message } from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import { useClient } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
+import { getConfig } from "@/lib/config";
 import type { ContentBlock, StateType } from "@/app/types/types";
 
 /**
@@ -82,12 +83,18 @@ export function useChat({
             ] as Message["content"])
           : content;
 
+      const config = getConfig();
       const newMessage = {
         id: uuidv4(),
         type: "human" as const,
         content: messageContent,
-        ...(pdfBlocks.length > 0
-          ? { additional_kwargs: { attachments: pdfBlocks } }
+        ...(pdfBlocks.length > 0 || config?.enablePdfMultimodal !== undefined
+          ? {
+              additional_kwargs: {
+                ...(pdfBlocks.length > 0 ? { attachments: pdfBlocks } : {}),
+                enable_multimodal: config?.enablePdfMultimodal ?? true,
+              },
+            }
           : {}),
       };
 

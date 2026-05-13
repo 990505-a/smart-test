@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import type { StandaloneConfig } from "@/lib/config";
 
 interface ConfigDialogProps {
@@ -36,12 +37,16 @@ export function ConfigDialog({
   const [langsmithApiKey, setLangsmithApiKey] = useState(
     initialConfig?.langsmithApiKey || "",
   );
+  const [enablePdfMultimodal, setEnablePdfMultimodal] = useState(
+    initialConfig?.enablePdfMultimodal ?? true,
+  );
 
   useEffect(() => {
     if (open && initialConfig) {
       setDeploymentUrl(initialConfig.deploymentUrl || "");
       setAssistantId(initialConfig.assistantId || "");
       setLangsmithApiKey(initialConfig.langsmithApiKey || "");
+      setEnablePdfMultimodal(initialConfig.enablePdfMultimodal ?? true);
     }
   }, [open, initialConfig]);
 
@@ -55,6 +60,7 @@ export function ConfigDialog({
       deploymentUrl,
       assistantId,
       langsmithApiKey: langsmithApiKey || undefined,
+      enablePdfMultimodal,
     });
     onOpenChange(false);
   };
@@ -97,6 +103,19 @@ export function ConfigDialog({
               placeholder="可选"
               value={langsmithApiKey}
               onChange={(e) => setLangsmithApiKey(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <Label htmlFor="multimodal">多模态模式</Label>
+              <p className="text-sm text-muted-foreground">
+                启用后支持解析图片和PDF中的图片内容（使用 GPT-4o）
+              </p>
+            </div>
+            <Switch
+              id="multimodal"
+              checked={enablePdfMultimodal}
+              onCheckedChange={setEnablePdfMultimodal}
             />
           </div>
         </div>

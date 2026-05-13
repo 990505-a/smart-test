@@ -1,22 +1,22 @@
-"""TestCase Agent - fully wired with middleware chain, tools, and system prompt.
+"""TestCase Agent - fully wired with 3-layer middleware chain, tools, and system prompt.
 
 Architecture (onion middleware model):
-    |-- SkillsMiddleware (outer)     -> loads 6 SKILL.md files into system prompt (incl. wiki-query)
-    |   |-- PDFContextMiddleware (inner) -> injects PDF document context into system prompt
-    |   |-- LLM
+    |-- SkillsMiddleware (outer)           -> loads 7 SKILL.md files into system prompt (incl. wiki-query, test-data-generator)
+    |   |-- DynamicModelSelection (middle) -> detects images -> switches to GPT-4o
+    |   |   |-- FileContextMiddleware (inner) -> injects PDF/Image/Excel document context
+    |   |   |-- LLM (deepseek or gpt-4o)
 
 Design decisions:
-    - D-05: SkillsMiddleware is outer layer (executes first), PDFContextMiddleware is inner layer
+    - D-04: 3-layer onion: Skills(outer) -> DynamicModel(middle) -> FileContext(inner)
     - D-05: Separate FilesystemBackend for skills, rooted at src/app/ (not workspace)
-    - D-06/MIDW-03: SYSTEM_PROMPT passed to PDFContextMiddleware for immutable fallback pattern
+    - D-01/D-02: DynamicModelSelection detects image content and switches to GPT-4o
+    - D-05/D-08: FileContextMiddleware (renamed from PDFContext) handles PDF/Image/Excel
+    - D-06/MIDW-03: SYSTEM_PROMPT passed to FileContextMiddleware for immutable fallback pattern
     - D-01/D-03/D-14: System prompt enforces 5-stage mandatory workflow with quality red-lines
-    - D-09/D-10/D-11: Excel export tool registered as core agent tool
+    - D-09/D-10/D-11/D-12: Unified export_test_cases tool supports Excel/CSV/JSON/Markdown
+    - D-09: test-data-generator is the 7th Skill auto-discovered by SkillsMiddleware
     - D-16: No middleware changes for wiki-mcp. Tools registered via tools= parameter only.
     - D-05/D-10: wiki-mcp tools loaded via MCP client as LangChain BaseTool objects (no @tool wrapping)
-
-Out of scope (future phases):
-    - Dynamic model selection for multimodal (Phase 4)
-    - test-data-generator Skill (Phase 4)
 """
 
 import asyncio
@@ -28,8 +28,10 @@ from deepagents.middleware import SkillsMiddleware
 from langchain.chat_models import init_chat_model
 from dotenv import load_dotenv
 
-from app.middleware.pdf_context import PDFContextMiddleware
-from app.agents.testcase.tools import export_test_cases_to_excel
+from app.middleware.pdf_context import FileContextMiddleware
+from app.middleware.dynamic_model import DynamicModelSelection
+from app.agents.testcase.tools import export_test_cases
+from app.core.config import settings
 from app.mcp.mcp_client import get_mcp_client
 
 load_dotenv()
@@ -78,7 +80,7 @@ SYSTEM_PROMPT = """\
 |------|-----------|---------|----------------|
 | Phase 1 | `requirement-analysis` | 需求解析报告（功能矩阵 + 风险清单 + 用例预估） | 用户确认或默认继续 |
 | Phase 2 | `test-strategy` | 测试策略报告（类型选择 + 优先级 + 深度分配） | 用户确认或默认继续 |
-| Phase 3 | `test-case-design` | 逐模块测试用例 | 每模块含轻量自检 |
+| Phase 3 | `test-case-design` + `test-data-generator` | 逐模块测试用例（含具体测试数据） | 每模块含轻量自检 |
 | Phase 4 | `quality-review` | 质量评审报告 | 综合评分 >= 75分，否则回退修改 |
 | Phase 5 | `output-formatter` | 最终交付物（用户指定格式） | - |
 
@@ -95,6 +97,7 @@ SYSTEM_PROMPT = """\
 - "分析需求" / 收到文档 / "帮我看看这个PRD" -> 仅激活 `requirement-analysis`
 - "制定策略" / "怎么测" / "测试方案" -> 仅激活 `test-strategy`
 - "设计用例" / "写用例" -> 仅激活 `test-case-design`
+- "生成测试数据" / "构造数据" / "准备数据" -> 仅激活 `test-data-generator`
 - "评审用例" / "质量检查" -> 仅激活 `quality-review`
 - "导出" / "生成Excel" -> 仅激活 `output-formatter`
 
@@ -138,7 +141,10 @@ SYSTEM_PROMPT = """\
 2. **所有模块完成后**：输出完整汇总表 + 质量评审报告（四维度评分）
 3. **格式选择**：
    - 未指定时 -> 默认 `output-formatter` 的 Markdown 详细格式
-   - 用户说"导出" / "生成Excel" -> 调用 `export_test_cases_to_excel` 工具生成 .xlsx 文件
+   - 用户说"导出" / "生成Excel" -> 调用 `export_test_cases` 工具生成 .xlsx 文件
+   - 用户说"导出CSV" -> 调用 `export_test_cases` 工具(format="csv")
+   - 用户说"导出JSON" / "Jira格式" -> 调用 `export_test_cases` 工具(format="json")
+   - 用户说"导出Markdown" -> 调用 `export_test_cases` 工具(format="markdown")
 4. **用例密度控制**：P0 >= 3条/模块，P1 >= 3条/核心功能，P2/P3按需补充
 5. **语言一致性**：用户用中文提问，所有输出（包括用例标题、步骤、预期结果）必须使用中文
 
@@ -148,12 +154,20 @@ SYSTEM_PROMPT = """\
 """
 
 # ============================================================================
-# PDFContextMiddleware configuration (D-05 inner layer)
-# D-06/MIDW-03: SYSTEM_PROMPT passed for immutable system prompt pattern
+# DynamicModelSelection middleware (D-01/D-04 middle layer)
+# Detects image content and switches to GPT-4o multimodal model.
+# Onion order: Skills(outer) -> DynamicModel(middle) -> FileContext(inner)
 # ============================================================================
-pdf_middleware = PDFContextMiddleware(
+dynamic_model_middleware = DynamicModelSelection(api_key=settings.openai_api_key)
+
+# ============================================================================
+# FileContextMiddleware configuration (D-05 inner layer, D-08 unified file injection)
+# Supports PDF, Image, and Excel file processing with session isolation.
+# ============================================================================
+file_middleware = FileContextMiddleware(
     original_system_prompt=SYSTEM_PROMPT,
     enable_cache=True,
+    api_key=settings.openai_api_key,
 )
 
 # ============================================================================
@@ -184,18 +198,19 @@ def _load_wiki_tools() -> list:
 wiki_tools = _load_wiki_tools()
 
 # ============================================================================
-# Agent creation (D-05 middleware order: Skills outer, PDF inner)
+# Agent creation (D-04 3-layer onion: Skills outer -> DynamicModel middle -> FileContext inner)
 # D-16: wiki-mcp tools added via tools= parameter, no middleware change.
-# Tools: export_test_cases_to_excel (Excel export) + wiki-mcp 6 tools
+# Tools: export_test_cases (unified multi-format) + wiki-mcp 6 tools
 # (list_wikis, list_pages, get_page, search, graph_query, reload)
 # ============================================================================
 agent = create_agent(
     model=llm,
-    tools=[export_test_cases_to_excel] + wiki_tools,
+    tools=[export_test_cases] + wiki_tools,
     backend=file_backend,
     middleware=[
-        skills_middleware,      # D-05 outer layer: loads SKILL.md into system prompt
-        pdf_middleware,         # D-05 inner layer: injects PDF context into system prompt
+        skills_middleware,          # D-05 outer layer: loads SKILL.md into system prompt
+        dynamic_model_middleware,   # D-01/D-04 middle layer: switches model for images
+        file_middleware,            # D-05 inner layer: injects file context into system prompt
     ],
     system_prompt=SYSTEM_PROMPT,
 )
