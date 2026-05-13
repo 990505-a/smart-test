@@ -7,7 +7,7 @@
 ## Phase Boundary
 
 增强 TestCase Agent 的高级能力：
-- 双模型动态切换中间件（DeepSeek 文本 + 豆包 Vision 多模态）
+- 双模型动态切换中间件（DeepSeek 文本 + GPT-4o 多模态）
 - 统一文件处理（PDF + 图片 + Excel），重构 PDFContextMiddleware 为 FileContextMiddleware
 - 测试数据生成 Skill（test-data-generator），生成有效/边界/无效/安全攻击四类具体数据
 - 多格式导出（CSV for 禅道/TestRail、JSON for Jira Xray、Markdown）
@@ -22,14 +22,14 @@
 ## Implementation Decisions
 
 ### Dynamic Model Switching (MIDW-04, PARS-06, UI-07)
-- **D-01:** DynamicModelSelection 中间件通过替换 request.model 实现模型切换 — 检测到图片时创建 Doubao Vision 模型实例替换，纯文本时透传 DeepSeek
+- **D-01:** DynamicModelSelection 中间件通过替换 request.model 实现模型切换 — 检测到图片时创建 GPT-4o 模型实例替换，纯文本时透传 DeepSeek
 - **D-02:** 检测机制 — 扫描 HumanMessage 中的 image_url 类型 content 块和 additional_kwargs.attachments 中的 image/* MIME 类型，覆盖 PDF 中图片和直接上传的图片
 - **D-03:** 多模态开关放在 ConfigDialog 配置对话框中 — 添加 Switch 组件控制 ENABLE_PDF_MULTIMODAL 参数，与现有 API Key 配置放在一起
 - **D-04:** DynamicModelSelection 在洋葱中的位置 — SkillsMiddleware(外) → DynamicModelSelection(中) → FileContextMiddleware(内) → LLM
 
 ### File Processing Expansion (PARS-02, PARS-03)
-- **D-05:** 将 PDFContextMiddleware 重构为统一的 FileContextMiddleware — 内部根据文件 MIME 类型分派给不同处理器（PDF → PyMuPDF4LLM、Image → 豆包 Vision、Excel → openpyxl）
-- **D-06:** 图片使用豆包 Vision 多模态模型直接解析图片内容，返回文字描述注入 system_message
+- **D-05:** 将 PDFContextMiddleware 重构为统一的 FileContextMiddleware — 内部根据文件 MIME 类型分派给不同处理器（PDF → PyMuPDF4LLM、Image → GPT-4o、Excel → openpyxl）
+- **D-06:** 图片使用 GPT-4o 多模态模型直接解析图片内容，返回文字描述注入 system_message（通过 langchain-openai 已安装的 ChatOpenAI）
 - **D-07:** Excel 使用 openpyxl 读取，将每个 sheet 转为 Markdown 表格注入 system_message
 - **D-08:** 三种文件类型统一注入 system_message，保留 thread_id 会话隔离机制和 MD5 去重缓存
 
@@ -47,7 +47,7 @@
 - **D-15:** quality-review (SKILL-05) 四维评分已在 Phase 2 完整实现（Completeness 30% + Accuracy 25% + Validity 25% + Executability 20%），含覆盖度评估、回退机制、基线对比。Phase 4 仅需标记为完成。
 
 ### Claude's Discretion
-- DynamicModelSelection 中间件的具体实现（如何创建 Doubao 模型实例、如何检测 image_url content 块）
+- DynamicModelSelection 中间件的具体实现（如何创建 GPT-4o 模型实例、如何检测 image_url content 块）
 - FileContextMiddleware 重构的内部处理器分派逻辑
 - test-data-generator SKILL.md 的具体 Prompt 内容和四类数据的生成指导
 - CSV/JSON/Markdown 导出的具体字段映射和格式细节
@@ -81,7 +81,7 @@
 - `src/app/agents/testcase/tools.py` — Excel 导出工具，需重构为统一导出函数
 - `src/app/middleware/pdf_context.py` — PDFContextMiddleware，需重构为 FileContextMiddleware
 - `src/app/processors/pdf.py` — PDF 处理器，需新增 image_processor 和 excel_processor
-- `src/app/core/config.py` — Settings 类，需添加豆包模型配置和 ENABLE_PDF_MULTIMODAL
+- `src/app/core/config.py` — Settings 类，需添加 GPT-4o 模型配置和 ENABLE_PDF_MULTIMODAL
 - `src/app/skills/` — 现有 6 个 Skill 目录，需添加 test-data-generator/
 - `webui/src/app/components/ConfigDialog.tsx` — 配置对话框，需添加多模态开关
 - `webui/src/app/hooks/useChat.ts` — 聊天 hook，可能需传递 ENABLE_PDF_MULTIMODAL 参数
@@ -96,7 +96,7 @@
 - `src/app/processors/pdf.py` — PDFProcessor 的缓存模式可直接扩展为多处理器架构
 - `src/app/agents/testcase/tools.py` — export_test_cases_to_excel 的字段提取（_extract_field, _flatten_steps 等）可复用于 CSV/JSON/Markdown 导出
 - `src/app/skills/output-formatter/SKILL.md` — 已有 TC-[PROJECT]-[MODULE]-[NNN] 编号规范，多格式导出可复用
-- `src/app/core/config.py` — 已有 doubao_api_key 字段，需添加模型名等配置
+- `src/app/core/config.py` — 已有 doubao_api_key 字段，需改为 openai_api_key（GPT-4o 用）和 ENABLE_PDF_MULTIMODAL 配置
 - `webui/src/app/components/ConfigDialog.tsx` — 已有配置对话框框架，添加 Switch 即可
 
 ### Established Patterns
@@ -123,7 +123,7 @@
 - test-data-generator Skill 应指导 Agent 在 test-case-design 阶段自动调用，作为用例设计的增强而非独立阶段
 - 统一导出函数可保留原有 Excel 专业格式化逻辑，仅增加 CSV/JSON/Markdown 分支
 - ConfigDialog 中 Switch 开关状态可通过 additional_kwargs.enable_multimodal 传递到后端中间件
-- 豆包 Vision 模型初始化使用 langchain init_chat_model("doubao:doubao-vision") 或类似模式
+- GPT-4o 模型初始化使用 langchain init_chat_model("openai:gpt-4o")，langchain-openai 已安装
 
 </specifics>
 
