@@ -39,7 +39,7 @@
 - [x] **SKILL-01**: 需求分析技能（requirement-analysis）— INVEST 原则、功能矩阵、风险识别
 - [x] **SKILL-02**: 测试策略技能（test-strategy）— 测试类型选择矩阵、优先级策略、回归计划
 - [x] **SKILL-03**: 用例设计技能（test-case-design）— 六大测试设计技法（等价类/边界值/判定表/状态迁移/场景法/错误推测）
-- [ ] **SKILL-04**: 测试数据生成技能（test-data-generator）— 有效/边界/无效/安全攻击数据
+- [x] **SKILL-04**: 测试数据生成技能（test-data-generator）— 有效/边界/无效/安全攻击数据
 - [ ] **SKILL-05**: 质量评审技能（quality-review）— 四维评估（完整性30%+准确性25%+有效性25%+可执行性20%）
 - [x] **SKILL-06**: 输出格式化技能（output-formatter）— Markdown/CSV/JSON 多格式输出
 - [x] **SKILL-07**: 5 阶段强制工作流实现（需求分析 → 策略制定 → 用例设计 → 数据构造 → 质量自检）
@@ -57,7 +57,7 @@
 
 - [x] **EXPT-01**: Excel 导出工具（openpyxl，专业样式：表头/边框/对齐/自动换行）
 - [x] **EXPT-02**: 用例编号规范（TC-[PROJECT]-[MODULE]-[NNN]）
-- [ ] **EXPT-03**: 多格式兼容导出（CSV for 禅道/TestRail、JSON for Jira Xray、Markdown）
+- [x] **EXPT-03**: 多格式兼容导出（CSV for 禅道/TestRail、JSON for Jira Xray、Markdown）
 - [x] **EXPT-04**: 字段映射与数据提取（支持多种嵌套格式）
 
 ### Web 自动化测试 (Web)
@@ -154,7 +154,7 @@
 | SKILL-01 | Phase 2 | Complete |
 | SKILL-02 | Phase 2 | Complete |
 | SKILL-03 | Phase 2 | Complete |
-| SKILL-04 | Phase 4 | Pending |
+| SKILL-04 | Phase 4 | Complete |
 | SKILL-05 | Phase 4 | Pending |
 | SKILL-06 | Phase 2 | Complete |
 | SKILL-07 | Phase 2 | Complete |
@@ -166,7 +166,7 @@
 | RAGS-05 | Phase 3 | Superseded (D-14) |
 | EXPT-01 | Phase 2 | Complete |
 | EXPT-02 | Phase 2 | Complete |
-| EXPT-03 | Phase 4 | Pending |
+| EXPT-03 | Phase 4 | Complete |
 | EXPT-04 | Phase 2 | Complete |
 | WEB-01 | Phase 5 | Pending |
 | WEB-02 | Phase 5 | Pending |
