@@ -4,7 +4,7 @@ from pathlib import Path
 import yaml
 
 SKILLS_DIR = Path("src/app/skills")
-EXPECTED_SKILLS = ["requirement-analysis", "test-strategy", "test-case-design", "quality-review", "output-formatter"]
+EXPECTED_SKILLS = ["requirement-analysis", "test-strategy", "test-case-design", "quality-review", "output-formatter", "test-data-generator"]
 
 
 @pytest.mark.parametrize("skill_name", EXPECTED_SKILLS)

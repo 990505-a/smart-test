@@ -89,7 +89,7 @@ Plans:
 
 Plans:
 - [x] 04-01-PLAN.md — Backend middleware: DynamicModelSelection, FileContextMiddleware refactor, ImageProcessor, ExcelProcessor, config updates
-- [ ] 04-02-PLAN.md — Export and Skills: unified export_test_cases (CSV/JSON/Markdown), test-data-generator SKILL.md
+- [x] 04-02-PLAN.md — Export and Skills: unified export_test_cases (CSV/JSON/Markdown), test-data-generator SKILL.md
 - [ ] 04-03-PLAN.md — Integration wiring: 3-layer agent middleware, frontend multimodal toggle, system prompt update
 
 **UI hint**: yes
@@ -154,7 +154,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 1. Core Infrastructure + Frontend Shell | 4/4 | Complete | 2026-05-11 |
 | 2. TestCase Agent MVP | 3/3 | Complete | 2026-05-12 |
 | 3. RAG Knowledge System | 2/2 | Complete    | 2026-05-12 |
-| 4. Advanced TestCase | 0/3 | Planning complete | - |
+| 4. Advanced TestCase | 2/3 | Executing | - |
 | 5. Web Automation Agent | 0/? | Not started | - |
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/? | Not started | - |
