@@ -1,18 +1,18 @@
-"""Unit tests for PDFContextMiddleware with session isolation."""
+"""Unit tests for FileContextMiddleware (formerly PDFContextMiddleware) with session isolation."""
 import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.app.middleware.pdf_context import PDFContextMiddleware
+from src.app.middleware.pdf_context import FileContextMiddleware, PDFContextMiddleware
 from tests.conftest import MockModelRequest, create_pdf_attachment
 
 
 @pytest.fixture
 def middleware():
-    """Create a PDFContextMiddleware with a test system prompt."""
-    return PDFContextMiddleware(
+    """Create a FileContextMiddleware with a test system prompt."""
+    return FileContextMiddleware(
         original_system_prompt="You are a test assistant.",
         enable_cache=True,
     )
@@ -44,7 +44,7 @@ class TestPDFExtraction:
 
         with patch.object(middleware, "_get_thread_id", return_value="thread-1"):
             with patch.object(
-                middleware._processor, "extract_text", return_value="Extracted PDF content here"
+                middleware._pdf_processor, "extract_text", return_value="Extracted PDF content here"
             ):
                 result = await middleware.awrap_model_call(request, mock_handler)
 
@@ -54,8 +54,8 @@ class TestPDFExtraction:
         assert "Extracted PDF content here" in called_req.system_message.content
 
     @pytest.mark.asyncio
-    async def test_non_pdf_attachment_ignored(self, middleware, mock_handler):
-        """Non-PDF attachments (e.g., image/png) are ignored."""
+    async def test_image_attachment_processed(self, middleware, mock_handler):
+        """Image attachments (e.g., image/png) are now processed by ImageProcessor."""
         image_attachment = {
             "type": "file",
             "mimeType": "image/png",
@@ -72,11 +72,15 @@ class TestPDFExtraction:
         )
 
         with patch.object(middleware, "_get_thread_id", return_value="thread-1"):
-            result = await middleware.awrap_model_call(request, mock_handler)
+            with patch.object(
+                middleware._image_processor, "extract_text", return_value="Image description text"
+            ):
+                result = await middleware.awrap_model_call(request, mock_handler)
 
-        # system_message should remain unchanged (no document injection)
+        # system_message should contain the image description as a document block
         called_req = mock_handler.call_args[0][0]
-        assert "<document>" not in called_req.system_message.content
+        assert "<document>" in called_req.system_message.content
+        assert "Image description text" in called_req.system_message.content
 
 
 class TestSessionIsolation:
@@ -93,7 +97,7 @@ class TestSessionIsolation:
         msg_b = HumanMessage(content="Hello, no PDF here")
 
         with patch.object(
-            middleware._processor, "extract_text", return_value="Content for A"
+            middleware._pdf_processor, "extract_text", return_value="Content for A"
         ):
             # Thread A: Upload PDF
             req_a = MockModelRequest(
@@ -135,7 +139,7 @@ class TestImmutableSystemPrompt:
 
         with patch.object(middleware, "_get_thread_id", return_value="thread-1"):
             with patch.object(
-                middleware._processor, "extract_text", return_value="PDF text"
+                middleware._pdf_processor, "extract_text", return_value="PDF text"
             ):
                 result = await middleware.awrap_model_call(request, mock_handler)
 
@@ -162,7 +166,7 @@ class TestMD5Dedup:
         extract_mock = MagicMock(return_value="PDF text")
 
         with patch.object(middleware, "_get_thread_id", return_value="thread-1"):
-            with patch.object(middleware._processor, "extract_text", extract_mock):
+            with patch.object(middleware._pdf_processor, "extract_text", extract_mock):
                 # First call
                 req1 = MockModelRequest(
                     messages=[msg],
@@ -226,7 +230,7 @@ class TestFallbackThreadId:
         # The real _get_thread_id should work even without LangGraph context
         # It falls back to "__default__"
         with patch.object(
-            middleware._processor, "extract_text", return_value="Fallback content"
+            middleware._pdf_processor, "extract_text", return_value="Fallback content"
         ):
             result = await middleware.awrap_model_call(request, mock_handler)
 
@@ -249,7 +253,7 @@ class TestClearSession:
 
         with patch.object(middleware, "_get_thread_id", return_value="thread-X"):
             with patch.object(
-                middleware._processor, "extract_text", return_value="Content"
+                middleware._pdf_processor, "extract_text", return_value="Content"
             ):
                 req = MockModelRequest(
                     messages=[msg],
@@ -263,7 +267,7 @@ class TestClearSession:
         # Clear session
         middleware.clear_session("thread-X")
         assert "thread-X" not in middleware._session_docs
-        assert "thread-X" not in middleware._session_pdf_hash
+        assert "thread-X" not in middleware._session_file_hash
 
     def test_get_session_stats(self, middleware):
         """get_session_stats returns expected structure."""

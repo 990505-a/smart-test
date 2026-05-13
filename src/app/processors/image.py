@@ -52,10 +52,17 @@ class ImageProcessor:
         Args:
             api_key: OpenAI API key. If empty, relies on environment variable.
         """
-        kwargs = {"model": "openai:gpt-4o"}
-        if api_key:
-            kwargs["api_key"] = api_key
-        self._model = init_chat_model(**kwargs)
+        self._api_key = api_key
+        self._model = None  # Lazy initialization to avoid API key errors at import time
+
+    def _get_model(self):
+        """Lazy-initialize the vision model on first use."""
+        if self._model is None:
+            kwargs = {"model": "openai:gpt-4o"}
+            if self._api_key:
+                kwargs["api_key"] = self._api_key
+            self._model = init_chat_model(**kwargs)
+        return self._model
 
     def extract_text(self, image_data: bytes, filename: str = "image.png") -> str:
         """Extract text description from image bytes using GPT-4o vision.
@@ -84,7 +91,7 @@ class ImageProcessor:
                 ]
             )
 
-            response = self._model.invoke([message])
+            response = self._get_model().invoke([message])
             return response.content
         except Exception as e:
             logger.error("ImageProcessor: failed to extract text from %s: %s", filename, e)
