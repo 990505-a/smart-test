@@ -17,7 +17,7 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - [x] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills (completed 2026-05-14)
 - [ ] **Phase 6: API Automation Agent** - MASTEST methodology, OpenAPI parsing, Graphify integration, Human-in-the-Loop, coverage reports
 - [ ] **Phase 7: Multi-Workspace & Infrastructure Hardening** - Workspace isolation, connection pooling, circuit breakers, retry logic
-- [ ] **Phase 8: FastAPI Backend & Database** - REST API CRUD backend, PostgreSQL models, MinIO storage, Agent result persistence
+- [ ] **Phase 8: FastAPI Backend & Database** - REST API CRUD backend, PostgreSQL models, local file storage, Agent result persistence
 - [ ] **Phase 9: Platform Management UI** - Project list, test case editor, folder navigation, test execution dashboard
 - [ ] **Phase 10: Agent-Database Integration** - Agent results auto-save to database, test report visualization, Human-in-the-Loop
 
@@ -151,17 +151,22 @@ Plans:
 **UI hint**: yes
 
 ### Phase 8: FastAPI Backend & Database
-**Goal**: Add a FastAPI CRUD backend alongside the existing LangGraph Agent, with PostgreSQL database models, MinIO file storage, and API endpoints for project/test case/folder management — following the classroom's three-layer architecture (FastAPI :8000 + LangGraph :2026 + Next.js :3000)
+**Goal**: Add a FastAPI CRUD backend alongside the existing LangGraph Agent, with PostgreSQL database models, local file storage, and API endpoints for project/test case/folder management — following the classroom's three-layer architecture (FastAPI :8000 + LangGraph :2026 + Next.js :3000)
 **Depends on**: Phase 7
 **Requirements**: PLAT-01, PLAT-02, PLAT-03, PLAT-04, PLAT-05, PLAT-06, PLAT-07, PLAT-08
 **Success Criteria** (what must be TRUE):
   1. FastAPI server starts on port 8000 with /api/v2 endpoints for projects, folders, test cases, and attachments
-  2. PostgreSQL database with tables: users, projects, folders, test_cases, test_steps, test_runs, test_results — following classroom schema
-  3. CRUD operations work end-to-end: create project → add folder → create test case with steps → list/filter
-  4. MinIO-compatible file storage for test artifacts (or local filesystem fallback)
-  5. Agent-generated test cases can be saved to database via tools
+  2. PostgreSQL database with 9 core tables (Projects, Folders, TestCases, TestSteps, TestRuns, TestResults, APIEndpoints, TestScenarios, Attachments) following classroom schema
+  3. CRUD operations work end-to-end: create project, add folder, create test case with steps, list/filter
+  4. Local filesystem storage under workspace/ directory for test artifacts (per D-07, no MinIO)
+  5. Agent-generated test cases can be saved to database via tools (per D-05/D-06)
   6. Frontend can call FastAPI endpoints alongside existing LangGraph streaming
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — Database foundation: SQLAlchemy async models (9 tables), session factory, Pydantic schemas/enums, base repository, identifier generator, file storage utility
+- [ ] 08-02-PLAN.md — FastAPI app + project/folder CRUD: create_app, CORS, /api/v2 router, deps.py, project CRUD endpoints, folder CRUD with tree structure
+- [ ] 08-03-PLAN.md — Test case/run CRUD + Agent DB tools: test case CRUD with steps, test run management, attachment upload, agent tools (save_test_case_to_db, save_test_cases_batch, list_project_test_cases)
 
 **UI hint**: no
 
@@ -187,7 +192,7 @@ Plans:
   1. Agent-generated test cases auto-save to database (no manual copy-paste)
   2. Test reports display with graphical charts (antvis skills or MCP)
   3. Human-in-the-Loop interrupts at critical stages for approval
-  4. Full end-to-end flow: chat with agent → generate cases → auto-save → view in management UI → execute tests → see results
+  4. Full end-to-end flow: chat with agent, generate cases, auto-save, view in management UI, execute tests, see results
 **Plans**: TBD
 
 **UI hint**: yes
@@ -206,6 +211,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Web Automation Agent | 3/3 | Complete | 2026-05-14 |
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
-| 8. FastAPI Backend & Database | 0/? | Not started | - |
+| 8. FastAPI Backend & Database | 0/3 | Not started | - |
 | 9. Platform Management UI | 0/? | Not started | - |
 | 10. Agent-Database Integration | 0/? | Not started | - |
