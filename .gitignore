@@ -21,6 +21,7 @@ Thumbs.db
 workspace/*/
 # But track Skill source files
 !workspace/web/skills/
+!workspace/api/skills/
 
 # RAG storage
 rag_storage/
