@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     graphify_mcp_command: str = "npx"
     graphify_mcp_args: str = "graphify serve"
 
+    # GitNexus MCP (Phase 6 - API Agent code knowledge graph)
+    gitnexus_mcp_command: str = "node"
+    gitnexus_mcp_args: str = "D:/prpm/72codegraph/gitnexus/dist/cli/index.js mcp"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
