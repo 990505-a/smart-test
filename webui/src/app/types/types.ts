@@ -40,3 +40,10 @@ export const PIPELINE_STAGES = [
 ] as const;
 
 export type PipelineStageId = (typeof PIPELINE_STAGES)[number]["id"];
+
+/** Available workspaces for the workspace selector. */
+export const WORKSPACES = [
+  { id: "default", label: "Default" },
+] as const;
+
+export type WorkspaceId = (typeof WORKSPACES)[number]["id"];

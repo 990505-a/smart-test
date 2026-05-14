@@ -14,7 +14,9 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { AGENT_CONFIG, AgentKey } from "@/app/types/types";
+import { WORKSPACES, WorkspaceId } from "@/app/types/types";
 import { AgentTabs } from "@/app/components/AgentTabs";
+import { WorkspaceSelect } from "@/app/components/WorkspaceSelect";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { ThreadList } from "@/app/components/ThreadList";
 import { ConfigDialog } from "@/app/components/ConfigDialog";
@@ -57,6 +59,23 @@ function HomePageInner({
   const [activeAgent, setActiveAgent] = useQueryState("agent", {
     defaultValue: "testcase",
   });
+
+  // Workspace state: persisted to localStorage via config
+  const [currentWorkspace, setCurrentWorkspace] = useState<WorkspaceId>(
+    (config?.workspaceId as WorkspaceId) || "default",
+  );
+
+  const handleWorkspaceChange = useCallback(
+    (id: WorkspaceId) => {
+      setCurrentWorkspace(id);
+      setThreadId(null); // Prevent cross-workspace data leakage
+      const currentConfig = getConfig();
+      if (currentConfig) {
+        saveConfig({ ...currentConfig, workspaceId: id });
+      }
+    },
+    [setThreadId],
+  );
 
   // Thread list mutation callback
   const mutateThreadsRef = useRef<(() => void) | null>(null);
@@ -130,11 +149,17 @@ function HomePageInner({
             )}
           </div>
 
-          {/* Agent tabs */}
-          <AgentTabs
-            activeAgent={activeAgent ?? "testcase"}
-            onAgentChange={handleAgentChange}
-          />
+          {/* Agent tabs + Workspace selector */}
+          <div className="flex items-center gap-3">
+            <AgentTabs
+              activeAgent={activeAgent ?? "testcase"}
+              onAgentChange={handleAgentChange}
+            />
+            <WorkspaceSelect
+              workspaceId={currentWorkspace}
+              onWorkspaceChange={handleWorkspaceChange}
+            />
+          </div>
 
           {/* Right actions */}
           <div className="flex items-center gap-2">
@@ -191,6 +216,7 @@ function HomePageInner({
               <ChatProvider
                 activeAssistant={activeAssistant}
                 onHistoryRevalidate={handleHistoryRevalidate}
+                workspaceId={currentWorkspace}
               >
                 <ChatInterface assistantId={assistantId} />
               </ChatProvider>

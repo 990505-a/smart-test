@@ -11,16 +11,19 @@ const ChatContext = createContext<ChatContextType | null>(null);
 interface ChatProviderProps {
   children: React.ReactNode;
   activeAssistant: Assistant | null;
+  workspaceId?: string;
   onHistoryRevalidate?: () => void;
 }
 
 export function ChatProvider({
   children,
   activeAssistant,
+  workspaceId = "default",
   onHistoryRevalidate,
 }: ChatProviderProps) {
   const chat = useChat({
     assistantId: activeAssistant?.assistant_id || "",
+    workspaceId,
     onHistoryRevalidate,
   });
 

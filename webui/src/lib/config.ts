@@ -3,6 +3,7 @@ export interface StandaloneConfig {
   assistantId: string;
   langsmithApiKey?: string;
   enablePdfMultimodal?: boolean;  // Phase 4: multimodal mode toggle
+  workspaceId?: string;           // Phase 7: current workspace, default "default"
 }
 
 const CONFIG_KEY = "smart-test-platform-config";

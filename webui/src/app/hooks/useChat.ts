@@ -15,9 +15,11 @@ import type { ContentBlock, StateType } from "@/app/types/types";
  */
 export function useChat({
   assistantId,
+  workspaceId = "default",
   onHistoryRevalidate,
 }: {
   assistantId: string;
+  workspaceId?: string;
   onHistoryRevalidate?: () => void;
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
@@ -104,14 +106,17 @@ export function useChat({
           optimisticValues: (prev) => ({
             messages: [...(prev.messages ?? []), newMessage],
           }),
-          config: { recursion_limit: 1000 },
+          config: {
+            recursion_limit: 1000,
+            configurable: { space_id: workspaceId || "default" },
+          },
         },
       );
 
       // Update thread list immediately when sending a message
       onHistoryRevalidate?.();
     },
-    [stream, onHistoryRevalidate],
+    [stream, onHistoryRevalidate, workspaceId],
   );
 
   const stopStream = useCallback(() => {
