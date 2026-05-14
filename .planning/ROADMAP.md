@@ -142,7 +142,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Backend workspace infrastructure: workspace helper, ResilientClient, agent backend refactoring, api_parser httpx migration, data migration
+- [x] 07-01-PLAN.md — Backend workspace infrastructure: workspace helper, ResilientClient, agent backend refactoring, api_parser httpx migration, data migration
 - [ ] 07-02-PLAN.md — Frontend workspace UI: WorkspaceSelect component, useChat space_id propagation, page layout wiring
 
 **UI hint**: yes

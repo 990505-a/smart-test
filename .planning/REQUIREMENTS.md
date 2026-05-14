@@ -13,8 +13,8 @@
 - [x] **INFRA-04**: 部署 LightRAG Server（轻量模式），支持 6 种查询模式
 - [ ] **INFRA-05**: 原生安装 Ollama（Windows exe），配置嵌入模型（qwen3-embedding:0.6b，1024 维度）
 - [x] **INFRA-06**: 集成 MCP 协议（SSE/stdio 传输），配置 Docling/Graphify/Playwright MCP 服务
-- [ ] **INFRA-07**: 实现 X-Space-Id 多工作空间隔离（不同知识库空间，无需用户登录认证）
-- [ ] **INFRA-08**: 配置连接池（httpx.AsyncClient）、指数退避重试、熔断器模式
+- [x] **INFRA-07**: 实现 X-Space-Id 多工作空间隔离（不同知识库空间，无需用户登录认证）
+- [x] **INFRA-08**: 配置连接池（httpx.AsyncClient）、指数退避重试、熔断器模式
 
 ### 文档解析与多模态 (Parsing)
 
@@ -48,7 +48,7 @@
 ### RAG 知识库系统 (RAG)
 
 - [ ] **RAGS-01**: RAG MCP Server（7 个工具）— Superseded by D-11: wiki-mcp provides 6 tools via stdio MCP
-- [ ] **RAGS-02**: 多工作空间隔离（workspace_id 过滤，NanoVectorDB + NetworkX 目录级隔离）
+- [x] **RAGS-02**: 多工作空间隔离（workspace_id 过滤，NanoVectorDB + NetworkX 目录级隔离）
 - [ ] **RAGS-03**: RAG-first 强制策略（无检索不设计，拒绝无上下文生成）— Superseded by D-12: Agent queries wiki on demand
 - [ ] **RAGS-04**: 6 种查询模式支持（local/global/hybrid/naive/mix/bypass）— Superseded by D-13: wiki-mcp has its own query capabilities
 - [ ] **RAGS-05**: 文档状态监控（处理进度跟踪，异步处理管道）— Superseded by D-14: wiki-mcp reads pre-built files
@@ -137,8 +137,8 @@
 | INFRA-04 | Phase 1 | Complete |
 | INFRA-05 | Phase 1 | Pending |
 | INFRA-06 | Phase 1 | Complete |
-| INFRA-07 | Phase 7 | Pending |
-| INFRA-08 | Phase 7 | Pending |
+| INFRA-07 | Phase 7 | Complete |
+| INFRA-08 | Phase 7 | Complete |
 | PARS-01 | Phase 2 | Complete |
 | PARS-02 | Phase 4 | Complete |
 | PARS-03 | Phase 4 | Complete |
@@ -160,7 +160,7 @@
 | SKILL-07 | Phase 2 | Complete |
 | SKILL-08 | Phase 3 | Complete |
 | RAGS-01 | Phase 3 | Superseded (D-11) |
-| RAGS-02 | Phase 7 | Pending |
+| RAGS-02 | Phase 7 | Complete |
 | RAGS-03 | Phase 3 | Superseded (D-12) |
 | RAGS-04 | Phase 3 | Superseded (D-13) |
 | RAGS-05 | Phase 3 | Superseded (D-14) |
