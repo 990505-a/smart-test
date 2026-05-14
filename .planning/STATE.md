@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-05-14T12:52:28.068Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-05-14T13:03:38.726Z"
 last_activity: 2026-05-14
 progress:
   total_phases: 10
   completed_phases: 6
   total_plans: 22
-  completed_plans: 19
+  completed_plans: 20
   percent: 100
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-05-11)
 ## Current Position
 
 Phase: 08 (fastapi-backend-database) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-05-14
 
@@ -73,6 +73,7 @@ Progress: [██████████] 100% (Phase 5)
 | Phase 06 P02 | 6min | 2 tasks | 5 files |
 | Phase 07 P01 | 18min | 2 tasks | 17 files |
 | Phase 08 P01 | 11min | 2 tasks | 26 files |
+| Phase 08 P02 | 5min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -131,6 +132,8 @@ Recent decisions affecting current work:
 - [Phase 08]: SQLAlchemy Base class lives in database.py to avoid circular imports with engine
 - [Phase 08]: DEFAULT_USER_ID (00000000-0000-0000-0000-000000000001) replaces all User FK references per D-04
 - [Phase 08]: TestRun.test_plan_id is plain UUID column (no FK) since TestPlan table not in scope per D-03
+- [Phase 08]: Tasks 1&2 implemented together due to deps.py importing FolderService (circular import prevention)
+- [Phase 08]: Folder routes use flat /folders/project/{id} pattern instead of nested /projects/{id}/folders
 
 ### Pending Todos
 
@@ -142,6 +145,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-14T12:52:28.058Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-05-14T13:03:38.713Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None
