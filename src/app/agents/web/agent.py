@@ -80,7 +80,7 @@ Goal: Generate deterministic, maintainable Playwright test scripts from source c
 # =============================================================================
 skills_middleware = SkillsMiddleware(
     backend=file_backend,
-    sources=["/web/skills/"],
+    sources=["/skills/"],
 )
 
 # =============================================================================

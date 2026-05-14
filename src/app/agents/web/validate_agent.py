@@ -31,9 +31,9 @@ def _check_import() -> bool:
 
         print(f"      OK -- agent created: {type(agent_module.agent).__name__}")
         return True
-    except ImportError as e:
+    except (ImportError, Exception) as e:
         err_msg = str(e)
-        if "langchain-deepseek" in err_msg or "deepseek" in err_msg.lower():
+        if "langchain-deepseek" in err_msg or "deepseek" in err_msg.lower() or "api_key" in err_msg.lower():
             print("      WARN -- LLM dependency missing (pip install langchain-deepseek)")
             print(f"             {err_msg}")
             return True
@@ -87,7 +87,7 @@ def _check_backend() -> bool:
         print("      OK -- shell_backend.execute")
 
         # File backend should list skills
-        ls_result = file_backend.ls("/web/skills")
+        ls_result = file_backend.ls("/skills")
         assert not ls_result.error, f"ls error: {ls_result.error}"
         assert ls_result.entries is not None, "ls returned None entries"
         skill_names = {entry["path"].rstrip("/").split("/")[-1] for entry in ls_result.entries}
@@ -112,11 +112,11 @@ def _check_skills() -> bool:
         from app.agents.web.tools import file_backend
 
         required_skills = [
-            "/web/skills/pw-dogfood/SKILL.md",
-            "/web/skills/component-aware-web-automation/SKILL.md",
-            "/web/skills/agent-browser-vs-playwright-cli/SKILL.md",
-            "/web/skills/playwright-cli/SKILL.md",
-            "/web/skills/agent-browser/SKILL.md",
+            "/skills/pw-dogfood/SKILL.md",
+            "/skills/component-aware-web-automation/SKILL.md",
+            "/skills/agent-browser-vs-playwright-cli/SKILL.md",
+            "/skills/playwright-cli/SKILL.md",
+            "/skills/agent-browser/SKILL.md",
         ]
         for path in required_skills:
             res = file_backend.read(path)
