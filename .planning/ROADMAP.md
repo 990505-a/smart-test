@@ -123,11 +123,11 @@ Plans:
   3. User sees coverage metrics (data type coverage and status code coverage) calculated for the generated test suite
   4. User can approve or reject agent actions at critical stages via Human-in-the-Loop interrupts displayed in the UI, preventing unsupervised destructive operations
   5. User can retrieve source-code-level interface information through Graphify MCP integration and view graphical reports via the chart-visualization skill
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md — Backend foundation: tools (api_parser, metrics, playwright_mcp_server), CompositeBackend, GitNexus config, 3 Skills
+- [ ] 06-02-PLAN.md — Agent core: MASTEST agent.py, GitNexus MCP registration, test suite (test_api_tools, test_api_skills, test_api_agent)
 
 **UI hint**: yes
 
@@ -139,7 +139,7 @@ Plans:
   1. User can switch between workspaces via X-Space-Id header, and all RAG data (documents, entities, chunks) is isolated per workspace without user authentication
   2. RAG knowledge base queries return only documents belonging to the selected workspace (NanoVectorDB + NetworkX directory-level isolation)
   3. External service calls use connection pooling (httpx.AsyncClient), exponential backoff retry, and circuit breaker patterns — repeated failures to any MCP service are gracefully handled without cascading errors
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 07-01: TBD
