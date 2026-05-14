@@ -73,15 +73,15 @@
 
 ### API 自动化测试 (API)
 
-- [ ] **API-01**: OpenAPI/Swagger 规范解析器（$ref 引用解析、参数/响应/Schema 提取）
+- [x] **API-01**: OpenAPI/Swagger 规范解析器（$ref 引用解析、参数/响应/Schema 提取）
 - [ ] **API-02**: MASTEST 学术方法论实现（arXiv:2511.18038）
-- [ ] **API-03**: 测试场景设计（正向/反向/边界/跨操作序列）
-- [ ] **API-04**: Playwright TypeScript 脚本生成（含 test.step、soft assertions）
-- [ ] **API-05**: 语法校验工具（check_script_syntax）
-- [ ] **API-06**: 覆盖率计算工具（compute_coverage，数据类型 + 状态码覆盖率）
-- [ ] **API-07**: Graphify 代码知识图谱 MCP 集成（源码级接口信息获取）
+- [x] **API-03**: 测试场景设计（正向/反向/边界/跨操作序列）
+- [x] **API-04**: Playwright TypeScript 脚本生成（含 test.step、soft assertions）
+- [x] **API-05**: 语法校验工具（check_script_syntax）
+- [x] **API-06**: 覆盖率计算工具（compute_coverage，数据类型 + 状态码覆盖率）
+- [x] **API-07**: Graphify 代码知识图谱 MCP 集成（源码级接口信息获取）
 - [ ] **API-08**: Human-in-the-Loop 集成（LangGraph interrupts，关键阶段人工审批）
-- [ ] **API-09**: 测试报告图形化展示（antvis/chart-visualization-skills）
+- [x] **API-09**: 测试报告图形化展示（antvis/chart-visualization-skills）
 
 ### 前端聊天界面 (Frontend)
 
@@ -176,15 +176,15 @@
 | WEB-06 | Phase 5 | Complete |
 | WEB-07 | Phase 5 | 05-01 (skills) |
 | WEB-08 | Phase 5 | Complete |
-| API-01 | Phase 6 | Pending |
+| API-01 | Phase 6 | Complete |
 | API-02 | Phase 6 | Pending |
-| API-03 | Phase 6 | Pending |
-| API-04 | Phase 6 | Pending |
-| API-05 | Phase 6 | Pending |
-| API-06 | Phase 6 | Pending |
-| API-07 | Phase 6 | Pending |
+| API-03 | Phase 6 | Complete |
+| API-04 | Phase 6 | Complete |
+| API-05 | Phase 6 | Complete |
+| API-06 | Phase 6 | Complete |
+| API-07 | Phase 6 | Complete |
 | API-08 | Phase 6 | Pending |
-| API-09 | Phase 6 | Pending |
+| API-09 | Phase 6 | Complete |
 | UI-01 | Phase 1 | Complete |
 | UI-02 | Phase 1 | Complete |
 | UI-03 | Phase 1 | Complete |

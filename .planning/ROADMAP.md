@@ -126,7 +126,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Backend foundation: tools (api_parser, metrics, playwright_mcp_server), CompositeBackend, GitNexus config, 3 Skills
+- [x] 06-01-PLAN.md — Backend foundation: tools (api_parser, metrics, playwright_mcp_server), CompositeBackend, GitNexus config, 3 Skills
 - [ ] 06-02-PLAN.md — Agent core: MASTEST agent.py, GitNexus MCP registration, test suite (test_api_tools, test_api_skills, test_api_agent)
 
 **UI hint**: yes
