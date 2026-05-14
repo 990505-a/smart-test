@@ -166,7 +166,7 @@ Plans:
 Plans:
 - [x] 08-01-PLAN.md — Database foundation: SQLAlchemy async models (9 tables), session factory, Pydantic schemas/enums, base repository, identifier generator, file storage utility
 - [ ] 08-02-PLAN.md — FastAPI app + project/folder CRUD: create_app, CORS, /api/v2 router, deps.py, project CRUD endpoints, folder CRUD with tree structure
-- [ ] 08-03-PLAN.md — Test case/run CRUD + Agent DB tools: test case CRUD with steps, test run management, attachment upload, agent tools (save_test_case_to_db, save_test_cases_batch, list_project_test_cases)
+- [x] 08-03-PLAN.md — Test case/run CRUD + Agent DB tools: test case CRUD with steps, test run management, attachment upload, agent tools (save_test_case_to_db, save_test_cases_batch, list_project_test_cases)
 
 **UI hint**: no
 
