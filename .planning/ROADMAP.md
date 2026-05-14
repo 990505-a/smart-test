@@ -104,11 +104,12 @@ Plans:
   3. The 7-Agent director pipeline executes end-to-end (Script Analyst through Continuity Lead) for complex web testing scenarios, with each agent's output visible as a sub-agent in the UI
   4. User can activate specialized QA skills (system exploration, evidence collection, performance, security, accessibility, responsive) via the Agent-Browser mode
   5. Playwright CLI integration supports session management, stored state, network control, multi-tab handling, and video recording for all generated test scripts
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md — Backend foundation: custom tools (detect_test_mode, check_environment, ensure_output_dir), CompositeBackend, config.py updates, 5 Skill directories from classroom reference
+- [ ] 05-02-PLAN.md — Agent core: dual-mode agent.py, validate_agent.py, MCP Graphify config, test suite (test_web_tools, test_web_skills, test_web_agent)
+- [ ] 05-03-PLAN.md — Frontend UI-14: pipeline stage visualization in ChatMessage for 7-Agent Director Pipeline progress
 
 **UI hint**: yes
 
@@ -155,6 +156,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 2. TestCase Agent MVP | 3/3 | Complete | 2026-05-12 |
 | 3. RAG Knowledge System | 2/2 | Complete    | 2026-05-12 |
 | 4. Advanced TestCase | 3/3 | Complete | 2026-05-13 |
-| 5. Web Automation Agent | 0/? | Not started | - |
+| 5. Web Automation Agent | 0/3 | Not started | - |
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/? | Not started | - |
