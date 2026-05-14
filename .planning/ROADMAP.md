@@ -107,7 +107,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Backend foundation: custom tools (detect_test_mode, check_environment, ensure_output_dir), CompositeBackend, config.py updates, 5 Skill directories from classroom reference
+- [x] 05-01-PLAN.md — Backend foundation: custom tools (detect_test_mode, check_environment, ensure_output_dir), CompositeBackend, config.py updates, 5 Skill directories from classroom reference (completed 2026-05-14)
 - [ ] 05-02-PLAN.md — Agent core: dual-mode agent.py, validate_agent.py, MCP Graphify config, test suite (test_web_tools, test_web_skills, test_web_agent)
 - [ ] 05-03-PLAN.md — Frontend UI-14: pipeline stage visualization in ChatMessage for 7-Agent Director Pipeline progress
 
@@ -156,6 +156,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 2. TestCase Agent MVP | 3/3 | Complete | 2026-05-12 |
 | 3. RAG Knowledge System | 2/2 | Complete    | 2026-05-12 |
 | 4. Advanced TestCase | 3/3 | Complete | 2026-05-13 |
-| 5. Web Automation Agent | 0/3 | Not started | - |
+| 5. Web Automation Agent | 1/3 | In Progress | - |
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/? | Not started | - |
