@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     lightrag_embedding_model: str = "qwen3-embedding:0.6b"
     lightrag_embedding_dim: int = 1024
 
+    # Resilience settings (Phase 7)
+    circuit_breaker_fail_max: int = 5
+    circuit_breaker_reset_timeout: int = 30
+    retry_max_attempts: int = 3
+    retry_initial_delay: float = 1.0
+    retry_max_delay: float = 30.0
+
     # MCP
     docling_mcp_url: str = "http://localhost:8976/sse"
 
