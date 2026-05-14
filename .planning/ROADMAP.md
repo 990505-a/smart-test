@@ -142,8 +142,10 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: TBD
-- [ ] 07-02: TBD
+- [ ] 07-01-PLAN.md — Backend workspace infrastructure: workspace helper, ResilientClient, agent backend refactoring, api_parser httpx migration, data migration
+- [ ] 07-02-PLAN.md — Frontend workspace UI: WorkspaceSelect component, useChat space_id propagation, page layout wiring
+
+**UI hint**: yes
 
 ## Progress
 
@@ -158,4 +160,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 4. Advanced TestCase | 3/3 | Complete | 2026-05-13 |
 | 5. Web Automation Agent | 3/3 | Complete | 2026-05-14 |
 | 6. API Automation Agent | 0/? | Not started | - |
-| 7. Multi-Workspace & Infrastructure | 0/? | Not started | - |
+| 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
