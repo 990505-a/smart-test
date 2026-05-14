@@ -14,7 +14,7 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - [x] **Phase 2: TestCase Agent MVP** - Upload documents, generate test cases via 5-stage workflow with 4 skills, export to Excel (completed 2026-05-12)
 - [x] **Phase 3: RAG Knowledge System** - wiki-mcp stdio MCP server, 6 knowledge query tools, wiki-query skill, agent tool registration (completed 2026-05-12)
 - [x] **Phase 4: Advanced TestCase** - Dual-model switching, image/Excel parsing, quality scoring, test data generation, multi-format export (completed 2026-05-13)
-- [ ] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills
+- [x] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills (completed 2026-05-14)
 - [ ] **Phase 6: API Automation Agent** - MASTEST methodology, OpenAPI parsing, Graphify integration, Human-in-the-Loop, coverage reports
 - [ ] **Phase 7: Multi-Workspace & Infrastructure Hardening** - Workspace isolation, connection pooling, circuit breakers, retry logic
 
@@ -156,6 +156,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 2. TestCase Agent MVP | 3/3 | Complete | 2026-05-12 |
 | 3. RAG Knowledge System | 2/2 | Complete    | 2026-05-12 |
 | 4. Advanced TestCase | 3/3 | Complete | 2026-05-13 |
-| 5. Web Automation Agent | 1/3 | In Progress | - |
+| 5. Web Automation Agent | 3/3 | Complete | 2026-05-14 |
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/? | Not started | - |
