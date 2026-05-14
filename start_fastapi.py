@@ -1,13 +1,5 @@
-"""FastAPI server startup script.
-
-Runs the FastAPI server on port 8000 alongside the LangGraph server on port 2026.
-
-Usage:
-    python start_fastapi.py
-"""
-
+"""FastAPI server startup script. Runs on port 8000 alongside LangGraph :2026."""
 import uvicorn
-
 from src.app.fastapi_app import app
 
 if __name__ == "__main__":

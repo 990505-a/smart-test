@@ -1,1 +1,1 @@
-"""API v2 endpoint modules."""
+"""API v2 package."""
