@@ -102,18 +102,33 @@
 
 ## v2 Requirements
 
+### 平台化 — FastAPI 后端 (Phase 8)
+
+- **PLAT-01**: FastAPI 应用搭建（端口 8000），/api/v2 路由前缀，CORS 配置，依赖注入
+- **PLAT-02**: PostgreSQL 数据库模型（SQLAlchemy async）：users, projects, folders, test_cases, test_steps, test_runs, test_results, api_endpoints, test_scenarios
+- **PLAT-03**: 项目管理 CRUD（创建/查看/编辑/删除项目）
+- **PLAT-04**: 文件夹树管理（层级结构，移动/复制，类型支持 test_case/api_test）
+- **PLAT-05**: 测试用例 CRUD（常规用例 + BDD 用例，版本控制，自定义字段）
+- **PLAT-06**: 测试执行管理（TestRun/TestResult，状态跟踪，统计）
+- **PLAT-07**: MinIO/本地文件存储（测试附件，测试脚本，测试报告）
+- **PLAT-08**: Agent 工具集成（save_test_case_to_db, save_test_plan_to_db 等 Agent→数据库工具）
+
+### 平台化 — 管理前端 (Phase 9)
+
+- **PLAT-09**: 项目列表页面（创建/编辑/删除项目，项目卡片展示）
+- **PLAT-10**: 文件夹导航组件（树形结构，拖拽排序，展开/折叠）
+- **PLAT-11**: 测试用例编辑器（步骤编辑，预期结果，优先级，BDD 模式）
+- **PLAT-12**: 测试执行面板（执行历史，Pass/Fail 统计，结果详情）
+- **PLAT-13**: 导航系统（聊天界面 ↔ 管理页面切换，面包屑导航）
+
+### 平台化 — Agent 集成 (Phase 10)
+
+- **PLAT-14**: Agent 结果自动持久化（生成的用例 → 数据库，无需手动复制）
+- **PLAT-15**: 测试报告可视化（antvis 图表：覆盖率、趋势、分布）
+- **PLAT-16**: Human-in-the-Loop 人工反馈（关键节点暂停等待审批）
+- **PLAT-17**: 端到端流程验证（对话生成用例 → 自动保存 → 管理界面查看 → 执行测试 → 结果展示）
+
 ### 性能与安全
-
-- **PERF-01**: 性能测试模块集成（JMeter/k6 压测）
-- **PERF-02**: 代码级安全测试（SAST 静态分析）
-- **PERF-03**: 视觉回归测试（Applitools/像素对比）
-
-### 集成与扩展
-
-- **INTG-01**: CI/CD 流水线集成（GitHub Actions/Jenkins）
-- **INTG-02**: 移动端 App 自动化（Appium/Device Farm）
-- **INTG-03**: Hermes/OpenClaw 第三方 Agent 平台对接
-- **INTG-04**: 多用户协作/权限管理系统
 
 ## Out of Scope
 

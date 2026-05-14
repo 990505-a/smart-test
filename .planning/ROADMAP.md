@@ -17,6 +17,9 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - [x] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills (completed 2026-05-14)
 - [ ] **Phase 6: API Automation Agent** - MASTEST methodology, OpenAPI parsing, Graphify integration, Human-in-the-Loop, coverage reports
 - [ ] **Phase 7: Multi-Workspace & Infrastructure Hardening** - Workspace isolation, connection pooling, circuit breakers, retry logic
+- [ ] **Phase 8: FastAPI Backend & Database** - REST API CRUD backend, PostgreSQL models, MinIO storage, Agent result persistence
+- [ ] **Phase 9: Platform Management UI** - Project list, test case editor, folder navigation, test execution dashboard
+- [ ] **Phase 10: Agent-Database Integration** - Agent results auto-save to database, test report visualization, Human-in-the-Loop
 
 ## Phase Details
 
@@ -147,10 +150,52 @@ Plans:
 
 **UI hint**: yes
 
+### Phase 8: FastAPI Backend & Database
+**Goal**: Add a FastAPI CRUD backend alongside the existing LangGraph Agent, with PostgreSQL database models, MinIO file storage, and API endpoints for project/test case/folder management — following the classroom's three-layer architecture (FastAPI :8000 + LangGraph :2026 + Next.js :3000)
+**Depends on**: Phase 7
+**Requirements**: PLAT-01, PLAT-02, PLAT-03, PLAT-04, PLAT-05, PLAT-06, PLAT-07, PLAT-08
+**Success Criteria** (what must be TRUE):
+  1. FastAPI server starts on port 8000 with /api/v2 endpoints for projects, folders, test cases, and attachments
+  2. PostgreSQL database with tables: users, projects, folders, test_cases, test_steps, test_runs, test_results — following classroom schema
+  3. CRUD operations work end-to-end: create project → add folder → create test case with steps → list/filter
+  4. MinIO-compatible file storage for test artifacts (or local filesystem fallback)
+  5. Agent-generated test cases can be saved to database via tools
+  6. Frontend can call FastAPI endpoints alongside existing LangGraph streaming
+**Plans**: TBD
+
+**UI hint**: no
+
+### Phase 9: Platform Management UI
+**Goal**: Add frontend management pages for project list, test case editor, folder navigation, and test execution dashboard — transforming the platform from chat-only to a full test management system
+**Depends on**: Phase 8
+**Requirements**: PLAT-09, PLAT-10, PLAT-11, PLAT-12, PLAT-13
+**Success Criteria** (what must be TRUE):
+  1. Users see a project list page and can create/edit/delete projects
+  2. Folder tree navigation with hierarchical structure and drag-drop reordering
+  3. Test case editor with steps, expected results, priority, and BDD support
+  4. Test execution dashboard showing run history, pass/fail statistics, and results
+  5. Navigation between chat interface (Agent) and management pages (CRUD)
+**Plans**: TBD
+
+**UI hint**: yes
+
+### Phase 10: Agent-Database Integration
+**Goal**: Connect Agent results to the database for automatic persistence, add test report visualization (antvis), and implement Human-in-the-Loop for critical decision points
+**Depends on**: Phase 9
+**Requirements**: PLAT-14, PLAT-15, PLAT-16, PLAT-17
+**Success Criteria** (what must be TRUE):
+  1. Agent-generated test cases auto-save to database (no manual copy-paste)
+  2. Test reports display with graphical charts (antvis skills or MCP)
+  3. Human-in-the-Loop interrupts at critical stages for approval
+  4. Full end-to-end flow: chat with agent → generate cases → auto-save → view in management UI → execute tests → see results
+**Plans**: TBD
+
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -161,3 +206,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 5. Web Automation Agent | 3/3 | Complete | 2026-05-14 |
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
+| 8. FastAPI Backend & Database | 0/? | Not started | - |
+| 9. Platform Management UI | 0/? | Not started | - |
+| 10. Agent-Database Integration | 0/? | Not started | - |
