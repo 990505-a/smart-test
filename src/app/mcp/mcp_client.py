@@ -30,6 +30,12 @@ async def get_mcp_client() -> MultiServerMCPClient:
                 "command": settings.graphify_mcp_command,
                 "args": settings.graphify_mcp_args.split(),
             },
+            # GitNexus MCP (Phase 6 - API Agent code knowledge graph)
+            "gitnexus": {
+                "transport": "stdio",
+                "command": settings.gitnexus_mcp_command,
+                "args": settings.gitnexus_mcp_args.split(),
+            },
             # Playwright uses CLI mode (not MCP) per D-04 decision.
             # "playwright": {
             #     "transport": "stdio",
