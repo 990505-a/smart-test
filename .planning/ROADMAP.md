@@ -108,7 +108,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md — Backend foundation: custom tools (detect_test_mode, check_environment, ensure_output_dir), CompositeBackend, config.py updates, 5 Skill directories from classroom reference (completed 2026-05-14)
-- [ ] 05-02-PLAN.md — Agent core: dual-mode agent.py, validate_agent.py, MCP Graphify config, test suite (test_web_tools, test_web_skills, test_web_agent)
+- [x] 05-02-PLAN.md — Agent core: dual-mode agent.py, validate_agent.py, MCP Graphify config, test suite (test_web_tools, test_web_skills, test_web_agent)
 - [ ] 05-03-PLAN.md — Frontend UI-14: pipeline stage visualization in ChatMessage for 7-Agent Director Pipeline progress
 
 **UI hint**: yes

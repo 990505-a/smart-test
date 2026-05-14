@@ -62,14 +62,14 @@
 
 ### Web 自动化测试 (Web)
 
-- [ ] **WEB-01**: Web Agent 双模式自动检测（目标 URL → 探索性 QA；源码仓库 → 组件感知测试）
+- [x] **WEB-01**: Web Agent 双模式自动检测（目标 URL → 探索性 QA；源码仓库 → 组件感知测试）
 - [ ] **WEB-02**: Playwright CLI 集成（会话管理、存储状态、网络控制、多标签页、视频录制） [Partially - CompositeBackend + LocalShell ready, Playwright CLI skill files present]
 - [ ] **WEB-03**: 探索性 QA 技能（playwright-cli）— 6 阶段专业 QA 流程 [Skills present, agent wiring in 05-02]
 - [ ] **WEB-04**: Agent-Browser 模式（agent-browser 技能） [Skills present, agent wiring in 05-02]
 - [ ] **WEB-05**: 专业 QA 技能（pw-dogfood）— 系统探索/证据收集/性能/安全/无障碍/响应式 [Skills present, agent wiring in 05-02]
-- [ ] **WEB-06**: 7-Agent 导演流水线（Script Analyst → Stage Manager → Blocking Coach → Set Designer → Choreographer → Assistant Director → Continuity Lead）
+- [x] **WEB-06**: 7-Agent 导演流水线（Script Analyst → Stage Manager → Blocking Coach → Set Designer → Choreographer → Assistant Director → Continuity Lead）
 - [ ] **WEB-07**: 组件感知测试技能（component-aware-web-automation）— 源码分析 → data-testid 注入 → POM 生成 [Skills + 7 guides present, agent wiring in 05-02]
-- [ ] **WEB-08**: 自动生成 TypeScript 测试脚本（含 trace/screenshots 证据）
+- [x] **WEB-08**: 自动生成 TypeScript 测试脚本（含 trace/screenshots 证据）
 
 ### API 自动化测试 (API)
 
@@ -168,14 +168,14 @@
 | EXPT-02 | Phase 2 | Complete |
 | EXPT-03 | Phase 4 | Complete |
 | EXPT-04 | Phase 2 | Complete |
-| WEB-01 | Phase 5 | Pending |
+| WEB-01 | Phase 5 | Complete |
 | WEB-02 | Phase 5 | 05-01 (partial) |
 | WEB-03 | Phase 5 | 05-01 (skills) |
 | WEB-04 | Phase 5 | 05-01 (skills) |
 | WEB-05 | Phase 5 | 05-01 (skills) |
-| WEB-06 | Phase 5 | Pending |
+| WEB-06 | Phase 5 | Complete |
 | WEB-07 | Phase 5 | 05-01 (skills) |
-| WEB-08 | Phase 5 | Pending |
+| WEB-08 | Phase 5 | Complete |
 | API-01 | Phase 6 | Pending |
 | API-02 | Phase 6 | Pending |
 | API-03 | Phase 6 | Pending |
