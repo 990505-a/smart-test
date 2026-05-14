@@ -98,7 +98,7 @@
 - [x] **UI-11**: 暗色/亮色主题切换
 - [x] **UI-12**: URL 状态管理（nuqs）
 - [ ] **UI-13**: 中断处理（Interrupt），支持工具调用审批
-- [ ] **UI-14**: 子智能体可视化展示
+- [x] **UI-14**: 子智能体可视化展示
 
 ## v2 Requirements
 
@@ -198,7 +198,7 @@
 | UI-11 | Phase 1 | Complete |
 | UI-12 | Phase 1 | Complete |
 | UI-13 | Phase 6 | Pending |
-| UI-14 | Phase 5 | Pending |
+| UI-14 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 59 total
