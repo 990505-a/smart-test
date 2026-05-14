@@ -1,7 +1,7 @@
 """Tests for Web Agent Skills: SKILL.md readability and reference guides."""
 import pytest
 from pathlib import Path
-from app.agents.web.tools import file_backend
+from src.app.agents.web.tools import file_backend
 
 WORKSPACE_SKILLS = Path(__file__).parent.parent / "workspace" / "web" / "skills"
 

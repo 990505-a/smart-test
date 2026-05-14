@@ -27,7 +27,7 @@ from typing import Any
 
 from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 
-from app.core.config import settings
+from src.app.core.config import settings
 
 # =============================================================================
 # Workspace & Artifact Directories

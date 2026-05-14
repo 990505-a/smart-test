@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.agents.web.tools import check_environment, detect_test_mode, ensure_output_dir
+from src.app.agents.web.tools import check_environment, detect_test_mode, ensure_output_dir
 
 
 class TestDetectTestMode:

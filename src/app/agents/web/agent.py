@@ -24,7 +24,7 @@ from deepagents.middleware import SkillsMiddleware
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 
-from app.agents.web.tools import (
+from src.app.agents.web.tools import (
     check_environment,
     composite_backend,
     detect_test_mode,
