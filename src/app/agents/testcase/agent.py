@@ -32,6 +32,7 @@ from app.middleware.pdf_context import FileContextMiddleware
 from app.middleware.dynamic_model import DynamicModelSelection
 from app.agents.testcase.tools import export_test_cases
 from app.core.config import settings
+from app.core.workspace import get_workspace_dir
 from app.mcp.mcp_client import get_mcp_client
 
 load_dotenv()
@@ -43,9 +44,12 @@ llm = init_chat_model("deepseek:deepseek-chat")
 
 # ============================================================================
 # Backend configuration
+# Default workspace for graph compilation.
+# Tools that need per-request workspace resolve via get_space_id() at call time.
 # ============================================================================
-workspace_dir = Path(__file__).parent.parent.parent.parent.parent / "workspace"
-file_backend = FilesystemBackend(root_dir=workspace_dir, virtual_mode=True)
+_default_workspace_dir = get_workspace_dir("default", "testcase")
+_default_workspace_dir.mkdir(parents=True, exist_ok=True)
+file_backend = FilesystemBackend(root_dir=_default_workspace_dir, virtual_mode=True)
 
 # ============================================================================
 # SkillsMiddleware configuration (D-05 outer layer, D-12/D-13)

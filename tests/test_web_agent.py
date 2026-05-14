@@ -6,7 +6,7 @@ class TestAgentImport:
     def test_tools_module_imports(self):
         from src.app.agents.web.tools import (
             detect_test_mode, check_environment, ensure_output_dir,
-            composite_backend, file_backend, shell_backend, output_root,
+            composite_backend, file_backend, shell_backend,
         )
         assert callable(detect_test_mode)
         assert callable(check_environment)

@@ -30,7 +30,6 @@ from src.app.agents.web.tools import (
     detect_test_mode,
     ensure_output_dir,
     file_backend,
-    output_root,
 )
 
 load_dotenv()
@@ -44,7 +43,7 @@ llm = init_chat_model("deepseek:deepseek-chat")
 # SYSTEM PROMPT -- Dual-Mode Orchestrator (~50 lines, no command hard-coding)
 # Adapted from classroom reference (2026-05-07) for project architecture.
 # =============================================================================
-SYSTEM_PROMPT = f"""# Web Automation Testing Agent
+SYSTEM_PROMPT = """# Web Automation Testing Agent
 
 You orchestrate two mutually exclusive testing workflows. **Never run both simultaneously.**
 
@@ -58,7 +57,7 @@ Goal: Find bugs, capture evidence, produce structured reports.
 1. Load `agent-browser-vs-playwright-cli` skill to choose the right browser framework.
 2. Load `pw-dogfood` skill and follow its 6-phase workflow strictly.
 3. Load `agent-browser` or `playwright-cli` skill only when you need command-level reference.
-4. Save all evidence to `{output_root / "qa"}/{{timestamp}}/`. Use `ensure_output_dir` tool to create the directory tree.
+4. Use `ensure_output_dir` tool to create the output directory tree. Save all evidence to the directory returned by `ensure_output_dir("MODE_A_QA", ...)`.
 5. Final deliverable: `report.md` using `pw-dogfood/templates/report-template.md`.
 
 ## Mode B: Component-Aware Test Generation (Source Repo)
@@ -66,7 +65,7 @@ Goal: Generate deterministic, maintainable Playwright test scripts from source c
 1. Load `component-aware-web-automation` skill and execute its 7-Agent Pipeline in strict order:
    Script Analyst -> Stage Manager -> Blocking Coach -> Set Designer -> Choreographer -> Assistant Director -> Continuity Lead.
 2. Agent outputs are passed through the workspace filesystem; never keep them in conversation memory.
-3. Save all artifacts to `{output_root / "tests"}/{{project_name}}/ `.
+3. Use `ensure_output_dir` tool to create the output directory. Save all artifacts to the directory returned by `ensure_output_dir("MODE_B_COMPONENT", ...)`.
 4. Final deliverables: `component-registry.json`, `locator-catalog.json`, `poms/*.ts`, `tests/*.spec.ts`.
 
 ## Universal Rules

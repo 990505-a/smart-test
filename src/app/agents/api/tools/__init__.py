@@ -38,7 +38,7 @@ from src.app.agents.api.tools.playwright_mcp_server import playwright_api_tools
 # -- Tool 1: API Parser -------------------------------------------------------
 
 @tool
-def parse_openapi_spec(spec_url: str) -> str:
+async def parse_openapi_spec(spec_url: str) -> str:
     """Load and parse an OpenAPI/Swagger specification into structured data.
 
     Fetches from a URL or reads a local file (JSON or YAML). Resolves all
@@ -52,7 +52,7 @@ def parse_openapi_spec(spec_url: str) -> str:
         JSON string with ``title``, ``version``, ``base_url``,
         ``operations`` (list), and ``schemas`` (dict).
     """
-    return json.dumps(parse_api_spec(spec_url), indent=2, default=str)
+    return json.dumps(await parse_api_spec(spec_url), indent=2, default=str)
 
 
 # -- Tool 2: Syntax Checker ---------------------------------------------------
@@ -124,19 +124,20 @@ MASTEST_TOOLS: list = [
 
 from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 
-from src.app.core.config import settings
+from src.app.core.workspace import get_workspace_dir
 
-workspace_dir = settings.workspace_dir / "api"
+_default_workspace_dir = get_workspace_dir("default", "api")
+_default_workspace_dir.mkdir(parents=True, exist_ok=True)
 
 shell_backend = LocalShellBackend(
-    root_dir=workspace_dir,
+    root_dir=_default_workspace_dir,
     virtual_mode=False,
     inherit_env=True,
     timeout=180,
 )
 
 file_backend = FilesystemBackend(
-    root_dir=workspace_dir,
+    root_dir=_default_workspace_dir,
     virtual_mode=True,
 )
 

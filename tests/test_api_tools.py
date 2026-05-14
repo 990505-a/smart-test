@@ -21,7 +21,8 @@ from src.app.agents.api.tools.metrics import check_script_syntax, compute_covera
 
 
 class TestApiParser:
-    def test_parse_petstore_spec(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_parse_petstore_spec(self, tmp_path):
         """Parse a minimal OpenAPI 3.0 JSON spec and verify operations extracted."""
         spec = {
             "openapi": "3.0.0",
@@ -60,7 +61,7 @@ class TestApiParser:
         spec_file = tmp_path / "petstore.json"
         spec_file.write_text(json.dumps(spec), encoding="utf-8")
 
-        result = parse_api_spec(str(spec_file))
+        result = await parse_api_spec(str(spec_file))
         assert result["title"] == "Petstore"
         assert result["version"] == "1.0.0"
         assert result["base_url"] == "https://petstore.example.com/v1"
@@ -108,7 +109,8 @@ class TestApiParser:
         result = _resolve_all_refs({"$ref": "#/components/schemas/Pet"}, spec)
         assert result["properties"]["category"]["type"] == "object"
 
-    def test_parse_yaml_spec(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_parse_yaml_spec(self, tmp_path):
         """Parse a YAML spec file successfully."""
         yaml_content = """
 openapi: "3.0.0"
@@ -126,7 +128,7 @@ paths:
         spec_file = tmp_path / "spec.yaml"
         spec_file.write_text(yaml_content, encoding="utf-8")
 
-        result = parse_api_spec(str(spec_file))
+        result = await parse_api_spec(str(spec_file))
         assert result["title"] == "Test API"
         assert len(result["operations"]) == 1
         assert result["operations"][0]["operationId"] == "listItems"
@@ -278,8 +280,9 @@ class TestToolsModule:
         assert shell_backend is not None
 
     def test_workspace_dir_is_api(self):
-        """workspace_dir in tools module should resolve to .../workspace/api."""
-        from src.app.agents.api.tools import workspace_dir
+        """_default_workspace_dir in tools module should resolve to .../workspace/default/api."""
+        from src.app.agents.api.tools import _default_workspace_dir
 
-        assert workspace_dir.name == "api"
-        assert workspace_dir.parent.name == "workspace"
+        assert _default_workspace_dir.name == "api"
+        assert _default_workspace_dir.parent.name == "default"
+        assert _default_workspace_dir.parent.parent.name == "workspace"

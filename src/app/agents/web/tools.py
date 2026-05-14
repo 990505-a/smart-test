@@ -27,14 +27,15 @@ from typing import Any
 
 from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 
-from src.app.core.config import settings
+from src.app.core.workspace import get_space_id, get_workspace_dir
 
 # =============================================================================
 # Workspace & Artifact Directories
+# Default workspace for graph-level compilation.
+# Tools that need per-request workspace resolve via get_space_id() at call time.
 # =============================================================================
-workspace_dir = settings.workspace_dir / "web"
-output_root = workspace_dir / "web-output"
-output_root.mkdir(parents=True, exist_ok=True)
+_default_workspace_dir = get_workspace_dir("default", "web")
+_default_workspace_dir.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -126,6 +127,9 @@ def ensure_output_dir(mode: str, label: str = "") -> str:
     """
     Create a timestamped artifact directory tree for the current testing session.
 
+    Resolves workspace dynamically via get_space_id() at call time to support
+    multi-workspace isolation.
+
     Args:
         mode: Either "MODE_A_QA" or "MODE_B_COMPONENT".
         label: Optional project name or URL hostname for the directory name.
@@ -133,6 +137,11 @@ def ensure_output_dir(mode: str, label: str = "") -> str:
     Returns:
         The absolute path to the created root output directory.
     """
+    space_id = get_space_id()
+    workspace_dir = get_workspace_dir(space_id, "web")
+    output_root = workspace_dir / "web-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_label = re.sub(r"[^\w\-]", "_", label)[:40] if label else "session"
 
@@ -155,14 +164,14 @@ def ensure_output_dir(mode: str, label: str = "") -> str:
 # =============================================================================
 
 shell_backend = LocalShellBackend(
-    root_dir=workspace_dir,
+    root_dir=_default_workspace_dir,
     virtual_mode=False,
     inherit_env=True,
     timeout=180,
 )
 
 file_backend = FilesystemBackend(
-    root_dir=workspace_dir,
+    root_dir=_default_workspace_dir,
     virtual_mode=True,
 )
 

@@ -11,7 +11,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-import requests
+import httpx
 import yaml
 
 
@@ -54,10 +54,10 @@ def _resolve_all_refs(obj: Any, spec: dict[str, Any]) -> Any:
     return obj
 
 
-def _load_spec(spec_url_or_path: str) -> dict[str, Any]:
+async def _load_spec(spec_url_or_path: str) -> dict[str, Any]:
     """Load an OpenAPI specification from a URL or local file path.
 
-    Handles both JSON and YAML formats.
+    Handles both JSON and YAML formats. Uses async httpx for URL fetching.
 
     Args:
         spec_url_or_path: URL or file path to the OpenAPI spec.
@@ -69,9 +69,10 @@ def _load_spec(spec_url_or_path: str) -> dict[str, Any]:
         ValueError: If the spec cannot be loaded or parsed.
     """
     if spec_url_or_path.startswith(("http://", "https://")):
-        resp = requests.get(spec_url_or_path, timeout=30)
-        resp.raise_for_status()
-        content = resp.text
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(spec_url_or_path)
+            resp.raise_for_status()
+            content = resp.text
     else:
         with open(spec_url_or_path, encoding="utf-8") as f:
             content = f.read()
@@ -149,7 +150,7 @@ def parse_api_operations(spec: dict[str, Any]) -> list[dict[str, Any]]:
     return operations
 
 
-def parse_api_spec(spec_url_or_path: str) -> dict[str, Any]:
+async def parse_api_spec(spec_url_or_path: str) -> dict[str, Any]:
     """Parse an OpenAPI specification into a structured representation.
 
     This is the main entry point for the API Parser agent.
@@ -165,7 +166,7 @@ def parse_api_spec(spec_url_or_path: str) -> dict[str, Any]:
         - schemas: Component schemas
         - security: Security schemes (if any)
     """
-    spec = _load_spec(spec_url_or_path)
+    spec = await _load_spec(spec_url_or_path)
 
     info = spec.get("info", {})
     servers = spec.get("servers", [])

@@ -3,7 +3,7 @@ import pytest
 from pathlib import Path
 from src.app.agents.web.tools import file_backend
 
-WORKSPACE_SKILLS = Path(__file__).parent.parent / "workspace" / "web" / "skills"
+WORKSPACE_SKILLS = Path(__file__).parent.parent / "workspace" / "default" / "web" / "skills"
 
 REQUIRED_SKILLS = [
     "playwright-cli",

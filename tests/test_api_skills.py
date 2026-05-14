@@ -2,7 +2,7 @@
 import pytest
 from pathlib import Path
 
-WORKSPACE_SKILLS = Path(__file__).parent.parent / "workspace" / "api" / "skills"
+WORKSPACE_SKILLS = Path(__file__).parent.parent / "workspace" / "default" / "api" / "skills"
 
 REQUIRED_SKILLS = [
     "test-scenario-design",
