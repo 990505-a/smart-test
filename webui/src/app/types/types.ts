@@ -27,3 +27,16 @@ export interface StateType {
     additional_kwargs?: Record<string, unknown>;
   }>;
 }
+
+/** 7-Agent Director Pipeline stages for Web Automation sub-agent visualization. */
+export const PIPELINE_STAGES = [
+  { id: "script-analyst", label: "Script Analyst", marker: "[Script Analyst]" },
+  { id: "stage-manager", label: "Stage Manager", marker: "[Stage Manager]" },
+  { id: "blocking-coach", label: "Blocking Coach", marker: "[Blocking Coach]" },
+  { id: "set-designer", label: "Set Designer", marker: "[Set Designer]" },
+  { id: "choreographer", label: "Choreographer", marker: "[Choreographer]" },
+  { id: "assistant-director", label: "Assistant Director", marker: "[Assistant Director]" },
+  { id: "continuity-lead", label: "Continuity Lead", marker: "[Continuity Lead]" },
+] as const;
+
+export type PipelineStageId = (typeof PIPELINE_STAGES)[number]["id"];

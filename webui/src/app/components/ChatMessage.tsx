@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ContentBlock } from "@/app/types/types";
+import { PIPELINE_STAGES } from "@/app/types/types";
 import { cn } from "@/lib/utils";
 import { File } from "lucide-react";
 
@@ -75,6 +76,15 @@ export const ChatMessage = React.memo<ChatMessageProps>(
 
     const hasAttachments = imageUrlBlocks.length > 0 || pdfBlocks.length > 0;
 
+    // Detect pipeline stage markers in AI message content
+    const detectedStage = useMemo(() => {
+      if (isUser || !messageContent) return null;
+      for (const stage of PIPELINE_STAGES) {
+        if (messageContent.includes(stage.marker)) return stage.id;
+      }
+      return null;
+    }, [isUser, messageContent]);
+
     // Skip rendering for tool/system messages without visible content
     if (!isUser && !isAi) return null;
 
@@ -127,6 +137,24 @@ export const ChatMessage = React.memo<ChatMessageProps>(
             /* AI message: rendered with markdown */
             hasContent && (
               <div className="mt-4 min-w-0 overflow-hidden break-words text-sm leading-relaxed">
+                {/* Pipeline stage indicator */}
+                {detectedStage && (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {PIPELINE_STAGES.map((stage) => (
+                      <span
+                        key={stage.id}
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                          stage.id === detectedStage
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {stage.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {isStreaming ? (
                   <div className="prose min-w-0 max-w-full text-sm">
                     <p className="m-0 whitespace-pre-wrap break-words">
