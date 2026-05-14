@@ -24,14 +24,13 @@ async def get_mcp_client() -> MultiServerMCPClient:
                 "command": settings.wiki_mcp_command,
                 "args": settings.wiki_mcp_args.split(),
             },
-            # Graphify and Playwright use stdio transport.
-            # They will be configured with actual command paths when installed.
-            # For Phase 1, only Docling (SSE) is configured.
-            # "graphify": {
-            #     "transport": "stdio",
-            #     "command": "graphify",
-            #     "args": ["serve"],
-            # },
+            # Graphify MCP (Phase 5 - Web Agent component-aware mode)
+            "graphify": {
+                "transport": "stdio",
+                "command": settings.graphify_mcp_command,
+                "args": settings.graphify_mcp_args.split(),
+            },
+            # Playwright uses CLI mode (not MCP) per D-04 decision.
             # "playwright": {
             #     "transport": "stdio",
             #     "command": "npx",
