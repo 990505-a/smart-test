@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     wiki_mcp_args: str = "tsx D:/llm-wiki/wiki-mcp/src/index.ts --config=D:/llm-wiki/wiki-mcp/wiki-mcp-config.json"
     wiki_mcp_config_path: str = "D:/llm-wiki/wiki-mcp/wiki-mcp-config.json"
 
+    # Graphify MCP (Phase 5 - Web Agent component-aware mode)
+    graphify_mcp_command: str = "npx"
+    graphify_mcp_args: str = "graphify serve"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

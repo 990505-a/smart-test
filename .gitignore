@@ -17,8 +17,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Workspace
-workspace/
+# Workspace (runtime output)
+workspace/*/
+# But track Skill source files
+!workspace/web/skills/
 
 # RAG storage
 rag_storage/
