@@ -10,16 +10,6 @@ class Settings(BaseSettings):
     langgraph_api_url: str = "http://localhost:2026"
     workspace_dir: Path = Path(__file__).parent.parent.parent.parent / "workspace"
 
-    # LightRAG
-    lightrag_port: int = 9621
-    lightrag_llm_binding: str = "openai"
-    lightrag_llm_model: str = "deepseek-chat"
-    lightrag_llm_binding_host: str = "https://api.deepseek.com/v1"
-    lightrag_embedding_binding: str = "ollama"
-    lightrag_embedding_binding_host: str = "http://localhost:11434"
-    lightrag_embedding_model: str = "qwen3-embedding:0.6b"
-    lightrag_embedding_dim: int = 1024
-
     # Resilience settings (Phase 7)
     circuit_breaker_fail_max: int = 5
     circuit_breaker_reset_timeout: int = 30
@@ -42,6 +32,20 @@ class Settings(BaseSettings):
     # GitNexus MCP (Phase 6 - API Agent code knowledge graph)
     gitnexus_mcp_command: str = "node"
     gitnexus_mcp_args: str = "D:/prpm/72codegraph/gitnexus/dist/cli/index.js mcp"
+
+    # PostgreSQL (Phase 8) -- per D-01, D-02
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_user: str = "postgres"
+    postgres_password: str = "postgres"
+    postgres_db: str = "smart_test_platform"
+
+    @property
+    def database_url(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
