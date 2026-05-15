@@ -54,6 +54,10 @@ Plans:
   4. Previously parsed documents are cached via MD5 hash and not re-processed on repeated uploads
   5. Skills are loaded from SKILL.md files on the filesystem and injected into the agent via the SkillsMiddleware onion layer
 **Plans**: 3 plans
+nPlans:
+- [ ] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
+- [ ] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
+- [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 Plans:
 - [x] 02-01-PLAN.md — PDF processing pipeline: PDFProcessor with MD5 caching, PDFContextMiddleware with session isolation
@@ -89,6 +93,10 @@ Plans:
   4. User can export test cases in multiple formats — CSV (compatible with ZenTao/TestRail), JSON (compatible with Jira Xray), and Markdown — in addition to Excel
   5. User can toggle multimodal mode via the UI switch, controlling the ENABLE_PDF_MULTIMODAL parameter
 **Plans**: 3 plans
+nPlans:
+- [ ] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
+- [ ] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
+- [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 Plans:
 - [x] 04-01-PLAN.md — Backend middleware: DynamicModelSelection, FileContextMiddleware refactor, ImageProcessor, ExcelProcessor, config updates
@@ -108,6 +116,10 @@ Plans:
   4. User can activate specialized QA skills (system exploration, evidence collection, performance, security, accessibility, responsive) via the Agent-Browser mode
   5. Playwright CLI integration supports session management, stored state, network control, multi-tab handling, and video recording for all generated test scripts
 **Plans**: 3 plans
+nPlans:
+- [ ] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
+- [ ] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
+- [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 Plans:
 - [x] 05-01-PLAN.md — Backend foundation: custom tools (detect_test_mode, check_environment, ensure_output_dir), CompositeBackend, config.py updates, 5 Skill directories from classroom reference (completed 2026-05-14)
@@ -162,6 +174,10 @@ Plans:
   5. Agent-generated test cases can be saved to database via tools (per D-05/D-06)
   6. Frontend can call FastAPI endpoints alongside existing LangGraph streaming
 **Plans**: 3 plans
+nPlans:
+- [ ] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
+- [ ] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
+- [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 Plans:
 - [x] 08-01-PLAN.md — Database foundation: SQLAlchemy async models (9 tables), session factory, Pydantic schemas/enums, base repository, identifier generator, file storage utility
@@ -196,10 +212,14 @@ Plans:
 **Requirements**: PLAT-14, PLAT-15, PLAT-16, PLAT-17
 **Success Criteria** (what must be TRUE):
   1. Agent-generated test cases auto-save to database (no manual copy-paste)
-  2. Test reports display with graphical charts (antvis skills or MCP)
+  2. Test reports display with recharts graphical charts
   3. Human-in-the-Loop interrupts at critical stages for approval
   4. Full end-to-end flow: chat with agent, generate cases, auto-save, view in management UI, execute tests, see results
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
+- [ ] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
+- [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 **UI hint**: yes
 
@@ -219,4 +239,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
 | 8. FastAPI Backend & Database | 0/3 | Not started | - |
 | 9. Platform Management UI | 3/4 | In Progress | - |
-| 10. Agent-Database Integration | 0/? | Not started | - |
+| 10. Agent-Database Integration | 0/3 | Not started | - |
