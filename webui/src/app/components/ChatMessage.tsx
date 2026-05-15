@@ -7,6 +7,7 @@ import type { ContentBlock } from "@/app/types/types";
 import { PIPELINE_STAGES } from "@/app/types/types";
 import { cn } from "@/lib/utils";
 import { File } from "lucide-react";
+import { ToolResultCard, parseSaveResults, stripSaveResultMarkers } from "@/app/components/ToolResultCard";
 
 /** image_url block as sent to OpenAI-compatible APIs */
 interface ImageUrlBlock {
@@ -76,14 +77,26 @@ export const ChatMessage = React.memo<ChatMessageProps>(
 
     const hasAttachments = imageUrlBlocks.length > 0 || pdfBlocks.length > 0;
 
+    // Detect [SAVE_RESULT] blocks in AI message content
+    const saveResults = useMemo(() => {
+      if (isUser || !messageContent) return [];
+      return parseSaveResults(messageContent);
+    }, [isUser, messageContent]);
+
+    // Strip save result markers from display content
+    const displayContent = useMemo(() => {
+      if (saveResults.length === 0) return messageContent;
+      return stripSaveResultMarkers(messageContent);
+    }, [messageContent, saveResults]);
+
     // Detect pipeline stage markers in AI message content
     const detectedStage = useMemo(() => {
-      if (isUser || !messageContent) return null;
+      if (isUser || !displayContent) return null;
       for (const stage of PIPELINE_STAGES) {
-        if (messageContent.includes(stage.marker)) return stage.id;
+        if (displayContent.includes(stage.marker)) return stage.id;
       }
       return null;
-    }, [isUser, messageContent]);
+    }, [isUser, displayContent]);
 
     // Skip rendering for tool/system messages without visible content
     if (!isUser && !isAi) return null;
@@ -158,16 +171,26 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 {isStreaming ? (
                   <div className="prose min-w-0 max-w-full text-sm">
                     <p className="m-0 whitespace-pre-wrap break-words">
-                      {messageContent}
+                      {displayContent}
                       <span className="animate-pulse">|</span>
                     </p>
                   </div>
                 ) : (
-                  <div className="prose prose-sm max-w-none dark:prose-invert">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {messageContent}
-                    </ReactMarkdown>
-                  </div>
+                  <>
+                    {/* Tool result cards from auto-save */}
+                    {saveResults.length > 0 && (
+                      <div className="space-y-2">
+                        {saveResults.map((result, idx) => (
+                          <ToolResultCard key={`save-result-${idx}`} data={result} />
+                        ))}
+                      </div>
+                    )}
+                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {displayContent}
+                      </ReactMarkdown>
+                    </div>
+                  </>
                 )}
               </div>
             )
