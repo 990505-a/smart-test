@@ -213,3 +213,28 @@ export_test_cases_to_excel(test_cases, "./exports/CRM登录模块测试用例.xl
 | Steps | `steps` | 每条步骤单独一行，格式为 `Step N: action` | 是 |
 | Expected Result | `expected_results` | 直接映射 | 是 |
 | References | `requirements` | 直接映射 | 否 |
+
+---
+
+## 自动保存到数据库
+
+在完成所有测试用例的格式化输出后，**必须**执行以下自动保存流程：
+
+### 保存步骤
+1. 调用 `ensure_project` 获取当前项目的 project_id（如已有则直接使用）
+2. 将格式化后的所有测试用例转换为 `save_test_cases_batch` 所需的 JSON 格式
+3. 调用 `save_test_cases_batch(project_id, test_cases)` 保存到数据库
+4. 在回复中输出 `[SAVE_RESULT]...[/SAVE_RESULT]` 格式的保存结果
+
+### 用例格式转换规则
+将 Markdown 格式的测试用例提取为以下结构：
+- `name`: 用例标题（不含编号前缀）
+- `steps`: 每个步骤提取为 `{"action": "操作描述", "expected_result": "预期结果"}`
+- `priority`: 从 P0/P1/P2/P3 映射为 critical/high/medium/low
+- `description`: 用例描述或测试目的
+- `preconditions`: 前置条件文本
+
+### 注意事项
+- 保存是非破坏性操作，直接执行无需询问用户确认
+- 如果保存失败，输出 error 格式的 SAVE_RESULT 并建议用户在管理页面手动创建
+- 每次保存后，用户可在「测试用例管理」页面查看已保存的用例
