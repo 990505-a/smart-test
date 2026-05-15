@@ -4,6 +4,9 @@ Per D-05: Agent tools write directly to database via SQLAlchemy session.
 Per D-06: Agent tools bypass FastAPI and use shared session factory.
 These tools allow the TestCase Agent to persist generated test cases
 directly to PostgreSQL without going through the API layer.
+
+Phase 10 additions:
+- ensure_project: Auto-create project for workspace before saving test cases.
 """
 
 from uuid import UUID, uuid4
@@ -12,6 +15,7 @@ from langchain_core.tools import tool
 from sqlalchemy import select
 
 from src.app.db.database import async_session_factory
+from src.app.db.models.project import Project
 from src.app.db.models.test_case import TestCase, TestStep
 from src.app.db.schemas.enums import (
     Priority,
@@ -199,4 +203,53 @@ async def list_project_test_cases(
                 "count": len(cases),
             }
         except Exception as e:
+            return {"success": False, "error": str(e)}
+
+
+@tool
+async def ensure_project(project_name: str = "AI Generated Project") -> dict:
+    """Ensure a project exists for the current workspace. If no project exists, create one automatically.
+
+    Call this before save_test_cases_batch if you don't have a project_id.
+
+    Args:
+        project_name: Name for auto-created project (default "AI Generated Project").
+
+    Returns:
+        Dict with success, project_id, identifier, project_name, and is_new (True if just created).
+    """
+    async with async_session_factory() as session:
+        try:
+            result = await session.execute(
+                select(Project).limit(1)
+            )
+            project = result.scalar_one_or_none()
+
+            if project:
+                return {
+                    "success": True,
+                    "project_id": str(project.id),
+                    "project_name": project.name,
+                    "identifier": project.identifier,
+                    "is_new": False,
+                }
+
+            identifier = generate_identifier_simple("PR")
+            project = Project(
+                identifier=identifier,
+                name=project_name,
+                created_by=DEFAULT_USER_ID,
+            )
+            session.add(project)
+            await session.commit()
+
+            return {
+                "success": True,
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "identifier": identifier,
+                "is_new": True,
+            }
+        except Exception as e:
+            await session.rollback()
             return {"success": False, "error": str(e)}

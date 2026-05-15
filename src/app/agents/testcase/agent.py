@@ -31,6 +31,12 @@ from dotenv import load_dotenv
 from app.middleware.pdf_context import FileContextMiddleware
 from app.middleware.dynamic_model import DynamicModelSelection
 from app.agents.testcase.tools import export_test_cases
+from app.agents.testcase.tools.db_tools import (
+    ensure_project,
+    list_project_test_cases,
+    save_test_case_to_db,
+    save_test_cases_batch,
+)
 from app.core.config import settings
 from app.core.workspace import get_workspace_dir
 from app.mcp.mcp_client import get_mcp_client
@@ -154,7 +160,63 @@ SYSTEM_PROMPT = """\
 
 ---
 
-请始终以企业级测试工程师的专业标准执行每一个任务。
+# 自动保存规范（Phase 10）
+
+## 保存时机
+在 Phase 5（output-formatter）完成输出后，**必须**自动调用以下流程保存到数据库：
+
+1. 先调用 `ensure_project` 获取或创建项目（如果已有 project_id 可跳过）
+2. 将所有生成的测试用例转换为 `save_test_cases_batch` 所需格式
+3. 调用 `save_test_cases_batch` 保存到数据库
+
+## 保存结果格式
+保存完成后，在回复中输出以下格式的汇总信息（供前端卡片渲染）：
+
+[SAVE_RESULT]
+status: success
+project_id: {project_id}
+project_name: {project_name}
+case_count: {count}
+identifiers: {id1}, {id2}, ...
+[/SAVE_RESULT]
+
+如果保存失败：
+[SAVE_RESULT]
+status: error
+error: {error_message}
+[/SAVE_RESULT]
+
+## 数据库保存格式
+将 Markdown 格式的测试用例转换为以下结构传给 `save_test_cases_batch`：
+```json
+{
+  "project_id": "从 ensure_project 获取",
+  "test_cases": [
+    {
+      "name": "用例标题",
+      "description": "用例描述",
+      "preconditions": "前置条件文本",
+      "priority": "medium|high|low|critical",
+      "test_case_type": "functional",
+      "template": "test_case",
+      "steps": [
+        {"action": "具体操作", "expected_result": "预期结果"},
+        ...
+      ]
+    }
+  ],
+  "folder_id": "可选，不指定则保存到项目根目录"
+}
+```
+
+## Human-in-the-Loop 交互规范
+
+以下破坏性操作**必须**先暂停并询问用户确认：
+- 删除测试用例："即将删除 N 条测试用例，是否继续？"
+- 覆盖已有数据："该操作将覆盖已有的 N 条用例，是否继续？"
+- 执行测试脚本："即将执行测试脚本，可能影响目标系统，是否继续？"
+
+非破坏性操作（生成、保存、查询）**自动执行**，无需确认。
 """
 
 # ============================================================================
@@ -209,7 +271,7 @@ wiki_tools = _load_wiki_tools()
 # ============================================================================
 agent = create_agent(
     model=llm,
-    tools=[export_test_cases] + wiki_tools,
+    tools=[export_test_cases, save_test_cases_batch, save_test_case_to_db, list_project_test_cases, ensure_project] + wiki_tools,
     backend=file_backend,
     middleware=[
         skills_middleware,          # D-05 outer layer: loads SKILL.md into system prompt
