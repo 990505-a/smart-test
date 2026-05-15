@@ -40,6 +40,9 @@ export function ConfigDialog({
   const [enablePdfMultimodal, setEnablePdfMultimodal] = useState(
     initialConfig?.enablePdfMultimodal ?? true,
   );
+  const [fastapiUrl, setFastapiUrl] = useState(
+    initialConfig?.fastapiUrl || "",
+  );
 
   useEffect(() => {
     if (open && initialConfig) {
@@ -47,6 +50,7 @@ export function ConfigDialog({
       setAssistantId(initialConfig.assistantId || "");
       setLangsmithApiKey(initialConfig.langsmithApiKey || "");
       setEnablePdfMultimodal(initialConfig.enablePdfMultimodal ?? true);
+      setFastapiUrl(initialConfig.fastapiUrl || "");
     }
   }, [open, initialConfig]);
 
@@ -61,6 +65,7 @@ export function ConfigDialog({
       assistantId,
       langsmithApiKey: langsmithApiKey || undefined,
       enablePdfMultimodal,
+      fastapiUrl: fastapiUrl || "http://localhost:8000",
     });
     onOpenChange(false);
   };
@@ -103,6 +108,17 @@ export function ConfigDialog({
               placeholder="可选"
               value={langsmithApiKey}
               onChange={(e) => setLangsmithApiKey(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="fastapiUrl">
+              FastAPI URL
+            </Label>
+            <Input
+              id="fastapiUrl"
+              placeholder="http://localhost:8000"
+              value={fastapiUrl}
+              onChange={(e) => setFastapiUrl(e.target.value)}
             />
           </div>
           <div className="flex items-center justify-between gap-4">
