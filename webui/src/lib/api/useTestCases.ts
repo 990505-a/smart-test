@@ -61,3 +61,8 @@ export function useDeleteTestCase() {
     }
   );
 }
+
+/** Revalidate all test case SWR caches. Call after Agent auto-saves. */
+export function revalidateTestCases() {
+  mutate(key => Array.isArray(key) && key[0] === "/test-cases");
+}

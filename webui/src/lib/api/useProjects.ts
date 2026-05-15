@@ -57,3 +57,8 @@ export function useDeleteProject() {
     }
   );
 }
+
+/** Revalidate all project SWR caches. Call after Agent auto-saves. */
+export function revalidateProjects() {
+  mutate(key => Array.isArray(key) && key[0] === "/projects");
+}

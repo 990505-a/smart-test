@@ -7,6 +7,8 @@ import { v4 as uuidv4 } from "uuid";
 import { useClient } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 import { getConfig } from "@/lib/config";
+import { revalidateTestCases } from "@/lib/api/useTestCases";
+import { revalidateProjects } from "@/lib/api/useProjects";
 import type { ContentBlock, StateType } from "@/app/types/types";
 
 /**
@@ -31,15 +33,24 @@ export function useChat({
     revalidateHistoryRef.current = onHistoryRevalidate;
   }, [onHistoryRevalidate]);
 
+  const revalidateManagementCache = useCallback(() => {
+    // Revalidate test cases and projects cache so management UI updates
+    // after Agent auto-saves
+    revalidateTestCases();
+    revalidateProjects();
+  }, []);
+
   const scheduleHistoryRevalidate = useCallback(() => {
     if (typeof window === "undefined") {
       revalidateHistoryRef.current?.();
+      revalidateManagementCache();
       return;
     }
     window.setTimeout(() => {
       revalidateHistoryRef.current?.();
+      revalidateManagementCache();
     }, 0);
-  }, []);
+  }, [revalidateManagementCache]);
 
   const stream = useStream<StateType>({
     assistantId,
