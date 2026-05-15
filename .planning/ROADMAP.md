@@ -185,7 +185,7 @@ Plans:
 Plans:
 - [x] 09-01-PLAN.md — Routing restructure, API client, types, shared layout components (Wave 1) (completed 2026-05-15)
 - [x] 09-02-PLAN.md — Project list page with DataTable and SWR CRUD hooks (Wave 2) (completed 2026-05-15)
-- [ ] 09-03-PLAN.md — Folder tree with @dnd-kit and test case editor with BDD mode (Wave 2)
+- [x] 09-03-PLAN.md — Folder tree with @dnd-kit and test case editor with BDD mode (Wave 2) (completed 2026-05-15)
 - [ ] 09-04-PLAN.md — Test execution dashboard with recharts (Wave 3)
 
 **UI hint**: yes
@@ -218,5 +218,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
 | 8. FastAPI Backend & Database | 0/3 | Not started | - |
-| 9. Platform Management UI | 1/4 | In Progress | - |
+| 9. Platform Management UI | 3/4 | In Progress | - |
 | 10. Agent-Database Integration | 0/? | Not started | - |

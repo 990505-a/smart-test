@@ -130,6 +130,7 @@ export interface TestCaseUpdate {
   state?: string;
   folder_id?: string | null;
   custom_fields?: Record<string, unknown> | null;
+  template?: "test_case" | "test_case_bdd";
   feature?: string;
   scenario?: string;
   background?: string;

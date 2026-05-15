@@ -134,6 +134,17 @@ export function ConfigDialog({
               onCheckedChange={setEnablePdfMultimodal}
             />
           </div>
+          <div className="grid gap-2">
+            <Label htmlFor="fastapiUrl">
+              FastAPI URL <span className="text-muted-foreground">(可选)</span>
+            </Label>
+            <Input
+              id="fastapiUrl"
+              placeholder="http://localhost:8000"
+              value={fastapiUrl}
+              onChange={(e) => setFastapiUrl(e.target.value)}
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
