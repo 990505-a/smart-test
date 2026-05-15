@@ -19,7 +19,7 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - [ ] **Phase 7: Multi-Workspace & Infrastructure Hardening** - Workspace isolation, connection pooling, circuit breakers, retry logic
 - [ ] **Phase 8: FastAPI Backend & Database** - REST API CRUD backend, PostgreSQL models, local file storage, Agent result persistence
 - [ ] **Phase 9: Platform Management UI** - Project list, test case editor, folder navigation, test execution dashboard
-- [ ] **Phase 10: Agent-Database Integration** - Agent results auto-save to database, test report visualization, Human-in-the-Loop
+- [x] **Phase 10: Agent-Database Integration** - Agent results auto-save to database, test report visualization, Human-in-the-Loop (completed 2026-05-15)
 
 ## Phase Details
 
@@ -57,7 +57,7 @@ Plans:
 nPlans:
 - [x] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
 - [x] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
-- [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
+- [x] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 Plans:
 - [x] 02-01-PLAN.md — PDF processing pipeline: PDFProcessor with MD5 caching, PDFContextMiddleware with session isolation
@@ -94,8 +94,8 @@ Plans:
   5. User can toggle multimodal mode via the UI switch, controlling the ENABLE_PDF_MULTIMODAL parameter
 **Plans**: 3 plans
 nPlans:
-- [ ] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
-- [ ] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
+- [x] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
+- [x] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
 - [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 Plans:
@@ -239,4 +239,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
 | 8. FastAPI Backend & Database | 0/3 | Not started | - |
 | 9. Platform Management UI | 4/4 | Complete | 2026-05-15 |
-| 10. Agent-Database Integration | 2/3 | In Progress | - |
+| 10. Agent-Database Integration | 3/3 | Complete   | 2026-05-15 |
