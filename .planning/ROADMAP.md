@@ -186,7 +186,7 @@ Plans:
 - [x] 09-01-PLAN.md — Routing restructure, API client, types, shared layout components (Wave 1) (completed 2026-05-15)
 - [x] 09-02-PLAN.md — Project list page with DataTable and SWR CRUD hooks (Wave 2) (completed 2026-05-15)
 - [x] 09-03-PLAN.md — Folder tree with @dnd-kit and test case editor with BDD mode (Wave 2) (completed 2026-05-15)
-- [ ] 09-04-PLAN.md — Test execution dashboard with recharts (Wave 3)
+- [x] 09-04-PLAN.md — Test execution dashboard with recharts (Wave 3)
 
 **UI hint**: yes
 
