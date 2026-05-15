@@ -125,6 +125,7 @@ export interface TestCaseUpdate {
   preconditions?: string;
   priority?: "low" | "medium" | "high" | "critical";
   state?: string;
+  template?: "test_case" | "test_case_bdd";
   feature?: string;
   scenario?: string;
   background?: string;
