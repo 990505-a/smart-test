@@ -56,7 +56,7 @@ Plans:
 **Plans**: 3 plans
 nPlans:
 - [x] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
-- [ ] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
+- [x] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
 - [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 Plans:
@@ -217,8 +217,8 @@ Plans:
   4. Full end-to-end flow: chat with agent, generate cases, auto-save, view in management UI, execute tests, see results
 **Plans**: 3 plans
 Plans:
-- [ ] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
-- [ ] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
+- [x] 10-01-PLAN.md — Agent auto-save and HITL: ensure_project tool, DB tools registration, system prompt update, SKILL.md HITL checkpoints
+- [x] 10-02-PLAN.md — Chat inline cards: ToolResultCard component, regex detection in ChatMessage, deep links to management
 - [ ] 10-03-PLAN.md — Test reports and SWR revalidation: /reports page with recharts, SWR mutate after auto-save
 
 **UI hint**: yes
@@ -238,5 +238,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
 | 8. FastAPI Backend & Database | 0/3 | Not started | - |
-| 9. Platform Management UI | 3/4 | In Progress | - |
-| 10. Agent-Database Integration | 1/3 | In Progress|  |
+| 9. Platform Management UI | 4/4 | Complete | 2026-05-15 |
+| 10. Agent-Database Integration | 2/3 | In Progress | - |
