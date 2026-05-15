@@ -180,7 +180,13 @@ Plans:
   3. Test case editor with steps, expected results, priority, and BDD support
   4. Test execution dashboard showing run history, pass/fail statistics, and results
   5. Navigation between chat interface (Agent) and management pages (CRUD)
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — Routing restructure, API client, types, shared layout components (Wave 1)
+- [ ] 09-02-PLAN.md — Project list page with DataTable and SWR CRUD hooks (Wave 2)
+- [ ] 09-03-PLAN.md — Folder tree with @dnd-kit and test case editor with BDD mode (Wave 2)
+- [ ] 09-04-PLAN.md — Test execution dashboard with recharts (Wave 3)
 
 **UI hint**: yes
 
@@ -212,5 +218,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. API Automation Agent | 0/? | Not started | - |
 | 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
 | 8. FastAPI Backend & Database | 0/3 | Not started | - |
-| 9. Platform Management UI | 0/? | Not started | - |
+| 9. Platform Management UI | 0/4 | Not started | - |
 | 10. Agent-Database Integration | 0/? | Not started | - |
