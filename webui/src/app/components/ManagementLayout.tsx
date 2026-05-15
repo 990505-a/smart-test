@@ -3,15 +3,11 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  FolderKanban,
-  FolderTree,
-  FileText,
-  PlayCircle,
-  MessageSquare,
-} from "lucide-react";
+import { FolderKanban, FolderTree, FileText, PlayCircle, MessageSquare } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Separator } from "@/components/ui/separator";
 
-const SIDEBAR_ITEMS = [
+const NAV_ITEMS = [
   { href: "/projects", label: "项目列表", icon: FolderKanban },
   { href: "/folders", label: "文件夹", icon: FolderTree },
   { href: "/cases", label: "测试用例", icon: FileText },
@@ -26,18 +22,16 @@ export function ManagementLayout({ children }: { children: React.ReactNode }) {
       {/* Left sidebar */}
       <aside className="w-[200px] flex-shrink-0 border-r bg-muted/40 p-4">
         <nav className="flex flex-col gap-1">
-          {SIDEBAR_ITEMS.map(({ href, label, icon: Icon }) => {
-            const isActive =
-              pathname === href || pathname.startsWith(href + "/");
+          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+            const isActive = pathname === href || pathname.startsWith(href + "/");
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent ${
-                  isActive
-                    ? "bg-accent font-medium"
-                    : "text-muted-foreground"
-                }`}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
+                  isActive && "bg-accent font-medium"
+                )}
               >
                 <Icon className="h-4 w-4" />
                 {label}
@@ -45,12 +39,10 @@ export function ManagementLayout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-
-        <div className="my-4 border-t" />
-
+        <Separator className="my-4" />
         <Link
           href="/chat"
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent"
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <MessageSquare className="h-4 w-4" />
           返回聊天

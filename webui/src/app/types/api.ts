@@ -130,6 +130,10 @@ export interface TestCaseUpdate {
   state?: string;
   folder_id?: string | null;
   custom_fields?: Record<string, unknown> | null;
+  feature?: string;
+  scenario?: string;
+  background?: string;
+  steps?: Array<{ step_number: number; action: string; expected_result?: string }>;
 }
 
 // === Test Run ===
@@ -179,8 +183,12 @@ export interface TestStepResultInfo {
   id: string;
   test_result_id: string;
   step_index: number;
-  status: "passed" | "failed" | "skipped" | "blocked";
+  step_number: number;
+  action: string;
+  expected_result: string | null;
+  actual_result: string | null;
   description: string | null;
+  status: "passed" | "failed" | "skipped" | "blocked";
   created_at: string;
   updated_at: string | null;
 }
@@ -205,6 +213,8 @@ export interface TestResultCreate {
   duration_ms?: number;
   step_results?: Array<{
     step_index: number;
+    step_number: number;
+    actual_result?: string;
     status: "passed" | "failed" | "skipped" | "blocked";
     description?: string;
   }>;
