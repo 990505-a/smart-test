@@ -220,3 +220,135 @@ export interface TestResultCreate {
     description?: string;
   }>;
 }
+
+// === API Test ===
+export interface APITestInfo {
+  id: string;
+  project_id: string;
+  folder_id: string | null;
+  test_case_id: string | null;
+  identifier: string;
+  name: string;
+  description: string | null;
+  schema_url: string | null;
+  schema_path: string | null;
+  schema_type: string;
+  script_path: string | null;
+  script_format: string;
+  script_language: string;
+  test_config: Record<string, unknown>;
+  generated_by_agent: string | null;
+  generation_params: Record<string, unknown>;
+  total_endpoints: number;
+  total_scenarios: number;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface APITestCreate {
+  project_id: string;
+  folder_id?: string | null;
+  name: string;
+  description?: string;
+  schema_url?: string;
+  schema_type?: string;
+  script_format?: string;
+  script_language?: string;
+  test_config?: Record<string, unknown>;
+}
+
+export interface APITestUpdate {
+  name?: string;
+  description?: string;
+  schema_url?: string;
+  schema_path?: string;
+  script_path?: string;
+  test_config?: Record<string, unknown>;
+}
+
+// === API Test Run ===
+export interface APITestRunInfo {
+  id: string;
+  project_id: string;
+  api_test_id: string;
+  identifier: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  execution_config: Record<string, unknown>;
+  total_tests: number;
+  passed_tests: number;
+  failed_tests: number;
+  skipped_tests: number;
+  duration_ms: number | null;
+  report_path: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+// === API Test Result ===
+export interface APITestResultInfo {
+  id: string;
+  test_run_id: string;
+  api_test_id: string | null;
+  scenario_name: string | null;
+  endpoint: string | null;
+  method: string | null;
+  status: "passed" | "failed" | "skipped" | "blocked";
+  request_summary: Record<string, unknown> | null;
+  response_summary: Record<string, unknown> | null;
+  error_message: string | null;
+  detail_log_id: string | null;
+  duration_ms: number | null;
+  retry_count: number;
+  created_at: string;
+}
+
+// === Scenario ===
+export interface ScenarioInfo {
+  id: string;
+  project_id: string;
+  folder_id: string | null;
+  identifier: string;
+  name: string;
+  description: string | null;
+  status: string;
+  total_steps: number;
+  last_run_status: string | null;
+  last_run_at: string | null;
+  steps: ScenarioStepInfo[];
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface ScenarioStepInfo {
+  id: string;
+  scenario_id: string;
+  endpoint_id: string | null;
+  step_order: number;
+  name: string;
+  description: string | null;
+  request_override: Record<string, unknown>;
+  headers_override: Record<string, unknown>;
+  extractors: unknown[];
+  assertions: unknown[];
+  condition_expression: string | null;
+  continue_on_failure: boolean;
+  delay_ms: number;
+  retry_count: number;
+}
+
+export interface ScenarioRunInfo {
+  id: string;
+  scenario_id: string;
+  project_id: string;
+  identifier: string;
+  status: string;
+  total_steps: number;
+  passed_steps: number;
+  failed_steps: number;
+  skipped_steps: number;
+  duration_ms: number | null;
+  report_path: string | null;
+  error_message: string | null;
+  created_at: string;
+}
