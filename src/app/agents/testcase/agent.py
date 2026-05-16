@@ -1,45 +1,43 @@
-"""TestCase Agent - fully wired with 3-layer middleware chain, tools, and system prompt.
+"""TestCase Agent — refactored with make_agent() factory, context injection, and tool registry.
 
 Architecture (onion middleware model):
-    |-- SkillsMiddleware (outer)           -> loads 7 SKILL.md files into system prompt (incl. wiki-query, test-data-generator)
-    |   |-- DynamicModelSelection (middle) -> detects images -> switches to GPT-4o
-    |   |   |-- FileContextMiddleware (inner) -> injects PDF/Image/Excel document context
-    |   |   |-- LLM (deepseek or gpt-4o)
+    |-- SkillsMiddleware (outer)           -> loads 7 SKILL.md files into system prompt
+    |   |-- ContextInjectionMiddleware     -> injects project_identifier, folder_id from context
+    |   |   |-- DynamicModelSelection      -> detects images -> switches to GPT-4o
+    |   |   |   |-- FileContextMiddleware   -> injects PDF/Image/Excel document context
+    |   |   |   |-- LLM (deepseek or gpt-4o)
 
 Design decisions:
-    - D-04: 3-layer onion: Skills(outer) -> DynamicModel(middle) -> FileContext(inner)
-    - D-05: Separate FilesystemBackend for skills, rooted at src/app/ (not workspace)
-    - D-01/D-02: DynamicModelSelection detects image content and switches to GPT-4o
-    - D-05/D-08: FileContextMiddleware (renamed from PDFContext) handles PDF/Image/Excel
-    - D-06/MIDW-03: SYSTEM_PROMPT passed to FileContextMiddleware for immutable fallback pattern
-    - D-01/D-03/D-14: System prompt enforces 5-stage mandatory workflow with quality red-lines
-    - D-09/D-10/D-11/D-12: Unified export_test_cases tool supports Excel/CSV/JSON/Markdown
-    - D-09: test-data-generator is the 7th Skill auto-discovered by SkillsMiddleware
-    - D-16: No middleware changes for wiki-mcp. Tools registered via tools= parameter only.
-    - D-05/D-10: wiki-mcp tools loaded via MCP client as LangChain BaseTool objects (no @tool wrapping)
+    - make_agent() asynccontextmanager for MCP session lifecycle management
+    - context_schema=TestCaseAgentContext for runtime context injection
+    - ContextInjectionMiddleware auto-injects project/folder into system prompt
+    - tool_registry.py for centralized tool management
+    - CompositeBackend routes /skills/ to skills_backend, other paths to file_backend
 """
 
-import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 from deepagents import create_deep_agent as create_agent
 from deepagents.backends import FilesystemBackend
+from deepagents.backends.composite import CompositeBackend
 from deepagents.middleware import SkillsMiddleware
 from langchain.chat_models import init_chat_model
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.pregel import Pregel
 from dotenv import load_dotenv
 
 from app.middleware.pdf_context import FileContextMiddleware
 from app.middleware.dynamic_model import DynamicModelSelection
-from app.agents.testcase.tools import export_test_cases
-from app.agents.testcase.tools.db_tools import (
-    ensure_project,
-    list_project_test_cases,
-    save_test_case_to_db,
-    save_test_cases_batch,
+from app.agents.testcase.context import (
+    ContextInjectionMiddleware,
+    TestCaseAgentContext,
 )
+from app.agents.testcase.tool_registry import get_local_tools
 from app.core.config import settings
 from app.core.workspace import get_workspace_dir
-from app.mcp.mcp_client import get_mcp_client
 
 load_dotenv()
 
@@ -50,28 +48,31 @@ llm = init_chat_model("deepseek:deepseek-chat")
 
 # ============================================================================
 # Backend configuration
-# Default workspace for graph compilation.
-# Tools that need per-request workspace resolve via get_space_id() at call time.
+# CompositeBackend routes /skills/ to skills_backend (src/app/skills/), all other
+# paths to the default file_backend (workspace/default/testcase/).
 # ============================================================================
 _default_workspace_dir = get_workspace_dir("default", "testcase")
 _default_workspace_dir.mkdir(parents=True, exist_ok=True)
 file_backend = FilesystemBackend(root_dir=_default_workspace_dir, virtual_mode=True)
 
+skills_dir = Path(__file__).parent.parent.parent / "skills"  # src/app/skills/
+skills_backend = FilesystemBackend(root_dir=skills_dir, virtual_mode=True)
+
+composite_backend = CompositeBackend(
+    default=file_backend,
+    routes={"/skills/": skills_backend},
+)
+
 # ============================================================================
-# SkillsMiddleware configuration (D-05 outer layer, D-12/D-13)
-# Per RESEARCH Open Question 2 and Pitfall 1: separate FilesystemBackend
-# rooted at src/app/ with sources=["/skills/"]
+# SkillsMiddleware configuration
 # ============================================================================
-app_dir = Path(__file__).parent.parent.parent  # src/app/
-skills_backend = FilesystemBackend(root_dir=app_dir, virtual_mode=True)
 skills_middleware = SkillsMiddleware(
-    backend=skills_backend,
+    backend=composite_backend,
     sources=["/skills/"],
 )
 
 # ============================================================================
-# System prompt - 5-stage mandatory workflow with quality red-lines
-# Adapted from classroom reference, with future-phase features excluded.
+# System prompt — 5-stage mandatory workflow with quality red-lines
 # ============================================================================
 SYSTEM_PROMPT = """\
 # 角色定位
@@ -220,63 +221,67 @@ error: {error_message}
 """
 
 # ============================================================================
-# DynamicModelSelection middleware (D-01/D-04 middle layer)
-# Detects image content and switches to GPT-4o multimodal model.
-# Onion order: Skills(outer) -> DynamicModel(middle) -> FileContext(inner)
+# Middleware instances (reusable across agent invocations)
 # ============================================================================
 dynamic_model_middleware = DynamicModelSelection(api_key=settings.openai_api_key)
 
-# ============================================================================
-# FileContextMiddleware configuration (D-05 inner layer, D-08 unified file injection)
-# Supports PDF, Image, and Excel file processing with session isolation.
-# ============================================================================
 file_middleware = FileContextMiddleware(
     original_system_prompt=SYSTEM_PROMPT,
     enable_cache=True,
     api_key=settings.openai_api_key,
 )
 
+context_middleware = ContextInjectionMiddleware()
+
+
 # ============================================================================
-# wiki-mcp tool loading (D-04/D-05/D-16)
-# Uses asyncio.new_event_loop() to safely fetch tools at module import time.
-# Per RESEARCH Pitfall 3: avoids asyncio.run() which crashes inside running
-# event loops (e.g., LangGraph server). Graceful fallback if wiki-mcp unavailable.
+# Agent factory — asynccontextmanager for MCP session lifecycle
+# Matches classroom's make_agent() pattern:
+#   - Creates MCP client inside context manager
+#   - MCP tools loaded lazily per-session
+#   - Resources cleaned up on exit
 # ============================================================================
+@asynccontextmanager
+async def make_agent() -> AsyncIterator[Pregel]:
+    """Create a TestCase Agent with managed MCP session lifecycle.
 
-
-def _load_wiki_tools() -> list:
-    """Try to load wiki-mcp tools at module import time.
-
-    Uses a new event loop to avoid conflicts with any running loop.
-    Returns empty list if wiki-mcp is unavailable (not installed, config missing, etc.)
-    so the agent degrades gracefully with just the Excel export tool.
+    Uses asynccontextmanager to ensure MCP client sessions are properly
+    initialized before agent creation and cleaned up on exit.
     """
+    # Initialize MCP client and load tools within the context
+    mcp_tools: list = []
     try:
-        loop = asyncio.new_event_loop()
-        client = loop.run_until_complete(get_mcp_client())
-        tools = loop.run_until_complete(client.get_tools(server_name="wiki-mcp"))
-        loop.close()
-        return tools
+        client = MultiServerMCPClient(
+            {
+                "wiki-mcp": {
+                    "transport": "stdio",
+                    "command": settings.wiki_mcp_command,
+                    "args": settings.wiki_mcp_args.split(),
+                },
+            }
+        )
+        mcp_tools = await load_mcp_tools(client, server_name="wiki-mcp")
     except Exception:
-        return []
+        pass  # Graceful degradation — agent works with just local tools
+
+    all_tools = get_local_tools() + mcp_tools
+
+    agent = create_agent(
+        model=llm,
+        tools=all_tools,
+        backend=composite_backend,
+        middleware=[
+            skills_middleware,
+            context_middleware,
+            dynamic_model_middleware,
+            file_middleware,
+        ],
+        system_prompt=SYSTEM_PROMPT,
+        context_schema=TestCaseAgentContext,
+    )
+
+    yield agent
 
 
-wiki_tools = _load_wiki_tools()
-
-# ============================================================================
-# Agent creation (D-04 3-layer onion: Skills outer -> DynamicModel middle -> FileContext inner)
-# D-16: wiki-mcp tools added via tools= parameter, no middleware change.
-# Tools: export_test_cases (unified multi-format) + wiki-mcp 6 tools
-# (list_wikis, list_pages, get_page, search, graph_query, reload)
-# ============================================================================
-agent = create_agent(
-    model=llm,
-    tools=[export_test_cases, save_test_cases_batch, save_test_case_to_db, list_project_test_cases, ensure_project] + wiki_tools,
-    backend=file_backend,
-    middleware=[
-        skills_middleware,          # D-05 outer layer: loads SKILL.md into system prompt
-        dynamic_model_middleware,   # D-01/D-04 middle layer: switches model for images
-        file_middleware,            # D-05 inner layer: injects file context into system prompt
-    ],
-    system_prompt=SYSTEM_PROMPT,
-)
+# Export for LangGraph API — the factory function itself, not an agent instance
+agent = make_agent
