@@ -19,7 +19,7 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - [ ] **Phase 7: Multi-Workspace & Infrastructure Hardening** - Workspace isolation, connection pooling, circuit breakers, retry logic
 - [ ] **Phase 8: FastAPI Backend & Database** - REST API CRUD backend, PostgreSQL models, local file storage, Agent result persistence
 - [ ] **Phase 9: Platform Management UI** - Project list, test case editor, folder navigation, test execution dashboard
-- [x] **Phase 10: Agent-Database Integration** - Agent results auto-save to database, test report visualization, Human-in-the-Loop (completed 2026-05-15)
+- [x] **Phase 10: Agent-Database Integration** - Agent results auto-save to database, test report visualization, Human-in-the-Loop (completed 2026-05-15)
 
 ## Phase Details
 
@@ -223,10 +223,34 @@ Plans:
 
 **UI hint**: yes
 
+### Phase 11: API Test Execution Engine & GitNexus Integration
+**Goal**: Implement the full API test lifecycle — OpenAPI parsing with auto-folder creation, Playwright-based test execution with Allure reports, scenario-based testing with real HTTP requests, GitNexus code analysis MCP integration, and 6 API-specific agent skills
+**Depends on**: Phase 10
+**Requirements**: API-10, API-11, API-12, API-13, API-14, API-15, API-16, PLAT-18, PLAT-19, PLAT-20
+**Success Criteria** (what must be TRUE):
+  1. User uploads an OpenAPI/Swagger spec and the system auto-parses it, creates tag-based folder structure, and stores endpoint metadata in the database
+  2. API Agent generates Playwright test scripts from endpoint definitions, with test execution engine downloading scripts, running via npx playwright test, parsing JSON results, and generating Allure HTML reports
+  3. Scenario engine executes multi-step business flows with real HTTP requests (httpx), JSONPath data extraction, template variable substitution, and assertion comparison (eq/ne/gt/lt/contains)
+  4. 6 API-specific skills (planner, generator, executor, healer, reporter, scenario) loaded via SkillsMiddleware from .claude/skills/api/ directory
+  5. GitNexus MCP integration provides code analysis capabilities to the API Agent for source-code-aware test generation
+  6. Frontend pages for API test management: schema upload, test list, execution trigger, run history, report viewer
+  7. ~28 agent tools across 7 categories registered in tool_registry.py for comprehensive API test lifecycle management
+**Plans**: 6 plans
+
+Plans:
+- [ ] 11-01-PLAN.md — Database models and services: APITest/APITestRun/APITestResult models, APITestService, ScenarioService (Wave 1)
+- [ ] 11-02-PLAN.md — FastAPI routes: 13 API test endpoints, 18 scenario endpoints (Wave 1)
+- [ ] 11-03-PLAN.md — Agent tools and refactor: ~28 tools in 7 categories, make_agent() factory, GitNexus MCP (Wave 2)
+- [ ] 11-04-PLAN.md — Execution engines: OpenAPI parser, APITestExecutor, ScenarioExecutionEngine (Wave 2)
+- [ ] 11-05-PLAN.md — API Skills: 6 SKILL.md files (planner, generator, scenario, executor, healer, reporter) (Wave 1)
+- [ ] 11-06-PLAN.md — Frontend pages: API test management, scenario editor, management navigation (Wave 3)
+
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -240,3 +264,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. FastAPI Backend & Database | 0/3 | Not started | - |
 | 9. Platform Management UI | 4/4 | Complete | 2026-05-15 |
 | 10. Agent-Database Integration | 3/3 | Complete    | 2026-05-15 |
+| 11. API Test Execution Engine & GitNexus Integration | 0/6 | Not started | - |
