@@ -36,3 +36,6 @@ from src.app.db.models.test_scenario import (  # noqa: F401
     ScenarioRun,
     ScenarioStepResult,
 )
+
+# API Test domain (depends on Project, Folder, TestCase)
+from src.app.db.models.api_test import APITest, APITestRun, APITestResult  # noqa: F401

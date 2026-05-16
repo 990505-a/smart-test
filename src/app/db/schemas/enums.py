@@ -178,3 +178,13 @@ class AttachmentEntityType(str, Enum):
     API_TEST_CASE = "api_test_case"
     API_TEST_SCRIPT = "api_test_script"
     API_TEST_REPORT = "api_test_report"
+
+
+class APITestRunStatus(str, Enum):
+    """API test run execution status."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
