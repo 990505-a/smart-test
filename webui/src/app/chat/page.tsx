@@ -169,7 +169,7 @@ function HomePageInner({
                   id="thread-history"
                   defaultSize={25}
                   minSize={20}
-                  className="min-w-[300px]"
+                  className="relative z-20 min-w-[300px] overflow-hidden bg-background"
                 >
                   <ThreadList
                     onThreadSelect={handleThreadSelect}
@@ -183,7 +183,7 @@ function HomePageInner({
 
             <ResizablePanel
               id="chat"
-              className="relative flex flex-col"
+              className="relative flex flex-col overflow-hidden"
             >
               <ChatProvider
                 activeAssistant={activeAssistant}

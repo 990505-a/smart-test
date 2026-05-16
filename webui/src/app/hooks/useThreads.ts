@@ -1,8 +1,7 @@
 "use client";
 
 import useSWRInfinite from "swr/infinite";
-import type { Thread } from "@langchain/langgraph-sdk";
-import { Client } from "@langchain/langgraph-sdk";
+import type { Thread, Client } from "@langchain/langgraph-sdk";
 import { getConfig } from "@/lib/config";
 
 export interface ThreadItem {
@@ -16,19 +15,18 @@ export interface ThreadItem {
 
 const DEFAULT_PAGE_SIZE = 20;
 
-export function useThreads(props?: {
-  status?: Thread["status"];
-  limit?: number;
-}) {
+export function useThreads(
+  client: Client,
+  props?: {
+    status?: Thread["status"];
+    limit?: number;
+  },
+) {
   const pageSize = props?.limit || DEFAULT_PAGE_SIZE;
 
   return useSWRInfinite(
     (pageIndex: number, previousPageData: ThreadItem[] | null) => {
       const config = getConfig();
-      const apiKey =
-        config?.langsmithApiKey ||
-        process.env.NEXT_PUBLIC_LANGSMITH_API_KEY ||
-        "";
 
       if (!config) {
         return null;
@@ -43,16 +41,12 @@ export function useThreads(props?: {
         kind: "threads" as const,
         pageIndex,
         pageSize,
-        deploymentUrl: config.deploymentUrl,
         assistantId: config.assistantId,
-        apiKey,
         status: props?.status,
       };
     },
     async ({
-      deploymentUrl,
       assistantId,
-      apiKey,
       status,
       pageIndex,
       pageSize,
@@ -60,16 +54,9 @@ export function useThreads(props?: {
       kind: "threads";
       pageIndex: number;
       pageSize: number;
-      deploymentUrl: string;
       assistantId: string;
-      apiKey: string;
       status?: Thread["status"];
     }) => {
-      const client = new Client({
-        apiUrl: deploymentUrl,
-        defaultHeaders: apiKey ? { "X-Api-Key": apiKey } : {},
-      });
-
       // Check if assistantId is a UUID (deployed) or graph name (local)
       const isUUID =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -88,7 +75,7 @@ export function useThreads(props?: {
       });
 
       return threads.map((thread): ThreadItem => {
-        let title = "无标题对话"; // 无标题对话
+        let title = "无标题对话";
         let description = "";
 
         try {
@@ -123,7 +110,7 @@ export function useThreads(props?: {
             }
           }
         } catch {
-          title = `对话 ${thread.thread_id.slice(0, 8)}`; // 对话
+          title = `对话 ${thread.thread_id.slice(0, 8)}`;
         }
 
         return {
@@ -139,6 +126,8 @@ export function useThreads(props?: {
     {
       revalidateFirstPage: true,
       revalidateOnFocus: true,
+      errorRetryInterval: 3000,
+      dedupingInterval: 2000,
     },
   );
 }

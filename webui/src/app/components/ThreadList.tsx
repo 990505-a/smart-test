@@ -36,11 +36,16 @@ function formatTime(date: Date, now = new Date()): string {
   return format(date, "MM/dd");
 }
 
-function ErrorState({ message }: { message: string }) {
+function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center">
       <p className="text-sm text-red-600">加载对话列表失败</p>
-      <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+      <p className="mt-1 max-w-[200px] break-words text-xs text-muted-foreground">{message}</p>
+      {onRetry && (
+        <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
+          重试
+        </Button>
+      )}
     </div>
   );
 }
@@ -80,7 +85,7 @@ export function ThreadList({
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
   const client = useClient();
 
-  const threads = useThreads({
+  const threads = useThreads(client, {
     limit: 20,
   });
 
@@ -216,7 +221,7 @@ export function ThreadList({
       </div>
 
       <ScrollArea className="h-0 flex-1">
-        {threads.error && <ErrorState message={threads.error.message} />}
+        {threads.error && <ErrorState message={threads.error.message} onRetry={() => threads.mutate()} />}
 
         {!threads.error && !threads.data && threads.isLoading && (
           <LoadingState />

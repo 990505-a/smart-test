@@ -112,7 +112,14 @@ export function useChat({
       };
 
       stream.submit(
-        { messages: [newMessage] },
+        {
+          messages: [newMessage],
+          context: {
+            project_identifier: "",
+            folder_id: "",
+            current_user_id: "00000000-0000-0000-0000-000000000001",
+          },
+        },
         {
           optimisticValues: (prev) => ({
             messages: [...(prev.messages ?? []), newMessage],

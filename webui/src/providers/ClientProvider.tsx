@@ -16,7 +16,7 @@ export function ClientProvider({
 }) {
   const client = useMemo(
     () => new Client({ apiUrl: deploymentUrl, apiKey }),
-    [deploymentUrl, apiKey]
+    [deploymentUrl, apiKey],
   );
   return (
     <ClientContext.Provider value={client}>{children}</ClientContext.Provider>

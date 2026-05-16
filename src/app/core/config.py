@@ -33,19 +33,13 @@ class Settings(BaseSettings):
     gitnexus_mcp_command: str = "node"
     gitnexus_mcp_args: str = "D:/prpm/72codegraph/gitnexus/dist/cli/index.js mcp"
 
-    # PostgreSQL (Phase 8) -- per D-01, D-02
-    postgres_host: str = "localhost"
-    postgres_port: int = 5432
-    postgres_user: str = "postgres"
-    postgres_password: str = "postgres"
-    postgres_db: str = "smart_test_platform"
+    # SQLite (local dev — no PostgreSQL required)
+    sqlite_db: str = "smart_test_platform.db"
 
     @property
     def database_url(self) -> str:
-        return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-        )
+        db_path = Path(__file__).parent.parent.parent.parent / self.sqlite_db
+        return f"sqlite+aiosqlite:///{db_path}"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
