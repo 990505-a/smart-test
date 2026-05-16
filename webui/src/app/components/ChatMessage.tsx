@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useMemo } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { ContentBlock } from "@/app/types/types";
+import type { ContentBlock, ToolCall } from "@/app/types/types";
 import { PIPELINE_STAGES } from "@/app/types/types";
 import { cn } from "@/lib/utils";
 import { File } from "lucide-react";
 import { ToolResultCard, parseSaveResults, stripSaveResultMarkers } from "@/app/components/ToolResultCard";
+import { ToolCallBox } from "@/app/components/ToolCallBox";
+import { MarkdownContent } from "@/app/components/MarkdownContent";
 
 /** image_url block as sent to OpenAI-compatible APIs */
 interface ImageUrlBlock {
@@ -32,9 +32,16 @@ interface ChatMessageProps {
   message: {
     id?: string;
     type: string;
+    name?: string;
     content: string | Array<Record<string, unknown>>;
     additional_kwargs?: Record<string, unknown>;
+    tool_calls?: Array<{
+      name: string;
+      args?: Record<string, unknown>;
+      id?: string;
+    }>;
   };
+  toolCalls?: ToolCall[];
   isStreaming?: boolean;
 }
 
@@ -54,11 +61,14 @@ function extractStringContent(
 }
 
 export const ChatMessage = React.memo<ChatMessageProps>(
-  ({ message, isStreaming = false }) => {
+  ({ message, toolCalls = [], isStreaming = false }) => {
     const isUser = message.type === "human";
     const isAi = message.type === "ai";
+    const isTool = message.type === "tool";
     const messageContent = extractStringContent(message.content);
     const hasContent = messageContent && messageContent.trim() !== "";
+    const hasToolCalls = toolCalls.length > 0;
+    const visibleToolCalls = toolCalls.filter((tc) => tc.name !== "task");
 
     // Images: image_url blocks in message.content
     const imageUrlBlocks = useMemo(() => {
@@ -98,7 +108,11 @@ export const ChatMessage = React.memo<ChatMessageProps>(
       return null;
     }, [isUser, displayContent]);
 
-    // Skip rendering for tool/system messages without visible content
+    // Tool messages are handled by the processedMessages logic in ChatInterface
+    // They get matched to tool calls on AI messages, so we skip standalone display
+    if (isTool) return null;
+
+    // Skip system messages
     if (!isUser && !isAi) return null;
 
     return (
@@ -147,8 +161,8 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               )}
             </div>
           ) : (
-            /* AI message: rendered with markdown */
-            hasContent && (
+            /* AI message: tool calls + rendered markdown */
+            (hasToolCalls || hasContent) && (
               <div className="mt-4 min-w-0 overflow-hidden break-words text-sm leading-relaxed">
                 {/* Pipeline stage indicator */}
                 {detectedStage && (
@@ -168,29 +182,39 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     ))}
                   </div>
                 )}
-                {isStreaming ? (
-                  <div className="prose min-w-0 max-w-full text-sm">
-                    <p className="m-0 whitespace-pre-wrap break-words">
-                      {displayContent}
-                      <span className="animate-pulse">|</span>
-                    </p>
+
+                {/* Tool call boxes (skip "task" calls) */}
+                {visibleToolCalls.length > 0 && (
+                  <div className="mb-2 space-y-0.5">
+                    {visibleToolCalls.map((tc) => (
+                      <ToolCallBox key={tc.id} toolCall={tc} />
+                    ))}
                   </div>
-                ) : (
-                  <>
-                    {/* Tool result cards from auto-save */}
-                    {saveResults.length > 0 && (
-                      <div className="space-y-2">
-                        {saveResults.map((result, idx) => (
-                          <ToolResultCard key={`save-result-${idx}`} data={result} />
-                        ))}
-                      </div>
-                    )}
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {displayContent}
-                      </ReactMarkdown>
-                    </div>
-                  </>
+                )}
+
+                {/* Text content */}
+                {hasContent && (
+                  isStreaming ? (
+                    <>
+                      <MarkdownContent
+                        content={displayContent}
+                        streaming
+                        className="[&_p:last-child]:inline [&_p:not(:last-child)]:inline-block"
+                      />
+                      <span className="animate-pulse">|</span>
+                    </>
+                  ) : (
+                    <>
+                      {saveResults.length > 0 && (
+                        <div className="space-y-2">
+                          {saveResults.map((result, idx) => (
+                            <ToolResultCard key={`save-result-${idx}`} data={result} />
+                          ))}
+                        </div>
+                      )}
+                      <MarkdownContent content={displayContent} />
+                    </>
+                  )
                 )}
               </div>
             )

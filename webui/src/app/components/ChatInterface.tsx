@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect, FormEvent } from "react";
+import React, { useState, useRef, useCallback, useEffect, useMemo, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowUp, Square, Plus } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { useFileUpload } from "@/app/hooks/useFileUpload";
 import { ContentBlocksPreview } from "@/app/components/ContentBlocksPreview";
+import type { ToolCall } from "@/app/types/types";
+import type { Message } from "@langchain/langgraph-sdk";
 
 interface ChatInterfaceProps {
   assistantId: string;
@@ -68,6 +70,90 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     [handleSubmit, submitDisabled],
   );
 
+  // Extract tool calls from messages, matching classroom's processedMessages pattern
+  const processedMessages = useMemo(() => {
+    if (!messages) return [];
+    const messageMap = new Map<
+      string,
+      { message: Message; toolCalls: ToolCall[] }
+    >();
+
+    messages.forEach((message: Message) => {
+      if (message.type === "ai") {
+        const toolCallsInMessage: Array<{
+          id?: string;
+          function?: { name?: string; arguments?: unknown };
+          name?: string;
+          type?: string;
+          args?: unknown;
+          input?: unknown;
+        }> = [];
+
+        if (
+          message.additional_kwargs?.tool_calls &&
+          Array.isArray(message.additional_kwargs.tool_calls)
+        ) {
+          toolCallsInMessage.push(...message.additional_kwargs.tool_calls);
+        } else if (message.tool_calls && Array.isArray(message.tool_calls)) {
+          toolCallsInMessage.push(
+            ...message.tool_calls.filter(
+              (tc: { name?: string }) => tc.name !== "",
+            ),
+          );
+        } else if (Array.isArray(message.content)) {
+          const toolUseBlocks = (message.content as Array<{ type?: string }>).filter(
+            (block) => block.type === "tool_use",
+          );
+          toolCallsInMessage.push(...(toolUseBlocks as any[]));
+        }
+
+        const toolCallsWithStatus = toolCallsInMessage.map(
+          (tc): ToolCall => {
+            const name =
+              tc.function?.name || tc.name || tc.type || "unknown";
+            const args =
+              tc.function?.arguments || tc.args || tc.input || {};
+            return {
+              id: tc.id || `tool-${Math.random()}`,
+              name,
+              args: typeof args === "object" && args !== null ? args as Record<string, unknown> : {},
+              status: "pending" as const,
+            };
+          },
+        );
+
+        messageMap.set(message.id!, { message, toolCalls: toolCallsWithStatus });
+      } else if (message.type === "tool") {
+        const toolCallId = (message as any).tool_call_id;
+        if (!toolCallId) return;
+        for (const [, data] of Array.from(messageMap.entries())) {
+          const idx = data.toolCalls.findIndex((tc) => tc.id === toolCallId);
+          if (idx === -1) continue;
+          const content =
+            typeof message.content === "string"
+              ? message.content
+              : Array.isArray(message.content)
+                ? message.content
+                    .map((b: any) =>
+                      typeof b === "string" ? b : b.text ?? "",
+                    )
+                    .join("")
+                : "";
+          data.toolCalls[idx] = {
+            ...data.toolCalls[idx],
+            status: "completed" as const,
+            result: content,
+          };
+          break;
+        }
+      } else if (message.type === "human") {
+        messageMap.set(message.id!, { message, toolCalls: [] });
+      }
+    });
+
+    return Array.from(messageMap.values());
+  }, [messages]);
+
   // Auto-scroll to bottom when new messages arrive
   const lastMessageId = messages?.at(-1)?.id;
 
@@ -96,13 +182,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
           className="mx-auto w-full max-w-[1024px] px-6 pb-6 pt-4"
           ref={contentRef}
         >
-          {messages && messages.length > 0 ? (
-            messages.map((message, index) => {
-              const isLastMessage = index === messages.length - 1;
+          {processedMessages.length > 0 ? (
+            processedMessages.map((data, index) => {
+              const isLastMessage = index === processedMessages.length - 1;
               return (
                 <ChatMessage
-                  key={message.id ?? `msg-${index}`}
-                  message={message}
+                  key={data.message.id ?? `msg-${index}`}
+                  message={data.message}
+                  toolCalls={data.toolCalls}
                   isStreaming={isLastMessage && isLoading}
                 />
               );

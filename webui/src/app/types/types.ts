@@ -47,3 +47,12 @@ export const WORKSPACES = [
 ] as const;
 
 export type WorkspaceId = (typeof WORKSPACES)[number]["id"];
+
+/** Tool call with status tracking for UI display. */
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  result?: string;
+  status: "pending" | "completed" | "error" | "interrupted";
+}
