@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useMemo } from "react";
-import type { ContentBlock, ToolCall } from "@/app/types/types";
+import React, { useMemo, useState, useCallback } from "react";
+import type { ContentBlock, ToolCall, SubAgent } from "@/app/types/types";
 import { PIPELINE_STAGES } from "@/app/types/types";
 import { cn } from "@/lib/utils";
 import { File } from "lucide-react";
 import { ToolResultCard, parseSaveResults, stripSaveResultMarkers } from "@/app/components/ToolResultCard";
 import { ToolCallBox } from "@/app/components/ToolCallBox";
+import { SubAgentIndicator } from "@/app/components/SubAgentIndicator";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
 
 /** image_url block as sent to OpenAI-compatible APIs */
@@ -43,6 +44,9 @@ interface ChatMessageProps {
   };
   toolCalls?: ToolCall[];
   isStreaming?: boolean;
+  ui?: unknown[];
+  stream?: unknown;
+  graphId?: string;
 }
 
 function extractStringContent(
@@ -61,7 +65,7 @@ function extractStringContent(
 }
 
 export const ChatMessage = React.memo<ChatMessageProps>(
-  ({ message, toolCalls = [], isStreaming = false }) => {
+  ({ message, toolCalls = [], isStreaming = false, ui, stream, graphId }) => {
     const isUser = message.type === "human";
     const isAi = message.type === "ai";
     const isTool = message.type === "tool";
@@ -69,6 +73,33 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     const hasContent = messageContent && messageContent.trim() !== "";
     const hasToolCalls = toolCalls.length > 0;
     const visibleToolCalls = toolCalls.filter((tc) => tc.name !== "task");
+
+    // Extract sub-agents from "task" tool calls
+    const subAgents = useMemo(() => {
+      return toolCalls
+        .filter((tc) => tc.name === "task" && tc.args.subagent_type && tc.args.subagent_type !== "")
+        .map((tc): SubAgent => ({
+          id: tc.id,
+          name: tc.name,
+          subAgentName: tc.args.subagent_type as string,
+          input: tc.args,
+          output: tc.result ? { result: tc.result } : undefined,
+          status: tc.status === "completed" ? "completed" : tc.status === "error" ? "error" : "active",
+        }));
+    }, [toolCalls]);
+
+    // Map UI components to tool call IDs for GenUI rendering
+    const uiMap = useMemo(() => {
+      if (!ui) return new Map<string, unknown>();
+      const map = new Map<string, unknown>();
+      for (const u of ui) {
+        const meta = (u as Record<string, unknown>)?.metadata as Record<string, unknown> | undefined;
+        if (meta?.tool_call_id) {
+          map.set(meta.tool_call_id as string, u);
+        }
+      }
+      return map;
+    }, [ui]);
 
     // Images: image_url blocks in message.content
     const imageUrlBlocks = useMemo(() => {
@@ -187,7 +218,22 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 {visibleToolCalls.length > 0 && (
                   <div className="mb-2 space-y-0.5">
                     {visibleToolCalls.map((tc) => (
-                      <ToolCallBox key={tc.id} toolCall={tc} />
+                      <ToolCallBox
+                        key={tc.id}
+                        toolCall={tc}
+                        uiComponent={uiMap.get(tc.id)}
+                        stream={stream}
+                        graphId={graphId}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Sub-agent indicators for "task" tool calls */}
+                {subAgents.length > 0 && (
+                  <div className="mb-2 flex w-fit max-w-full flex-col gap-4">
+                    {subAgents.map((sa) => (
+                      <SubAgentIndicator key={sa.id} subAgent={sa} />
                     ))}
                   </div>
                 )}

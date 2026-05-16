@@ -26,6 +26,9 @@ export interface StateType {
     content: string | Array<Record<string, unknown>>;
     additional_kwargs?: Record<string, unknown>;
   }>;
+  todos?: TodoItem[];
+  files?: Record<string, string>;
+  ui?: unknown[];
 }
 
 /** 7-Agent Director Pipeline stages for Web Automation sub-agent visualization. */
@@ -55,4 +58,41 @@ export interface ToolCall {
   args: Record<string, unknown>;
   result?: string;
   status: "pending" | "completed" | "error" | "interrupted";
+}
+
+/** Sub-agent spawned via "task" tool call. */
+export interface SubAgent {
+  id: string;
+  name: string;
+  subAgentName: string;
+  input: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  status: "pending" | "active" | "completed" | "error";
+}
+
+/** Todo item tracked by agent via write_todos tool. */
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  updatedAt?: Date;
+}
+
+/** File tracked in agent workspace state. */
+export interface FileItem {
+  path: string;
+  content: string;
+}
+
+/** Extract displayable text from sub-agent input/output objects. */
+export function extractSubAgentContent(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (typeof obj.description === "string") return obj.description;
+    if (typeof obj.prompt === "string") return obj.prompt;
+    if (typeof obj.result === "string") return obj.result;
+    return JSON.stringify(data, null, 2);
+  }
+  return JSON.stringify(data, null, 2);
 }

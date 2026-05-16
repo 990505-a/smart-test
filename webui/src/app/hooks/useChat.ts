@@ -55,7 +55,7 @@ export function useChat({
   const stream = useStream<StateType>({
     assistantId,
     client: client ?? undefined,
-    reconnectOnMount: true,
+    reconnectOnMount: false,
     threadId: threadId ?? null,
     onThreadId: setThreadId,
     fetchStateHistory: true,
@@ -134,12 +134,25 @@ export function useChat({
     stream.stop();
   }, [stream]);
 
+  const resumeInterrupt = useCallback(
+    (value: unknown) => {
+      stream.submit(null, { command: { resume: value } });
+      onHistoryRevalidate?.();
+    },
+    [stream, onHistoryRevalidate],
+  );
+
   return {
     stream,
     messages: stream.messages,
     isLoading: stream.isLoading,
     sendMessage,
     stopStream,
+    resumeInterrupt,
+    todos: stream.values.todos ?? [],
+    files: stream.values.files ?? {},
+    ui: stream.values.ui,
+    interrupt: stream.interrupt,
     threadId,
     setThreadId,
   };
