@@ -241,7 +241,7 @@ Plans:
 - [x] 11-01-PLAN.md — Database models and services: APITest/APITestRun/APITestResult models, APITestService, ScenarioService (Wave 1)
 - [x] 11-02-PLAN.md — FastAPI routes: 13 API test endpoints, 18 scenario endpoints (Wave 1)
 - [ ] 11-03-PLAN.md — Agent tools and refactor: ~28 tools in 7 categories, make_agent() factory, GitNexus MCP (Wave 2)
-- [ ] 11-04-PLAN.md — Execution engines: OpenAPI parser, APITestExecutor, ScenarioExecutionEngine (Wave 2)
+- [x] 11-04-PLAN.md — Execution engines: OpenAPI parser, APITestExecutor, ScenarioExecutionEngine (Wave 2)
 - [x] 11-05-PLAN.md — API Skills: 6 SKILL.md files (planner, generator, scenario, executor, healer, reporter) (Wave 1)
 - [ ] 11-06-PLAN.md — Frontend pages: API test management, scenario editor, management navigation (Wave 3)
 
@@ -264,4 +264,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. FastAPI Backend & Database | 0/3 | Not started | - |
 | 9. Platform Management UI | 4/4 | Complete | 2026-05-15 |
 | 10. Agent-Database Integration | 3/3 | Complete    | 2026-05-15 |
-| 11. API Test Execution Engine & GitNexus Integration | 3/6 | In Progress|  |
+| 11. API Test Execution Engine & GitNexus Integration | 4/6 | In Progress|  |
