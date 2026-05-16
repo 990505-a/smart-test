@@ -128,6 +128,22 @@
 - **PLAT-16**: Human-in-the-Loop 人工反馈（关键节点暂停等待审批）
 - **PLAT-17**: 端到端流程验证（对话生成用例 → 自动保存 → 管理界面查看 → 执行测试 → 结果展示）
 
+### API 测试执行引擎 (Phase 11)
+
+- **API-10**: OpenAPI 自动解析器（解析 OpenAPI/Swagger 规范，按 tag 自动创建文件夹结构，存储 endpoint 元数据到数据库）
+- **API-11**: Playwright 测试执行引擎（下载脚本 → 生成配置 → 运行 npx playwright test → 解析 JSON 结果 → 生成 Allure 报告 → 上传 ZIP）
+- **API-12**: 场景执行引擎（多步骤业务流程，httpx 真实 HTTP 请求，JSONPath 数据提取，模板变量替换，断言比较 eq/ne/gt/lt/contains）
+- **API-13**: 6 个 API 专属 Skills（planner、generator、scenario、executor、healer、reporter）从 .claude/skills/api/ 加载
+- **API-14**: GitNexus MCP 集成（代码分析能力，源码级接口信息获取，stdio 传输）
+- **API-15**: ~28 个 Agent 工具（OpenAPI 解析、测试制品、测试执行、脚本管理、脚本执行、批量操作、场景管理）
+- **API-16**: API Agent 重构（LocalShellBackend 支持 npx/node，GitNexus MCP，3-backend CompositeBackend）
+
+### 平台化 — API 测试管理 (Phase 11)
+
+- **PLAT-18**: API 测试数据库模型（APITest、APITestRun、APITestResult，含脚本路径、执行配置、Allure 报告路径）
+- **PLAT-19**: API 测试 CRUD 服务 + 执行服务（APITestService、APITestExecutor、ScenarioService、ScenarioExecutionEngine）
+- **PLAT-20**: API 测试前端页面（Schema 上传、测试列表、执行触发、运行历史、报告查看器、场景管理）
+
 ### 性能与安全
 
 ## Out of Scope
