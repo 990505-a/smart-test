@@ -8,20 +8,20 @@ Design principle: only pure, deterministic operations go here.
 All LLM-based reasoning (scenario gen, quality analysis) lives in the
 system prompt so the orchestrator agent can compose them intelligently.
 
-Three tools:
-  1. ``parse_openapi_spec`` — fetch + parse OpenAPI JSON/YAML, resolve $ref.
-  2. ``check_script_syntax`` — bracket balance + structure validation for TS.
-  3. ``compute_coverage`` — scenario / operation / usability metrics.
+Tool categories (7 categories, ~28 tools total):
+  1. MASTEST core: parse_openapi_spec, check_script_syntax, compute_coverage
+  2. Playwright MCP: playwright_api_tools (dynamically loaded)
+  3. DB CRUD: save_api_test, list_api_tests_db, get_api_test_detail, etc.
+  4. OpenAPI: parse_openapi_to_db, save_api_endpoint, get_endpoint_artifacts, etc.
+  5. Execution: execute_api_script, run_tests, parse_test_results, etc.
+  6. Scenario: create_test_scenario, add_scenario_step, add_data_mapping, etc.
+  7. Script management: save_api_script, download_api_script, etc.
 
 Backends:
-    - shell_backend: LocalShellBackend for executing commands
+    - shell_backend: LocalShellBackend for executing commands (npx playwright test)
     - file_backend: FilesystemBackend for reading SKILL.md and writing artifacts
-    - composite_backend: CompositeBackend routing file ops to file_backend,
-      execute ops to shell_backend
-
-Note: Backend configuration is integrated into this __init__.py because the
-tools/ package directory and a tools.py flat module cannot coexist in Python.
-This follows the same pattern as web/tools.py but uses the package __init__.
+    - skills_backend: FilesystemBackend for skills directory
+    - composite_backend: CompositeBackend routing all three backends
 """
 
 from __future__ import annotations
@@ -34,6 +34,12 @@ from src.app.agents.api.tools.api_parser import parse_api_spec
 from src.app.agents.api.tools.metrics import check_script_syntax as _check_syntax
 from src.app.agents.api.tools.metrics import compute_coverage as _compute_coverage
 from src.app.agents.api.tools.playwright_mcp_server import playwright_api_tools
+
+# New tool categories
+from src.app.agents.api.tools.db_tools import DB_TOOLS
+from src.app.agents.api.tools.openapi_tools import OPENAPI_TOOLS
+from src.app.agents.api.tools.execution_tools import EXECUTION_TOOLS
+from src.app.agents.api.tools.scenario_tools import SCENARIO_TOOLS
 
 # -- Tool 1: API Parser -------------------------------------------------------
 
@@ -117,13 +123,25 @@ MASTEST_TOOLS: list = [
     compute_coverage,
 ] + playwright_api_tools
 
+# Combined tool list for the full API agent
+API_AGENT_TOOLS: list = (
+    MASTEST_TOOLS +     # 3 core + playwright MCP tools
+    DB_TOOLS +          # 9 DB CRUD tools
+    OPENAPI_TOOLS +     # 5 OpenAPI/endpoint tools
+    EXECUTION_TOOLS +   # 7 execution/batch tools
+    SCENARIO_TOOLS      # 10 scenario/step tools
+)
+
 
 # =============================================================================
-# Backends (Phase 5 pattern — integrated into package __init__.py)
+# Backends (Phase 5 pattern - integrated into package __init__.py)
 # =============================================================================
+
+from pathlib import Path
 
 from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 
+from src.app.core.config import settings
 from src.app.core.workspace import get_workspace_dir
 
 _default_workspace_dir = get_workspace_dir("default", "api")
@@ -141,7 +159,15 @@ file_backend = FilesystemBackend(
     virtual_mode=True,
 )
 
+skills_backend = FilesystemBackend(
+    root_dir=Path(__file__).parent.parent.parent / "skills",  # src/app/skills/
+    virtual_mode=True,
+)
+
 composite_backend = CompositeBackend(
     default=shell_backend,
-    routes={"/": file_backend},
+    routes={
+        "/": file_backend,
+        "/skills/": skills_backend,
+    },
 )
