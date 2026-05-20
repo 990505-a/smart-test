@@ -13,6 +13,7 @@ from src.app.api.v2 import (
     scenarios,
     test_cases,
     test_runs,
+    workspaces,
 )
 
 api_router = APIRouter(prefix="/api/v2")
@@ -23,3 +24,4 @@ api_router.include_router(test_runs.router, tags=["Test Runs"])
 api_router.include_router(attachments.router, tags=["Attachments"])
 api_router.include_router(api_tests.router, tags=["API Tests"])
 api_router.include_router(scenarios.router, tags=["Scenarios"])
+api_router.include_router(workspaces.router, tags=["Workspaces"])

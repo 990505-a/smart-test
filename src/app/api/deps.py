@@ -85,3 +85,13 @@ async def get_attachment_service(db: DbSessionDep) -> "AttachmentService":
 
 
 AttachmentServiceDep = Annotated["AttachmentService", Depends(get_attachment_service)]
+
+
+# Workspace service
+async def get_workspace_service(db: DbSessionDep) -> "WorkspaceService":
+    from src.app.db.services.workspace_service import WorkspaceService
+
+    return WorkspaceService(db)
+
+
+WorkspaceServiceDep = Annotated["WorkspaceService", Depends(get_workspace_service)]
