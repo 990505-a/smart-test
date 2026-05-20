@@ -8,6 +8,9 @@ calling Base.metadata.create_all().
 # Base and mixins (no table, but required for inheritance)
 from src.app.db.models.base import UUIDMixin, TimestampMixin  # noqa: F401
 
+# Workspace (independent top-level entity)
+from src.app.db.models.workspace import Workspace  # noqa: F401
+
 # Core table: Project (referenced by most other models)
 from src.app.db.models.project import Project  # noqa: F401
 
