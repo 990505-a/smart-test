@@ -10,16 +10,17 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - Integer phases (1-7): Planned milestone work
 - Decimal phases (e.g., 2.1): Urgent insertions via `/gsd:insert-phase`
 
-- [ ] **Phase 1: Core Infrastructure + Frontend Shell** - Shared DeepAgents server, lightweight storage (no Docker), MCP services, and complete chat UI
+- [x] **Phase 1: Core Infrastructure + Frontend Shell** - Shared DeepAgents server, lightweight storage (no Docker), MCP services, and complete chat UI (completed 2026-05-11)
 - [x] **Phase 2: TestCase Agent MVP** - Upload documents, generate test cases via 5-stage workflow with 4 skills, export to Excel (completed 2026-05-12)
 - [x] **Phase 3: RAG Knowledge System** - wiki-mcp stdio MCP server, 6 knowledge query tools, wiki-query skill, agent tool registration (completed 2026-05-12)
 - [x] **Phase 4: Advanced TestCase** - Dual-model switching, image/Excel parsing, quality scoring, test data generation, multi-format export (completed 2026-05-13)
 - [x] **Phase 5: Web Automation Agent** - Playwright CLI dual-mode, 7-Agent director pipeline, component-aware testing, QA skills (completed 2026-05-14)
-- [ ] **Phase 6: API Automation Agent** - MASTEST methodology, OpenAPI parsing, Graphify integration, Human-in-the-Loop, coverage reports
-- [ ] **Phase 7: Multi-Workspace & Infrastructure Hardening** - Workspace isolation, connection pooling, circuit breakers, retry logic
-- [ ] **Phase 8: FastAPI Backend & Database** - REST API CRUD backend, PostgreSQL models, local file storage, Agent result persistence
-- [ ] **Phase 9: Platform Management UI** - Project list, test case editor, folder navigation, test execution dashboard
+- [x] **Phase 6: API Automation Agent** - MASTEST methodology, OpenAPI parsing, Graphify integration, Human-in-the-Loop, coverage reports (completed 2026-05-14)
+- [x] **Phase 7: Multi-Workspace & Infrastructure Hardening** - Workspace isolation, connection pooling, circuit breakers, retry logic (completed 2026-05-15)
+- [x] **Phase 8: FastAPI Backend & Database** - REST API CRUD backend, PostgreSQL models, local file storage, Agent result persistence (completed 2026-05-15)
+- [x] **Phase 9: Platform Management UI** - Project list, test case editor, folder navigation, test execution dashboard (completed 2026-05-15)
 - [x] **Phase 10: Agent-Database Integration** - Agent results auto-save to database, test report visualization, Human-in-the-Loop (completed 2026-05-15)
+- [x] **Phase 12: GitNexus Code Analysis Integration** - Embed gitnexus-web via iframe, register gitnexus-impact-analysis skill (completed 2026-05-19)
 
 ## Phase Details
 
@@ -158,7 +159,7 @@ Plans:
 
 Plans:
 - [x] 07-01-PLAN.md — Backend workspace infrastructure: workspace helper, ResilientClient, agent backend refactoring, api_parser httpx migration, data migration
-- [ ] 07-02-PLAN.md — Frontend workspace UI: WorkspaceSelect component, useChat space_id propagation, page layout wiring
+- [x] 07-02-PLAN.md — Frontend workspace UI: WorkspaceSelect component, useChat space_id propagation, page layout wiring
 
 **UI hint**: yes
 
@@ -240,17 +241,17 @@ Plans:
 Plans:
 - [x] 11-01-PLAN.md — Database models and services: APITest/APITestRun/APITestResult models, APITestService, ScenarioService (Wave 1)
 - [x] 11-02-PLAN.md — FastAPI routes: 13 API test endpoints, 18 scenario endpoints (Wave 1)
-- [ ] 11-03-PLAN.md — Agent tools and refactor: ~28 tools in 7 categories, make_agent() factory, GitNexus MCP (Wave 2)
+- [x] 11-03-PLAN.md — Agent tools and refactor: ~28 tools in 7 categories, make_agent() factory, GitNexus MCP (Wave 2)
 - [x] 11-04-PLAN.md — Execution engines: OpenAPI parser, APITestExecutor, ScenarioExecutionEngine (Wave 2)
 - [x] 11-05-PLAN.md — API Skills: 6 SKILL.md files (planner, generator, scenario, executor, healer, reporter) (Wave 1)
-- [ ] 11-06-PLAN.md — Frontend pages: API test management, scenario editor, management navigation (Wave 3)
+- [x] 11-06-PLAN.md — Frontend pages: API test management, scenario editor, management navigation (Wave 3)
 
 **UI hint**: yes
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -259,9 +260,48 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. RAG Knowledge System | 2/2 | Complete    | 2026-05-12 |
 | 4. Advanced TestCase | 3/3 | Complete | 2026-05-13 |
 | 5. Web Automation Agent | 3/3 | Complete | 2026-05-14 |
-| 6. API Automation Agent | 0/? | Not started | - |
-| 7. Multi-Workspace & Infrastructure | 0/2 | Not started | - |
-| 8. FastAPI Backend & Database | 0/3 | Not started | - |
+| 6. API Automation Agent | 2/2 | Complete | 2026-05-14 |
+| 7. Multi-Workspace & Infrastructure | 2/2 | Complete | 2026-05-15 |
+| 8. FastAPI Backend & Database | 3/3 | Complete | 2026-05-15 |
 | 9. Platform Management UI | 4/4 | Complete | 2026-05-15 |
-| 10. Agent-Database Integration | 3/3 | Complete    | 2026-05-15 |
-| 11. API Test Execution Engine & GitNexus Integration | 4/6 | Complete    | 2026-05-16 |
+| 10. Agent-Database Integration | 3/3 | Complete | 2026-05-15 |
+| 11. API Test Execution Engine & GitNexus Integration | 6/6 | Complete | 2026-05-16 |
+| 12. GitNexus Code Analysis Integration | 2/2 | Complete | 2026-05-19 |
+| 13. Workspace Management | 0/2 | Planned | -- |
+
+### Phase 12: GitNexus Code Analysis Integration
+**Goal**: Embed GitNexus code intelligence into the platform — iframe-based frontend integration for code graph visualization, and register gitnexus-impact-analysis skill for AI-driven code analysis workflows
+**Depends on**: Phase 11
+**Requirements**: CODE-01, CODE-02
+**Success Criteria** (what must be TRUE):
+  1. User can navigate to /code-analysis page and see GitNexus web UI embedded via iframe, connecting to localhost:4747
+  2. Management sidebar includes "代码分析" navigation item linking to /code-analysis
+  3. gitnexus-impact-analysis skill is registered in .claude/skills/ and available to Claude Code sessions
+  4. Page gracefully handles offline state when gitnexus server is not running (shows connection instructions)
+**Plans**: 2 plans
+
+Plans:
+- [x] 12-01-PLAN.md — Frontend code analysis page: /code-analysis route with iframe embedding, ManagementLayout nav update, offline detection (completed 2026-05-19)
+- [x] 12-02-PLAN.md — GitNexus skill registration: gitnexus-impact-analysis SKILL.md in .claude/skills/, GitNexus MCP config verification (completed 2026-05-19)
+
+**UI hint**: yes
+
+
+### Phase 13: Workspace Management - Add workspace CRUD API, frontend workspace selector with create/switch/delete, directory auto-provisioning
+
+**Goal**: Replace the hardcoded single-workspace system with a database-driven workspace management API and dynamic frontend selector, supporting create, switch, delete operations with automatic directory provisioning and skill copying
+**Depends on**: Phase 12
+**Requirements**: WS-CRUD-01, WS-CRUD-02, WS-CRUD-03, WS-DIR-01, WS-DIR-02, WS-SEED-01, WS-FE-01, WS-FE-02, WS-FE-03, WS-FE-04
+**Success Criteria** (what must be TRUE):
+  1. GET /api/v2/workspaces returns a list of workspace objects from the database, with auto-seeded default workspace on first call
+  2. POST /api/v2/workspaces creates a workspace DB record and provisions the directory structure (api/, web/, testcase/, attachments/, scripts/) with skills copied from default workspace
+  3. DELETE /api/v2/workspaces/{slug} removes the workspace DB record and deletes its directory, but the default workspace cannot be deleted
+  4. Frontend workspace selector fetches workspaces from the API instead of using a hardcoded constant
+  5. User can create a new workspace from the selector UI and switch to it; user can delete non-default workspaces
+**Plans**: 2 plans
+
+Plans:
+- [ ] 13-01-PLAN.md -- Backend workspace CRUD: Workspace model, schemas, repository, service (with directory provisioning and skill copying), FastAPI routes, deps and router registration (Wave 1)
+- [ ] 13-02-PLAN.md -- Frontend workspace selector: TypeScript types, SWR hooks, data-driven WorkspaceSelect component with create/delete UI, type propagation (Wave 2)
+
+**UI hint**: yes
