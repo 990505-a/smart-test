@@ -267,7 +267,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. Agent-Database Integration | 3/3 | Complete | 2026-05-15 |
 | 11. API Test Execution Engine & GitNexus Integration | 6/6 | Complete | 2026-05-16 |
 | 12. GitNexus Code Analysis Integration | 2/2 | Complete | 2026-05-19 |
-| 13. Workspace Management | 1/2 | In Progress|  |
+| 13. Workspace Management | 2/2 | Complete   | 2026-05-20 |
 
 ### Phase 12: GitNexus Code Analysis Integration
 **Goal**: Embed GitNexus code intelligence into the platform — iframe-based frontend integration for code graph visualization, and register gitnexus-impact-analysis skill for AI-driven code analysis workflows
@@ -302,6 +302,6 @@ Plans:
 
 Plans:
 - [x] 13-01-PLAN.md -- Backend workspace CRUD: Workspace model, schemas, repository, service (with directory provisioning and skill copying), FastAPI routes, deps and router registration (Wave 1)
-- [ ] 13-02-PLAN.md -- Frontend workspace selector: TypeScript types, SWR hooks, data-driven WorkspaceSelect component with create/delete UI, type propagation (Wave 2)
+- [x] 13-02-PLAN.md -- Frontend workspace selector: TypeScript types, SWR hooks, data-driven WorkspaceSelect component with create/delete UI, type propagation (Wave 2)
 
 **UI hint**: yes
