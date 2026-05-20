@@ -44,12 +44,8 @@ export const PIPELINE_STAGES = [
 
 export type PipelineStageId = (typeof PIPELINE_STAGES)[number]["id"];
 
-/** Available workspaces for the workspace selector. */
-export const WORKSPACES = [
-  { id: "default", label: "Default" },
-] as const;
-
-export type WorkspaceId = (typeof WORKSPACES)[number]["id"];
+/** Workspace identifier -- the slug string from the API (e.g., "default", "project-alpha"). */
+export type WorkspaceId = string;
 
 /** Tool call with status tracking for UI display. */
 export interface ToolCall {

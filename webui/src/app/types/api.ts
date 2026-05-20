@@ -352,3 +352,20 @@ export interface ScenarioRunInfo {
   error_message: string | null;
   created_at: string;
 }
+
+// === Workspace ===
+export interface WorkspaceInfo {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface WorkspaceCreate {
+  name: string;
+  slug?: string;
+  description?: string;
+}
