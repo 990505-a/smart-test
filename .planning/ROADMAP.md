@@ -322,15 +322,15 @@ Plans:
 
 Plans:
 - [x] 14-01-PLAN.md -- Skills migration: copy 14 classroom skills (6 API + 8 Web MCP) to workspace, remove 5 old web skills (Wave 1)
-- [ ] 14-02-PLAN.md -- API agent middleware: APIContextInjectionMiddleware, ToolErrorHandler, APIAgentContext, agent wiring (Wave 2)
-- [ ] 14-03-PLAN.md -- Web agent middleware: WebContextInjectionMiddleware, ToolErrorHandler, WebAgentContext, make_agent() factory (Wave 2)
+- [x] 14-02-PLAN.md -- API agent middleware: APIContextInjectionMiddleware, ToolErrorHandler, APIAgentContext, agent wiring (Wave 2)
+- [x] 14-03-PLAN.md -- Web agent middleware: WebContextInjectionMiddleware, ToolErrorHandler, WebAgentContext, make_agent() factory (Wave 2)
 
 ### Phase 15: Web Agent Playwright MCP Upgrade
 
 **Goal:** [To be planned]
 **Requirements**: TBD
 **Depends on:** Phase 14
-**Plans:** 1/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 15 to break down)
