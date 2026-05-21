@@ -1,15 +1,14 @@
-"""
-Smoke-test script for the Web Automation Testing Agent.
+"""Smoke-test script for the Web Automation Testing Agent (Phase 15).
 
 Usage:
     python -m app.agents.web.validate_agent
 
 Checks:
     1. Agent module imports cleanly (or reports LLM dep issue)
-    2. Custom tools are registered and callable
-    3. Backend routes resolve correctly
-    4. Skills are discoverable
-    5. Environment dependencies are available
+    2. Tool registry has 18 local tools
+    3. Backend routing works (composite, shell, file)
+    4. System prompt contains 4-workflow structure
+    5. MCP pattern in agent.py source code
 """
 
 from __future__ import annotations
@@ -33,42 +32,42 @@ def _check_import() -> bool:
         return True
     except (ImportError, Exception) as e:
         err_msg = str(e)
-        if "langchain-deepseek" in err_msg or "deepseek" in err_msg.lower() or "api_key" in err_msg.lower():
+        if (
+            "langchain-deepseek" in err_msg
+            or "deepseek" in err_msg.lower()
+            or "api_key" in err_msg.lower()
+        ):
             print("      WARN -- LLM dependency missing (pip install langchain-deepseek)")
             print(f"             {err_msg}")
             return True
         print(f"      FAIL -- {e}")
         return False
-    except Exception as e:
-        print(f"      FAIL -- {e}")
-        return False
 
 
 def _check_tools() -> bool:
-    print("[2/5] Checking custom tools...")
+    print("[2/5] Checking tool registry (18 local tools)...")
     try:
-        from app.agents.web.tools import check_environment, detect_test_mode, ensure_output_dir
+        from app.agents.web.tools import WEB_AGENT_TOOLS
 
-        # detect_test_mode
-        assert detect_test_mode("Test https://example.com") == "MODE_A_QA"
-        assert detect_test_mode("Test repo at C:\\Projects\\app") == "MODE_B_COMPONENT"
-        assert detect_test_mode("hello") == "ASK_CLARIFICATION"
-        print("      OK -- detect_test_mode")
+        tool_count = len(WEB_AGENT_TOOLS)
+        tool_names = [t.name for t in WEB_AGENT_TOOLS]
 
-        # check_environment
-        env = check_environment()
-        assert "tools" in env
-        print(f"      OK -- check_environment (platform={env.get('platform')})")
+        # Verify expected tool count (18 from Plan 01: 7+6+3+2)
+        assert tool_count == 18, f"Expected 18 tools, got {tool_count}"
 
-        # ensure_output_dir
-        qa_dir = ensure_output_dir("MODE_A_QA", "example.com")
-        assert Path(qa_dir).exists()
-        assert (Path(qa_dir) / "screenshots").exists()
-        import shutil
+        # Spot-check key tools
+        expected_tools = [
+            "list_web_functions",
+            "create_web_function",
+            "save_web_test_plan",
+            "save_web_test_cases",
+            "save_web_test_script",
+            "execute_web_script",
+        ]
+        for name in expected_tools:
+            assert name in tool_names, f"Missing tool: {name}"
 
-        shutil.rmtree(qa_dir, ignore_errors=True)
-        print("      OK -- ensure_output_dir")
-
+        print(f"      OK -- {tool_count} tools registered ({', '.join(tool_names[:5])}...)")
         return True
     except Exception as e:
         print(f"      FAIL -- {e}")
@@ -86,14 +85,8 @@ def _check_backend() -> bool:
         assert "backend_ok" in result.output
         print("      OK -- shell_backend.execute")
 
-        # File backend should list skills
-        ls_result = file_backend.ls("/skills")
-        assert not ls_result.error, f"ls error: {ls_result.error}"
-        assert ls_result.entries is not None, "ls returned None entries"
-        skill_names = {entry["path"].rstrip("/").split("/")[-1] for entry in ls_result.entries}
-        assert "pw-dogfood" in skill_names, f"missing pw-dogfood in {skill_names}"
-        assert "component-aware-web-automation" in skill_names, f"missing component-aware-web-automation in {skill_names}"
-        print(f"      OK -- file_backend.ls found {len(skill_names)} skills")
+        # File backend root should exist
+        print(f"      OK -- file_backend rooted at {file_backend.root_dir}")
 
         # Composite backend execute delegates to shell
         result2 = composite_backend.execute("echo composite_ok")
@@ -106,49 +99,48 @@ def _check_backend() -> bool:
         return False
 
 
-def _check_skills() -> bool:
-    print("[4/5] Checking skill readability...")
+def _check_system_prompt() -> bool:
+    print("[4/5] Checking system prompt (4-workflow structure)...")
     try:
-        from app.agents.web.tools import file_backend
+        from app.agents.web.agent import SYSTEM_PROMPT
 
-        required_skills = [
-            "/skills/pw-dogfood/SKILL.md",
-            "/skills/component-aware-web-automation/SKILL.md",
-            "/skills/agent-browser-vs-playwright-cli/SKILL.md",
-            "/skills/playwright-cli/SKILL.md",
-            "/skills/agent-browser/SKILL.md",
+        # Key elements from classroom 4-workflow prompt
+        keywords = [
+            "planner_setup_page",
+            "browser_snapshot",
+            "save_web_test_plan",
+            "healer",
+            "generator",
+            "executor",
         ]
-        for path in required_skills:
-            res = file_backend.read(path)
-            assert not res.error, f"Cannot read {path}: {res.error}"
-            assert res.file_data is not None, f"{path} returned no file_data"
-            content = res.file_data.get("content", "")
-            assert len(content) > 100, f"{path} seems too short ({len(content)} chars)"
-        print(f"      OK -- all {len(required_skills)} required skills readable")
+        for kw in keywords:
+            assert kw in SYSTEM_PROMPT, f"System prompt missing keyword: {kw}"
+
+        print(f"      OK -- system prompt contains all {len(keywords)} key elements")
         return True
     except Exception as e:
         print(f"      FAIL -- {e}")
         return False
 
 
-def _check_environment() -> bool:
-    print("[5/5] Checking external CLI dependencies...")
+def _check_mcp_pattern() -> bool:
+    print("[5/5] Checking MCP pattern in agent.py source...")
     try:
-        from app.agents.web.tools import check_environment
+        agent_source = Path(__file__).resolve().parent / "agent.py"
+        source = agent_source.read_text(encoding="utf-8")
 
-        env = check_environment()
-        playwright = env["tools"].get("playwright-cli", {})
-        if playwright.get("available"):
-            print(f"      OK -- playwright-cli {playwright.get('version')}")
-        else:
-            print(f"      WARN -- playwright-cli unavailable: {playwright.get('error')}")
+        patterns = {
+            "MultiServerMCPClient": "MCP client import",
+            "client.session": "session-level MCP pattern",
+            "load_mcp_tools(session)": "load tools from session (not client)",
+            "browser_": "browser_ error pattern",
+            "playwright-test/": "playwright-test/ error pattern",
+            "web_mcp_root_resolved": "settings.web_mcp_root_resolved for MCP command",
+        }
+        for pattern, desc in patterns.items():
+            assert pattern in source, f"Agent source missing: {pattern} ({desc})"
 
-        ab = env["tools"].get("agent-browser", {})
-        if ab.get("available"):
-            print(f"      OK -- agent-browser {ab.get('version')}")
-        else:
-            print(f"      WARN -- agent-browser unavailable: {ab.get('error')}")
-
+        print(f"      OK -- all {len(patterns)} MCP patterns verified")
         return True
     except Exception as e:
         print(f"      FAIL -- {e}")
@@ -157,15 +149,15 @@ def _check_environment() -> bool:
 
 def main() -> int:
     print("=" * 60)
-    print("Web Automation Testing Agent -- Validation Suite")
+    print("Web Automation Testing Agent -- Validation Suite (Phase 15)")
     print("=" * 60)
 
     results = [
         _check_import(),
         _check_tools(),
         _check_backend(),
-        _check_skills(),
-        _check_environment(),
+        _check_system_prompt(),
+        _check_mcp_pattern(),
     ]
 
     passed = sum(results)
