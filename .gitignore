@@ -17,6 +17,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Node
+node_modules/
+
 # Workspace (runtime output) -- ignore runtime generated files
 # Track skill source files and contracts in default workspace
 workspace/default/web/web-output/

@@ -4,6 +4,7 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-chat"
     doubao_api_key: str = ""
     openai_api_key: str = ""  # GPT-4o multimodal model (Phase 4)
     enable_pdf_multimodal: bool = True  # Multimodal mode toggle (Phase 4)
@@ -22,8 +23,8 @@ class Settings(BaseSettings):
 
     # wiki-mcp (Phase 3)
     wiki_mcp_command: str = "npx"
-    wiki_mcp_args: str = "tsx D:/llm-wiki/wiki-mcp/src/index.ts --config=D:/llm-wiki/wiki-mcp/wiki-mcp-config.json"
-    wiki_mcp_config_path: str = "D:/llm-wiki/wiki-mcp/wiki-mcp-config.json"
+    wiki_mcp_args: str = "tsx D:/llm-wiki/wiki-mcp/src/index.ts --config=C:/llm_test2/wiki-mcp-config.json"
+    wiki_mcp_config_path: str = "C:/llm_test2/wiki-mcp-config.json"
 
     # Graphify MCP (Phase 5 - Web Agent component-aware mode)
     graphify_mcp_command: str = "npx"
@@ -33,6 +34,9 @@ class Settings(BaseSettings):
     gitnexus_mcp_command: str = "node"
     gitnexus_mcp_args: str = "D:/prpm/72codegraph/gitnexus/dist/cli/index.js mcp"
 
+    # Web MCP (Phase 15 - Playwright Test MCP server)
+    web_mcp_root: str = ""  # Directory with package.json for MCP server; computed default in property
+
     # SQLite (local dev — no PostgreSQL required)
     sqlite_db: str = "smart_test_platform.db"
 
@@ -40,6 +44,13 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         db_path = Path(__file__).parent.parent.parent.parent / self.sqlite_db
         return f"sqlite+aiosqlite:///{db_path}"
+
+    @property
+    def web_mcp_root_resolved(self) -> Path:
+        """Resolve web_mcp_root, defaulting to workspace/default/web."""
+        if self.web_mcp_root:
+            return Path(self.web_mcp_root)
+        return self.workspace_dir / "default" / "web"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
