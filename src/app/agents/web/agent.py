@@ -12,18 +12,29 @@ glob, grep, execute, task, write_todos. Additional custom tools:
   - ensure_output_dir -- Create timestamped artifact directories
 
 Architecture:
-    |-- SkillsMiddleware (outer) -> loads 5 SKILL.md files from /web/skills/
+    |-- SkillsMiddleware (outer) -> loads 8 SKILL.md files from /web/skills/
+    |   |-- WebContextInjectionMiddleware -> injects project_identifier, folder_id
     |   |-- LLM (deepseek-chat)
     |   |-- CompositeBackend (default=shell, routes={"/": file})
+    |   |-- ToolErrorHandler -> wraps tools to return JSON errors instead of crashes
 """
 
 from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import AsyncIterator
 
 from deepagents import create_deep_agent as create_agent
 from deepagents.middleware import SkillsMiddleware
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
+from langgraph.pregel import Pregel
 
+from src.app.agents.web.middleware import (
+    WebContextInjectionMiddleware,
+    wrap_tools_with_error_handling,
+)
 from src.app.agents.web.tools import (
     check_environment,
     composite_backend,
@@ -83,12 +94,48 @@ skills_middleware = SkillsMiddleware(
 )
 
 # =============================================================================
-# Agent Factory
+# Context Schema
 # =============================================================================
-agent = create_agent(
-    model=llm,
-    tools=[detect_test_mode, check_environment, ensure_output_dir],
-    backend=composite_backend,
-    middleware=[skills_middleware],
-    system_prompt=SYSTEM_PROMPT,
-)
+@dataclass
+class WebAgentContext:
+    """Web agent runtime context -- injected by frontend via LangGraph."""
+
+    project_identifier: str = ""
+    folder_id: str = ""
+    current_user_id: str = "00000000-0000-0000-0000-000000000001"
+
+
+# =============================================================================
+# Agent Factory -- asynccontextmanager for Playwright MCP lifecycle (Phase 15)
+# =============================================================================
+
+
+@asynccontextmanager
+async def make_agent() -> AsyncIterator[Pregel]:
+    """Create the Web test agent with middleware wired.
+
+    Uses asynccontextmanager to match API agent pattern and prepare
+    for future Playwright MCP integration (Phase 15).
+    """
+    # Wrap tools with error handling
+    all_tools = wrap_tools_with_error_handling(
+        [detect_test_mode, check_environment, ensure_output_dir]
+    )
+
+    # Create middleware instances
+    context_middleware = WebContextInjectionMiddleware()
+
+    web_agent = create_agent(
+        model=llm,
+        tools=all_tools,
+        system_prompt=SYSTEM_PROMPT,
+        middleware=[skills_middleware, context_middleware],
+        backend=composite_backend,
+        context_schema=WebAgentContext,
+    )
+
+    yield web_agent
+
+
+# Export for LangGraph API -- same pattern as API Agent
+agent = make_agent
