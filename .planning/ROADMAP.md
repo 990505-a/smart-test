@@ -305,3 +305,42 @@ Plans:
 - [x] 13-02-PLAN.md -- Frontend workspace selector: TypeScript types, SWR hooks, data-driven WorkspaceSelect component with create/delete UI, type propagation (Wave 2)
 
 **UI hint**: yes
+
+### Phase 14: Skills and Middleware Migration
+
+**Goal**: Migrate 14 classroom skills (6 API + 8 Web MCP) into the project workspace, add ContextInjectionMiddleware and ToolErrorHandler for both agents, and upgrade agent wiring with context_schema for runtime parameter injection
+**Depends on**: Phase 13
+**Requirements**: API-13, SKILL-MIGRATION, MIDW-CTX-01, MIDW-ERR-01
+**Success Criteria** (what must be TRUE):
+  1. 6 classroom API skills replace existing skills in workspace/default/api/skills/ (3 extra API skills preserved)
+  2. 8 new web_mcp skills replace 5 old web skills in workspace/default/web/skills/ (including test-cases.json data)
+  3. API agent has APIContextInjectionMiddleware that injects project_identifier and folder_id into system prompt
+  4. Web agent has WebContextInjectionMiddleware with same context injection capability
+  5. Both agents have ToolErrorHandler wrapping tools to return JSON errors instead of crashing
+  6. Both agents register context_schema dataclass with create_deep_agent for runtime context support
+**Plans**: 3 plans
+
+Plans:
+- [ ] 14-01-PLAN.md -- Skills migration: copy 14 classroom skills (6 API + 8 Web MCP) to workspace, remove 5 old web skills (Wave 1)
+- [ ] 14-02-PLAN.md -- API agent middleware: APIContextInjectionMiddleware, ToolErrorHandler, APIAgentContext, agent wiring (Wave 2)
+- [ ] 14-03-PLAN.md -- Web agent middleware: WebContextInjectionMiddleware, ToolErrorHandler, WebAgentContext, make_agent() factory (Wave 2)
+
+### Phase 15: Web Agent Playwright MCP Upgrade
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 14
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 15 to break down)
+
+### Phase 16: Backend and Frontend Alignment
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 15
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 16 to break down)
