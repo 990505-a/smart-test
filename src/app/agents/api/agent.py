@@ -19,6 +19,7 @@ Design decisions:
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import AsyncIterator
 
 from deepagents import create_deep_agent as create_agent
@@ -29,6 +30,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.pregel import Pregel
 
+from src.app.agents.api.middleware import APIContextInjectionMiddleware, wrap_tools_with_error_handling
 from src.app.agents.api.tools import API_AGENT_TOOLS, composite_backend
 from src.app.core.config import settings
 
@@ -38,6 +40,20 @@ load_dotenv()
 # LLM
 # =============================================================================
 llm = init_chat_model("deepseek:deepseek-chat")
+
+# =============================================================================
+# Context Schema — runtime parameters injected by frontend via LangGraph
+# =============================================================================
+
+
+@dataclass
+class APIAgentContext:
+    """API agent runtime context -- injected by frontend via LangGraph."""
+
+    project_identifier: str = ""
+    folder_id: str = ""
+    current_user_id: str = "00000000-0000-0000-0000-000000000001"
+
 
 # =============================================================================
 # SkillsMiddleware — sources=["/skills/"] via composite_backend
@@ -227,12 +243,18 @@ async def make_agent() -> AsyncIterator[Pregel]:
 
     all_tools = API_AGENT_TOOLS + mcp_tools
 
+    # Wrap tools with error handling to prevent crashes
+    all_tools = wrap_tools_with_error_handling(all_tools)
+
+    context_middleware = APIContextInjectionMiddleware()
+
     agent = create_agent(
         model=llm,
         tools=all_tools,
         system_prompt=SYSTEM_PROMPT,
-        middleware=[skills_middleware],
+        middleware=[skills_middleware, context_middleware],
         backend=composite_backend,
+        context_schema=APIAgentContext,
     )
     yield agent
 
