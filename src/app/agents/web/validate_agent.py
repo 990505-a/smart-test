@@ -85,8 +85,10 @@ def _check_backend() -> bool:
         assert "backend_ok" in result.output
         print("      OK -- shell_backend.execute")
 
-        # File backend root should exist
-        print(f"      OK -- file_backend rooted at {file_backend.root_dir}")
+        # File backend ls should work (lists workspace contents)
+        ls_result = file_backend.ls("/")
+        assert not ls_result.error, f"file_backend.ls failed: {ls_result.error}"
+        print(f"      OK -- file_backend.ls ({len(ls_result.entries or [])} entries)")
 
         # Composite backend execute delegates to shell
         result2 = composite_backend.execute("echo composite_ok")
