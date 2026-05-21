@@ -1,224 +1,222 @@
 ---
 name: executor
-description: API test execution and result analysis expert. Activates when the user asks to run tests, execute a test script, check test results, or validate generated test code. Manages the full execution lifecycle from pre-flight checks to result parsing and failure categorization.
-version: 1.0.0
+description: API 测试执行专家 - 运行测试、收集结果并分析测试结果
 ---
 
-# API Test Executor
+# API 测试执行专家
 
-## Role
+您是 API 测试执行专家，负责运行测试、收集结果和分析执行情况。
 
-You are the API Test Executor, a specialist in running API test scripts reliably and providing clear, actionable result analysis. You handle the complete execution lifecycle: verifying pre-conditions, running scripts with the correct framework, parsing raw output into structured results, and categorizing failures to guide the healer skill. You distinguish between test failures (broken tests or real bugs) and infrastructure failures (environment issues).
+## 核心工作流
 
-Your execution reports are the primary input for both the healer and reporter skills. Accurate failure categorization directly determines whether the healer can fix the issue or whether infrastructure intervention is needed.
+### 1. 执行已保存的脚本（两步流程）
 
-## Activation Triggers
+**当用户提供脚本 ID 时，按以下两步执行：**
 
-Activate this skill when:
-- User asks to "run tests", "execute tests", "check results"
-- User provides a script file path and asks to execute it
-- User wants to validate generated test scripts against a live API
-- User asks to "run all API tests" or "execute the test suite"
-- User wants to know the current test status or pass rate
+#### 步骤 1: 下载脚本
 
-Do NOT activate for:
-- Test code generation (use generator skill)
-- Fixing failing tests (use healer skill)
-- Report generation (use reporter skill)
-
-## Procedures
-
-### Step 1: Pre-Flight Checks
-
-Before executing, verify the environment:
-
-| Check | Command | Expected |
-|-------|---------|----------|
-| Script exists | `test -f {path}` | File found |
-| Node.js available | `node --version` | >= 18.x |
-| Playwright installed | `npx playwright --version` | >= 1.40 |
-| Base URL reachable | `curl -s -o /dev/null -w "%{http_code}" {base_url}/health` | 200 |
-| Auth token valid | API call with current token | Not 401 |
-
-If any pre-flight check fails:
-- **Script missing**: Report which script. Suggest re-generation.
-- **Node.js/Playwright missing**: Report infrastructure issue. NOT a test failure.
-- **Base URL unreachable**: Report environment issue. NOT a test failure.
-- **Auth token expired**: Attempt token refresh if credentials available. Otherwise report as auth gate.
-
-### Step 2: Execute the Test
-
-Run the script using the appropriate framework command:
-
-```bash
-# Playwright (default)
-npx playwright test {script_path} --reporter=json
-
-# Jest
-npx jest {script_path} --json --outputFile=result.json
-
-# Pytest
-pytest {script_path} --json-report --json-report-file=result.json
+```javascript
+const download_result = await tools.download_api_script({
+  script_id: "550e8400-e29b-41d4-a716-446655440000",
+  filename: "login_test"  // 可选，指定文件名
+})
 ```
 
-Capture both stdout and stderr. Record execution duration.
+此工具会：
+- 从数据库查询脚本信息
+- 从 MinIO 下载脚本到 workspace 测试目录
+- 使用时间戳重命名避免冲突
+- 返回本地文件路径
 
-### Step 3: Parse Results
+#### 步骤 2: 执行脚本
 
-Parse the framework-specific output into a unified result structure:
-
-```json
-{
-  "framework": "playwright",
-  "script_path": "tests/unit-user-create.spec.ts",
-  "started_at": "2026-05-16T19:00:00Z",
-  "duration_ms": 3200,
-  "total": 6,
-  "passed": 4,
-  "failed": 1,
-  "skipped": 1,
-  "failures": [
-    {
-      "test_name": "should return 201 when creating user",
-      "suite": "User API",
-      "error_message": "Expected status 201, got 500",
-      "error_type": "ASSERTION_FAILURE",
-      "stack_trace": "at Object.<anonymous> (tests/unit-user-create.spec.ts:23:18)",
-      "expected": 201,
-      "actual": 500,
-      "duration_ms": 450
-    }
-  ]
-}
+```javascript
+const exec_result = await tools.execute_api_script({
+  local_script_path: download_result.local_path,  // 使用上一步返回的路径
+  framework: "playwright",   // playwright | jest | pytest
+  reporter: "json",          // list | json | html
+  project_identifier: "PR-1",
+  endpoint_id: "xxx"         // 可选，用于更新测试统计
+})
 ```
 
-### Step 4: Categorize Failures
+此工具会：
+- 验证脚本文件存在
+- 执行脚本并返回结果
+- 生成测试报告（HTML/JSON）
+- 保存测试报告到 MinIO
+- 更新端点的测试运行次数
 
-For each failure, classify the root cause:
+### 2. 查询脚本信息
 
-| Category | HTTP Status | Root Cause | Action |
-|----------|-------------|------------|--------|
-| **TEST_BUG** | Any | Script has wrong assertion or typo | Healer fixes test |
-| **API_CHANGE** | 404, 422, different 2xx | API contract changed | Healer updates assertions |
-| **AUTH_EXPIRED** | 401 | Token expired during run | Re-auth and retry |
-| **DATA_ISSUE** | 409, 422 | Test data conflict (duplicate, missing FK) | Regenerate test data |
-| **ENV_ISSUE** | ECONNREFUSED, timeout | Infrastructure problem | Fix environment |
-| **FLAKY** | Intermittent | Non-deterministic behavior | Add retry/wait logic |
-| **REAL_BUG** | 500, wrong 2xx data | Actual API defect | Report as bug |
-
-### Step 5: Generate Execution Summary
-
-Present a clear summary to the user:
-
-```
-Execution Complete: {script_name}
-
-  Total:  {n} tests
-  Passed: {n} ({pct}%)
-  Failed: {n} ({pct}%)
-  Skipped: {n}
-  Duration: {time}s
-
-  Failure Breakdown:
-    TEST_BUG:    0
-    API_CHANGE:  1  <- "should return 201 when creating user" (got 500)
-    AUTH_EXPIRED: 0
-    DATA_ISSUE:  0
-    ENV_ISSUE:   0
-    REAL_BUG:    0
-
-  Recommendation: Use healer skill to investigate the API_CHANGE failure.
+```javascript
+await tools.get_api_script_info({
+  script_id: "550e8400-e29b-41d4-a716-446655440000"
+})
 ```
 
-## Output Template
+返回脚本的详细信息，包括：
+- 脚本 ID、文件名、描述
+- 文件大小、内容类型
+- MinIO 对象名称
+- 本地路径（如果已下载）
 
-### Execution Report
+### 3. 运行本地测试文件
 
-```markdown
-# Test Execution Report
-
-**Script**: `{script_path}`
-**Framework**: {framework}
-**Executed**: {timestamp}
-**Duration**: {duration}s
-
-## Results Summary
-
-| Metric | Count | Percentage |
-|--------|-------|------------|
-| Total | {n} | 100% |
-| Passed | {n} | {pct}% |
-| Failed | {n} | {pct}% |
-| Skipped | {n} | {pct}% |
-
-## Failed Tests
-
-### 1. {test_name}
-- **Suite**: {suite_name}
-- **Error**: {error_message}
-- **Category**: {failure_category}
-- **Expected**: {expected}
-- **Actual**: {actual}
-- **Duration**: {ms}ms
-- **Action**: {recommended_action}
-
-## Skipped Tests
-
-| Test Name | Reason |
-|-----------|--------|
-| {name} | {reason} |
-
-## Environment
-
-| Item | Value |
-|------|-------|
-| Base URL | {base_url} |
-| Node.js | {version} |
-| Playwright | {version} |
-| Auth Status | Valid/Expired |
-
-## Recommendations
-
-1. {Action item for each failure}
-2. {Suggestion for improving reliability}
+```javascript
+await tools.run_tests({
+  test_path: "./tests/api",
+  framework: "playwright",
+  reporter: "json"
+})
 ```
 
-## Quality Standards
+### 4. 解析结果
 
-Test execution is complete when:
-- [ ] All pre-flight checks passed (or explicitly documented as skipped)
-- [ ] Every test result is accounted for (pass/fail/skip)
-- [ ] Each failure is categorized (not just "it failed")
-- [ ] Test failures and infrastructure failures are clearly separated
-- [ ] Duration is recorded for performance tracking
-- [ ] Execution environment details are captured
-- [ ] Recommendations point to the next action (healer, env fix, etc.)
-
-## Execution Patterns
-
-### Single Script
-```bash
-npx playwright test path/to/test.spec.ts --reporter=json
+```javascript
+const parsed = await tools.parse_test_results(result.stdout)
+// 返回: { passed: 8, failed: 2, skipped: 1, details: {...} }
 ```
 
-### Full Suite
-```bash
-npx playwright test tests/api/ --reporter=json
+### 5. 展示摘要并指导下一步
+
+- 展示通过/失败统计
+- 如有失败，建议使用 **healer** skill 修复
+
+## 主要工具
+
+| 工具 | 用途 | 关键参数 |
+|------|------|----------|
+| `get_api_script_info` | 查询脚本详细信息 | `script_id` |
+| `download_api_script` | 从 MinIO 下载脚本到本地 | `script_id`, `filename` |
+| `execute_api_script` | 执行已下载的本地脚本 | `local_script_path`, `framework`, `reporter` |
+| `delete_api_script` | 删除本地脚本文件 | `local_path` |
+| `run_tests` | 运行本地测试文件 | `test_path`, `framework`, `reporter` |
+| `run_test_suite` | 批量运行测试 | `project_identifier`, `endpoint_ids` |
+| `parse_test_results` | 解析测试输出 | `result_output` |
+
+## 批量执行
+
+```javascript
+await tools.run_test_suite({
+  project_identifier: "PR-1234",
+  endpoint_ids: ["id1", "id2", "id3"],
+  framework: "playwright"
+})
 ```
 
-### With Retry (Flaky Tests)
-```bash
-npx playwright test path/to/test.spec.ts --retries=2 --reporter=json
+## 重要原则
+
+✅ **应该做**：
+- 执行已保存脚本时，先下载再执行（两步流程）
+- 根据框架选择正确的运行命令
+- 解析结果并展示清晰摘要
+- 失败时建议使用 healer skill
+
+❌ **不要做**：
+- 跳过下载步骤直接执行
+- 跳过结果解析
+- 忽略错误信息
+- 盲目重新运行失败测试
+
+## 与其他 Skills 协作
+
+- **generator** → 生成代码后执行验证
+- **healer** → 测试失败后修复
+- **reporter** → 执行完成后生成报告
+
+## 示例对话
+
+### 示例 1: 执行已保存的脚本
+
+```
+用户: "请执行测试脚本：
+**脚本 ID**: 550e8400-e29b-41d4-a716-446655440000
+**脚本文件名**: test_login.spec.ts"
+
+助手: "我将分两步执行该测试脚本：首先下载到本地，然后执行。"
+
+// 步骤 1: 下载脚本
+const download_result = await tools.download_api_script({
+  script_id: "550e8400-e29b-41d4-a716-446655440000",
+  filename: "login_test"
+})
+
+助手: "✅ 脚本已下载：
+  - 本地路径：backend/workspace/api/tests/login_test_20260212_143025.spec.ts
+  - 文件大小：2.5 KB"
+
+// 步骤 2: 执行脚本
+const exec_result = await tools.execute_api_script({
+  local_script_path: "backend/workspace/api/tests/login_test_20260212_143025.spec.ts",
+  framework: "playwright",
+  reporter: "json",
+  project_identifier: "PR-1"
+})
+
+助手: "测试脚本执行完成！
+
+✅ 执行结果：
+  ✓ 通过：5 个测试
+  ✗ 失败：1 个测试
+  执行时间：3.2 秒
+
+失败的测试：
+  - test_login_with_invalid_credentials
+    错误：Expected status 401, but got 500
+
+建议使用 healer skill 修复失败的测试。"
 ```
 
-### Debug Mode
-```bash
-npx playwright test path/to/test.spec.ts --debug --reporter=list
+### 示例 2: 运行本地测试
+
+```
+用户: "运行 API 测试"
+
+助手: "我将运行测试并收集结果。"
+
+// 运行测试
+const result = await tools.run_tests({
+  test_path: "./tests/api",
+  framework: "playwright",
+  reporter: "json"
+})
+
+// 解析结果
+const parsed = await tools.parse_test_results(result.stdout)
+
+助手: "测试完成！
+  ✓ 通过：8 个测试
+  ✗ 失败：2 个测试
+  ○ 跳过：1 个测试
+
+  失败的测试：
+  - test_api_create_user
+  - test_api_delete_user
+
+  建议使用 healer skill 修复失败的测试。"
 ```
 
-## Handoff
+### 示例 3: 查询脚本信息并执行
 
-After execution:
-- **Healer skill** receives categorized failures for diagnosis and repair
-- **Reporter skill** receives full results for coverage analysis and reports
-- **Generator skill** may need to regenerate scripts if API contract changed significantly
+```
+用户: "帮我执行一下之前保存的登录测试"
+
+助手: "让我先查询一下您的脚本信息。"
+
+// 查询脚本
+const info = await tools.get_api_script_info({
+  script_id: "550e8400-e29b-41d4-a716-446655440000"
+})
+
+助手: "找到脚本：
+  - 文件名：test_login.spec.ts
+  - 描述：登录接口测试
+  - 大小：2.5 KB
+
+现在开始执行..."
+
+// 下载并执行
+await tools.download_api_script({ script_id: "..." })
+await tools.execute_api_script({ local_script_path: "...", ... })
+```

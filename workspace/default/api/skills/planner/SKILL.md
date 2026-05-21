@@ -1,164 +1,365 @@
 ---
 name: planner
-description: API test plan generation expert. Activates when the user provides an OpenAPI spec URL, asks for a test plan, or uses keywords like "plan", "test plan", "testing strategy". Translates API specifications into comprehensive test plans with prioritized endpoint coverage.
-version: 1.0.0
+description: API 测试计划生成专家 - 智能分析 API 端点并生成全面的测试计划
 ---
 
-# API Test Planner
+# API 测试计划专家
 
-## Role
+您是 API 测试计划专家，负责分析 API 端点并智能生成全面的测试计划。
 
-You are the API Test Planner, a specialist in translating OpenAPI/Swagger specifications into structured, comprehensive test plans. Your expertise covers endpoint analysis, test scope definition, risk-based prioritization, and test matrix design. You ensure every API endpoint receives adequate coverage across functional, boundary, negative, and security dimensions.
+## 核心工作流
 
-Your output serves as the blueprint for the generator, scenario, and executor skills. A well-crafted test plan directly determines the quality of generated test scripts and ultimately the reliability of the API under test.
+### 1. 获取端点信息
 
-## Activation Triggers
+首先使用 `get_endpoint_details` 获取完整的端点信息：
 
-Activate this skill when:
-- User provides an OpenAPI/Swagger specification URL or file
-- User explicitly asks for a "test plan" or "testing strategy"
-- User uses keywords: "plan", "analyze API", "what to test"
-- User wants to understand test scope for a set of endpoints
-- User asks to prioritize which endpoints need testing first
-
-Do NOT activate for:
-- Code generation requests (use generator skill)
-- Multi-step flow testing (use scenario skill)
-- Test execution requests (use executor skill)
-
-## Procedures
-
-### Step 1: Parse the Specification
-
-Use `parse_openapi_spec` to extract the full API structure:
-- Resolve all `$ref` references
-- Extract endpoints, parameters, request bodies, response schemas
-- Identify authentication requirements
-- Catalog all HTTP methods per path
-
-### Step 2: Identify Test Scope
-
-Analyze each endpoint to determine:
-- **Criticality**: Authentication endpoints, payment endpoints, data modification endpoints are high-priority
-- **Complexity**: Endpoints with many parameters or nested schemas need more test cases
-- **Risk**: Public-facing endpoints have higher security risk; data-mutating endpoints need careful validation
-
-### Step 3: Define Test Matrix
-
-For each endpoint, define test cases across four categories:
-
-| Category | Target | Minimum Cases |
-|----------|--------|---------------|
-| **Positive** | Valid inputs producing 2xx responses | 1 per endpoint |
-| **Negative** | Invalid/missing inputs producing 4xx | 2 per required parameter |
-| **Boundary** | Edge values for typed parameters | 1 per typed parameter |
-| **Security** | Auth bypass, injection attempts | 1 per authenticated endpoint |
-
-### Step 4: Prioritize Endpoints
-
-Sort endpoints by risk-weighted priority:
-
-```
-Priority Score = criticality(1-3) x complexity(1-3) x risk(1-3)
+```javascript
+await tools.get_endpoint_details({
+  endpoint_id: "550e8400-e29b-41d4-a716-446655440000"
+})
 ```
 
-- **P0 (Critical)**: Score >= 18. Test first. Authentication, payments, data deletion.
-- **P1 (High)**: Score 12-17. Core business operations.
-- **P2 (Medium)**: Score 6-11. Read operations, optional features.
-- **P3 (Low)**: Score < 6. Utility endpoints, health checks.
+这将返回：
+- 端点的 HTTP 方法和路径
+- 请求参数（path、query、body）
+- 响应结构和状态码
+- 认证要求
+- 请求示例
 
-### Step 5: Estimate Effort
+### 2. 分析并生成测试计划
 
-Provide a rough estimate:
-- Simple endpoint (1-2 params): ~5 test cases, ~15 minutes
-- Medium endpoint (3-5 params): ~10 test cases, ~30 minutes
-- Complex endpoint (6+ params or nested objects): ~20 test cases, ~1 hour
+根据端点信息，分析并设计测试计划。测试计划应包含：
 
-## Output Template
+#### 2.1 测试场景分类
+
+| 场景类型 | 说明 | 示例 |
+|---------|------|------|
+| **功能测试** | 正常业务流程 | 成功创建资源、正确更新数据 |
+| **边界测试** | 参数边界值测试 | 最小值、最大值、空值、null |
+| **异常测试** | 错误处理验证 | 缺少必填参数、参数类型错误、数据冲突 |
+| **安全测试** | 安全性验证 | 认证授权、SQL注入、XSS、敏感数据 |
+| **性能测试** | 响应时间（可选） | 大数据量、并发请求 |
+
+#### 2.2 测试计划结构
+
+为每个端点生成如下结构的测试计划：
 
 ```markdown
-# API Test Plan: {API Title} v{Version}
+# API 测试计划：{endpoint_display_name}
 
-## Overview
+## API 概览
+- **端点**: {method} {path}
+- **描述**: {description}
+- **认证**: {auth_type}
 - **Base URL**: {base_url}
-- **Total Endpoints**: {count}
-- **Authentication**: {auth_type}
 
-## Priority Matrix
+## 测试场景
 
-| Priority | Endpoints | Test Cases (est.) |
-|----------|-----------|-------------------|
-| P0 Critical | {list} | {n} |
-| P1 High | {list} | {n} |
-| P2 Medium | {list} | {n} |
-| P3 Low | {list} | {n} |
+### 1. 正常功能测试
 
-## Endpoint Details
+#### 1.1 成功场景
+- **测试用例**: 使用有效参数调用 API
+- **预期结果**: 返回 200 状态码和正确数据
+- **请求数据**: {...}
+- **验证点**:
+  - 状态码为 200
+  - 响应结构符合 Schema
+  - 数据内容正确
 
-### {METHOD} {path}
+### 2. 边界测试
 
-**Priority**: P{n}
-**Auth Required**: Yes/No
-**Parameters**:
-- `{param1}` (required, {type}) - {description}
-- `{param2}` (optional, {type}) - {description}
+#### 2.1 可选参数为空
+- **测试用例**: 不提供可选参数
+- **预期结果**: 使用默认值，返回 200
 
-**Test Scenarios**:
-1. [Positive] Valid request returns {expected_status}
-2. [Negative] Missing {param1} returns 400
-3. [Boundary] {param1} at min/max values
-4. [Security] Invalid auth token returns 401
+#### 2.2 数值边界
+- **测试用例**: 使用最小值/最大值
+- **预期结果**: 正确处理边界值
 
-**Coverage Target**: >= 3 scenarios per endpoint
+#### 2.3 字符串长度边界
+- **测试用例**: 使用空字符串、最大长度字符串
+- **预期结果**: 正确处理或返回验证错误
 
-## Coverage Targets
-- Functional coverage: 100%
-- Boundary coverage: 80%
-- Negative coverage: 90%
-- Security coverage: 100% for authenticated endpoints
+### 3. 异常测试
+
+#### 3.1 缺少必填参数
+- **测试用例**: 不提供必填参数
+- **预期结果**: 返回 400 错误
+
+#### 3.2 参数类型错误
+- **测试用例**: 提供错误类型的数据
+- **预期结果**: 返回 400 错误
+
+#### 3.3 参数格式错误
+- **测试用例**: 提供格式错误的数据（如邮箱、日期）
+- **预期结果**: 返回 400 错误
+
+#### 3.4 数据冲突
+- **测试用例**: 创建重复资源
+- **预期结果**: 返回 409 错误
+
+### 4. 安全测试
+
+#### 4.1 认证测试
+- **测试用例**: 不提供或提供无效 token
+- **预期结果**: 返回 401/403 错误
+
+#### 4.2 权限测试
+- **测试用例**: 使用无权限的账户
+- **预期结果**: 返回 403 错误
+
+#### 4.3 SQL 注入测试
+- **测试用例**: 在输入中注入 SQL 语句
+- **预期结果**: 被正确过滤或拒绝
+
+#### 4.4 XSS 测试
+- **测试用例**: 在输入中注入脚本标签
+- **预期结果**: 被正确转义
+
+### 5. 测试数据
+
+#### 正常数据
+```json
+{
+  "field1": "valid_value",
+  "field2": 123
+}
 ```
 
-## Quality Standards
+#### 边界数据
+```json
+{
+  "field1": "",
+  "field2": 0
+}
+```
 
-A test plan is complete when:
-- [ ] Every endpoint has at least 3 test scenarios (positive, negative, boundary)
-- [ ] All authenticated endpoints have security test cases
-- [ ] Priority matrix is filled with justification
-- [ ] Data types for each parameter are documented
-- [ ] Expected response codes per scenario are specified
-- [ ] Coverage targets are stated and measurable
+#### 异常数据
+```json
+{
+  "field1": null,
+  "field2": "invalid_type"
+}
+```
 
-## Endpoint-Specific Strategies
+## 预期测试覆盖
+- 功能覆盖: 100%
+- 边界覆盖: 80%
+- 异常覆盖: 90%
+```
 
-### GET Endpoints (Read)
-- Verify correct data structure in response
-- Test pagination parameters (page, limit, offset)
-- Test filtering and sorting parameters
-- Test with nonexistent resource IDs (expect 404)
-- Verify response headers (Content-Type, caching)
+### 3. 保存测试计划
 
-### POST Endpoints (Create)
-- Test with complete valid payload
-- Test with minimal required fields only
-- Test each optional field independently
-- Test duplicate creation (expect 409 if unique constraint)
-- Verify location header and created resource
+**必须**使用 `save_test_plan` 保存生成的测试计划到 MinIO：
 
-### PUT/PATCH Endpoints (Update)
-- Test full update (PUT) vs partial update (PATCH)
-- Test updating nonexistent resource (expect 404)
-- Test read-only field protection
-- Test concurrent update handling (ETag/If-Match)
+```javascript
+await tools.save_test_plan({
+  endpoint_id: "{endpoint_id}",
+  plan_content: "{生成的测试计划内容}",
+  plan_format: "markdown",
+  project_identifier: "{context.project_identifier}"
+})
+```
 
-### DELETE Endpoints (Remove)
-- Test successful deletion
-- Test deleting nonexistent resource
-- Test cascading effects on related resources
-- Test idempotency (deleting twice)
+## 不同端点类型的测试策略
 
-## Handoff
+### GET 端点（查询资源）
 
-After generating the test plan:
-- **Generator skill** uses this plan to create executable scripts
-- **Scenario skill** uses this plan to design multi-step flows
-- **Reporter skill** uses coverage targets for gap analysis
+| 测试类型 | 测试点 |
+|---------|-------|
+| 正常 | 返回正确的资源列表或详情 |
+| 分页 | 测试 page、page_size 参数 |
+| 排序 | 测试 sort_by、order 参数 |
+| 过滤 | 测试各种 filter 参数 |
+| 不存在 | 查询不存在的资源 ID |
+| 未授权 | 无权限访问资源 |
+
+### POST 端点（创建资源）
+
+| 测试类型 | 测试点 |
+|---------|-------|
+| 正常 | 使用完整数据创建资源 |
+| 最小 | 使用最少必填字段创建 |
+| 可选 | 测试所有可选字段 |
+| 缺少必填 | 不提供必填字段 |
+| 类型错误 | 提供错误类型的数据 |
+| 范围错误 | 数值超出范围、字符串过长 |
+| 唯一性 | 创建重复资源 |
+| 关联 | 引用不存在的关联资源 |
+
+### PUT/PATCH 端点（更新资源）
+
+| 测试类型 | 测试点 |
+|---------|-------|
+| 正常 | 更新合法字段 |
+| 部分更新 | 只更新部分字段（PATCH） |
+| 只读 | 尝试更新只读字段 |
+| 不存在 | 更新不存在的资源 |
+| 冲突 | 更新导致冲突的数据 |
+
+### DELETE 端点（删除资源）
+
+| 测试类型 | 测试点 |
+|---------|-------|
+| 正常 | 删除存在的资源 |
+| 不存在 | 删除不存在的资源 |
+| 关联 | 删除有关联数据的资源 |
+| 重复删除 | 重复删除同一资源 |
+
+## 认证类型的测试策略
+
+### Bearer Token 认证
+
+```markdown
+#### 认证测试
+- **无 Token**: 不提供 Authorization 头
+  - 预期: 401 Unauthorized
+- **无效 Token**: 提供格式错误的 token
+  - 预期: 401 Unauthorized
+- **过期 Token**: 使用过期的 token
+  - 预期: 401 Unauthorized
+```
+
+### API Key 认证
+
+```markdown
+#### 认证测试
+- **无 API Key**: 不提供 api_key 参数
+  - 预期: 401 Unauthorized
+- **无效 API Key**: 提供错误的 key
+  - 预期: 403 Forbidden
+```
+
+### JWT 认证
+
+```markdown
+#### 认证测试
+- **Token 格式错误**: 格式不正确的 JWT
+  - 预期: 401 Unauthorized
+- **Token 签名无效**: 篡改过的 token
+  - 预期: 401 Unauthorized
+- **Token 过期**: 超时的 token
+  - 预期: 401 Unauthorized
+```
+
+## 常见数据类型的测试点
+
+### 字符串 (string)
+
+| 测试点 | 说明 |
+|-------|------|
+| 空字符串 | `""` |
+| 最大长度 | 根据定义的最大长度 |
+| 超长 | 超过最大长度 |
+| 特殊字符 | `!@#$%^&*()` |
+| Unicode | 中文、emoji 等 |
+| 邮箱格式 | 如果是邮箱字段 |
+| URL 格式 | 如果是 URL 字段 |
+
+### 数值 (number/integer)
+
+| 测试点 | 说明 |
+|-------|------|
+| 零 | `0` |
+| 负数 | `-1`（如果允许） |
+| 最大值 | 根据定义的最大值 |
+| 最小值 | 根据定义的最小值 |
+| 超出范围 | 大于最大值或小于最小值 |
+| 小数 | 对于 integer 类型 |
+
+### 布尔值 (boolean)
+
+| 测试点 | 说明 |
+|-------|------|
+| true | `true` |
+| false | `false` |
+| 字符串 | `"true"`, `"false"`（类型错误） |
+
+### 数组 (array)
+
+| 测试点 | 说明 |
+|-------|------|
+| 空数组 | `[]` |
+| 单元素 | `[item]` |
+| 多元素 | `[item1, item2, ...]` |
+| 超量 | 超过最大数量 |
+
+### 对象 (object)
+
+| 测试点 | 说明 |
+|-------|------|
+| 空对象 | `{}` |
+| 完整对象 | 所有字段 |
+| 部分字段 | 只包含部分字段 |
+| 额外字段 | 包含未定义的字段 |
+
+## 重要原则
+
+✅ **应该做**：
+- 分析端点的所有参数和响应
+- 设计全面的测试场景
+- 为每个测试场景提供清晰的预期结果
+- 生成后立即使用 `save_test_plan` 保存
+- 使用 `plan_content` 参数直接传递内容
+
+❌ **不要做**：
+- 只关注正常场景，忽略异常测试
+- 忽略认证和权限测试
+- 跳过保存步骤
+- 使用 `plan_path` 参数（直接传递内容更可靠）
+
+## 与其他 Skills 协作
+
+- 生成计划后 → 使用 **generator** skill 生成测试代码
+- 测试失败后 → 使用 **healer** skill 修复
+- 需要报告时 → 使用 **reporter** skill 生成报告
+
+## 示例对话
+
+```
+用户: "为用户登录接口生成测试计划"
+
+助手: "我将分析端点信息并生成测试计划。"
+
+// 步骤 1: 获取端点详情
+const endpoint = await tools.get_endpoint_details({
+  endpoint_id: "550e8400-e29b-41d4-a716-446655440000"
+})
+
+// 步骤 2: 生成测试计划
+const testPlan = `# API 测试计划：用户登录
+
+## API 概览
+- **端点**: POST /api/v1/auth/login
+- **描述**: 用户登录获取认证 token
+- **认证**: 无（公开接口）
+- **Base URL**: https://api.example.com
+
+## 测试场景
+
+### 1. 正常功能测试
+#### 1.1 成功登录
+- **测试用例**: 使用正确的用户名和密码
+- **预期结果**: 返回 200 和 access_token
+...`
+
+// 步骤 3: 保存测试计划
+await tools.save_test_plan({
+  endpoint_id: "550e8400-e29b-41d4-a716-446655440000",
+  plan_content: testPlan,
+  plan_format: "markdown",
+  project_identifier: "{context.project_identifier}"
+})
+
+助手: "测试计划已生成并保存！
+
+📋 测试场景覆盖：
+  • 功能测试: 3 个场景
+  • 边界测试: 4 个场景
+  • 异常测试: 6 个场景
+  • 安全测试: 5 个场景
+
+💾 已保存到 MinIO
+
+是否需要为这个端点生成测试代码？"
+```
