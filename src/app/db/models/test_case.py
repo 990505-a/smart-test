@@ -8,9 +8,9 @@ Adapted from classroom reference:
 
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -32,14 +32,14 @@ class TestCase(Base, UUIDMixin, TimestampMixin):
     __table_args__ = {"comment": "Test case table"}
 
     project_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="Project ID",
     )
     folder_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("folders.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -117,28 +117,28 @@ class TestCase(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Automation status",
     )
-    # Custom fields (JSONB)
+    # Custom fields (JSON)
     custom_fields: Mapped[dict | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=dict,
         comment="Custom fields",
     )
     # Linked Jira issues
     issues: Mapped[list | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Linked Jira issues",
     )
     owner_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         nullable=True,
         index=True,
         comment="Owner ID",
     )
     created_by: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         default=lambda: DEFAULT_USER_ID,
         nullable=False,
         comment="Creator ID",
@@ -169,6 +169,10 @@ class TestCase(Base, UUIDMixin, TimestampMixin):
         back_populates="test_case",
         cascade="all, delete-orphan",
     )
+    web_tests: Mapped[list["WebTest"]] = relationship(
+        "WebTest",
+        back_populates="test_case",
+    )
 
     def __repr__(self) -> str:
         return f"<TestCase(id={self.id}, identifier={self.identifier}, name={self.name})>"
@@ -181,7 +185,7 @@ class TestStep(Base, UUIDMixin):
     __table_args__ = {"comment": "Test step table"}
 
     test_case_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_cases.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -220,7 +224,7 @@ class Tag(Base, UUIDMixin, TimestampMixin):
     __table_args__ = {"comment": "Tag table"}
 
     project_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -254,13 +258,13 @@ class TestCaseTag(Base):
     __table_args__ = {"comment": "Test case tag association table"}
 
     test_case_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_cases.id", ondelete="CASCADE"),
         primary_key=True,
         comment="Test case ID",
     )
     tag_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("tags.id", ondelete="CASCADE"),
         primary_key=True,
         comment="Tag ID",

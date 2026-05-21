@@ -6,9 +6,10 @@ Adapted from classroom reference:
 - FolderType enum moved to schemas/enums.py
 """
 
+from uuid import UUID
+
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -23,14 +24,14 @@ class Folder(Base, UUIDMixin, TimestampMixin):
     __table_args__ = {"comment": "Folder table"}
 
     project_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="Project ID",
     )
     parent_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("folders.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
@@ -82,6 +83,14 @@ class Folder(Base, UUIDMixin, TimestampMixin):
         "APIEndpoint",
         back_populates="folder",
         cascade="all, delete-orphan",
+    )
+    web_functions: Mapped[list["WebFunction"]] = relationship(
+        "WebFunction",
+        back_populates="folder",
+    )
+    web_tests: Mapped[list["WebTest"]] = relationship(
+        "WebTest",
+        back_populates="folder",
     )
 
     def __repr__(self) -> str:

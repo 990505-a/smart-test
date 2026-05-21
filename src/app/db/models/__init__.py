@@ -42,3 +42,12 @@ from src.app.db.models.test_scenario import (  # noqa: F401
 
 # API Test domain (depends on Project, Folder, TestCase)
 from src.app.db.models.api_test import APITest, APITestRun, APITestResult  # noqa: F401
+
+# Web Function domain (depends on Project, Folder)
+from src.app.db.models.web_function import WebFunction, WebSubFunction  # noqa: F401
+
+# Web Test domain (depends on Project, Folder, TestCase, WebFunction, WebSubFunction)
+from src.app.db.models.web_test import WebTest, WebTestRun, WebTestResult  # noqa: F401
+
+# Configuration (independent)
+from src.app.db.models.configuration import Configuration  # noqa: F401

@@ -8,8 +8,7 @@ Stores test project information. Adapted from classroom reference:
 
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -42,7 +41,7 @@ class Project(Base, UUIDMixin, TimestampMixin):
         comment="Project description",
     )
     created_by: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         default=lambda: DEFAULT_USER_ID,
         nullable=False,
         comment="Creator ID",
@@ -71,6 +70,16 @@ class Project(Base, UUIDMixin, TimestampMixin):
     )
     api_endpoints: Mapped[list["APIEndpoint"]] = relationship(
         "APIEndpoint",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    web_functions: Mapped[list["WebFunction"]] = relationship(
+        "WebFunction",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    web_tests: Mapped[list["WebTest"]] = relationship(
+        "WebTest",
         back_populates="project",
         cascade="all, delete-orphan",
     )
