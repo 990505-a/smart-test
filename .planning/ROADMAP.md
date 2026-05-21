@@ -20,7 +20,10 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - [x] **Phase 8: FastAPI Backend & Database** - REST API CRUD backend, PostgreSQL models, local file storage, Agent result persistence (completed 2026-05-15)
 - [x] **Phase 9: Platform Management UI** - Project list, test case editor, folder navigation, test execution dashboard (completed 2026-05-15)
 - [x] **Phase 10: Agent-Database Integration** - Agent results auto-save to database, test report visualization, Human-in-the-Loop (completed 2026-05-15)
+- [x] **Phase 11: API Test Execution Engine & GitNexus Integration** - API test scripts, scenario orchestration, execution engine, 6 API skills (completed 2026-05-16)
 - [x] **Phase 12: GitNexus Code Analysis Integration** - Embed gitnexus-web via iframe, register gitnexus-impact-analysis skill (completed 2026-05-19)
+- [x] **Phase 13: Workspace Management** - Workspace CRUD API, frontend workspace selector, directory auto-provisioning (completed 2026-05-20)
+- [x] **Phase 14: Skills and Middleware Migration** - 14 classroom skills, ContextInjectionMiddleware, ToolErrorHandler, context_schema (completed 2026-05-21)
 
 ## Phase Details
 
@@ -327,20 +330,28 @@ Plans:
 
 ### Phase 15: Web Agent Playwright MCP Upgrade
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 14
-**Plans:** 3/3 plans complete
+**Goal**: Replace Web Agent's Shell Backend with Playwright MCP for real browser control, add 16-tool registry for web testing lifecycle, activate 8 web_mcp skills from Phase 14
+**Depends on**: Phase 14
+**Requirements**: WEB-MCP-01, WEB-MCP-02, WEB-MCP-03, WEB-MCP-04, WEB-MCP-05, WEB-MCP-06, WEB-MCP-07, WEB-MCP-08
+**Success Criteria** (what must be TRUE):
+  1. Config has web_mcp_root setting pointing to workspace/default/web with @playwright/test installed
+  2. Tool registry provides 16 local tools across 4 categories (function management, test artifacts, scripts, execution)
+  3. Agent creates MCP client connected to Playwright Test MCP server via stdio session-level pattern
+  4. System prompt describes 4 workflows (Generate Tests, Create Function, Execute Tests, Auto-Heal)
+  5. Error handler targets only browser_ and playwright-test/ prefixed tools (not ALL tools)
+  6. 8 web_mcp skills activate automatically when MCP tools are available
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 15 to break down)
+- [x] 15-01-PLAN.md -- Config settings, Playwright MCP workspace (package.json + npm install), 16-tool registry package (Wave 1)
+- [ ] 15-02-PLAN.md -- Agent rewrite: MCP session lifecycle, 4-workflow system prompt, targeted error handler, integration verification (Wave 2)
 
 ### Phase 16: Backend and Frontend Alignment
 
 **Goal:** [To be planned]
 **Requirements**: TBD
 **Depends on:** Phase 15
-**Plans:** 0 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 16 to break down)
