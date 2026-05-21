@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderKanban, FolderTree, FileText, PlayCircle, Webhook, GitBranch, MessageSquare } from "lucide-react";
+import { FolderKanban, FolderTree, FileText, PlayCircle, Webhook, GitBranch, MessageSquare, Code2, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 
@@ -13,7 +13,9 @@ const NAV_ITEMS = [
   { href: "/cases", label: "测试用例", icon: FileText },
   { href: "/runs", label: "测试执行", icon: PlayCircle },
   { href: "/api-tests", label: "API测试", icon: Webhook },
+  { href: "/web-tests", label: "Web测试", icon: Globe },
   { href: "/scenarios", label: "测试场景", icon: GitBranch },
+  { href: "/code-analysis", label: "代码分析", icon: Code2 },
 ] as const;
 
 export function ManagementLayout({ children }: { children: React.ReactNode }) {
