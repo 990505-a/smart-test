@@ -8,11 +8,14 @@ from fastapi import APIRouter
 from src.app.api.v2 import (
     api_tests,
     attachments,
+    configurations,
     folders,
     projects,
     scenarios,
     test_cases,
     test_runs,
+    web_functions,
+    web_tests,
     workspaces,
 )
 
@@ -25,3 +28,6 @@ api_router.include_router(attachments.router, tags=["Attachments"])
 api_router.include_router(api_tests.router, tags=["API Tests"])
 api_router.include_router(scenarios.router, tags=["Scenarios"])
 api_router.include_router(workspaces.router, tags=["Workspaces"])
+api_router.include_router(web_functions.router, tags=["Web Functions"])
+api_router.include_router(web_tests.router, tags=["Web Tests"])
+api_router.include_router(configurations.router, tags=["Configurations"])

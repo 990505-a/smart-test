@@ -95,3 +95,33 @@ async def get_workspace_service(db: DbSessionDep) -> "WorkspaceService":
 
 
 WorkspaceServiceDep = Annotated["WorkspaceService", Depends(get_workspace_service)]
+
+
+# Web function service
+async def get_web_function_service(db: DbSessionDep) -> "WebFunctionService":
+    from src.app.db.services.web_function_service import WebFunctionService
+
+    return WebFunctionService(db)
+
+
+WebFunctionServiceDep = Annotated["WebFunctionService", Depends(get_web_function_service)]
+
+
+# Web test service
+async def get_web_test_service(db: DbSessionDep) -> "WebTestService":
+    from src.app.db.services.web_test_service import WebTestService
+
+    return WebTestService(db)
+
+
+WebTestServiceDep = Annotated["WebTestService", Depends(get_web_test_service)]
+
+
+# Configuration service
+async def get_configuration_service(db: DbSessionDep) -> "ConfigurationService":
+    from src.app.db.services.configuration_service import ConfigurationService
+
+    return ConfigurationService(db)
+
+
+ConfigurationServiceDep = Annotated["ConfigurationService", Depends(get_configuration_service)]
