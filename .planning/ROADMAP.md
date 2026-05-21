@@ -361,7 +361,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 16-01-PLAN.md — Backend models, schemas, repos, services, and routes for WebFunction, WebTest, Configuration (Wave 1)
+- [x] 16-01-PLAN.md — Backend models, schemas, repos, services, and routes for WebFunction, WebTest, Configuration (Wave 1)
 - [ ] 16-02-PLAN.md — Frontend types, SWR hooks, web-tests page with function tree, sidebar navigation update (Wave 2)
 
 **UI hint**: yes

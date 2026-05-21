@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-05-21T10:24:16.870Z"
+status: executing
+stopped_at: Completed 16-01-PLAN.md
+last_updated: "2026-05-21T12:04:18.209Z"
 last_activity: 2026-05-21
 progress:
   total_phases: 16
   completed_phases: 14
-  total_plans: 42
-  completed_plans: 44
+  total_plans: 44
+  completed_plans: 45
   percent: 88
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-11)
 
 **Core value:** AI Agent + Skills system to auto-generate high-quality, executable, traceable test assets (cases/scripts/reports)
-**Current focus:** Phase 15 — web-agent-playwright-mcp-upgrade
+**Current focus:** Phase 16 — backend-and-frontend-alignment
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 16 (backend-and-frontend-alignment) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-05-21
 
 Progress: [██████████░] 88% (14/16 phases)
@@ -92,6 +92,7 @@ Progress: [██████████░] 88% (14/16 phases)
 | Phase 14 P02 | 2min | 2 tasks | 4 files |
 | Phase 15 P01 | 7min | 2 tasks | 10 files |
 | Phase 15 P02 | 5min | 2 tasks | 2 files |
+| Phase 16 P01 | 5min | 2 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -200,6 +201,9 @@ Recent decisions affecting current work:
 - [Phase 15]: Targeted error wrapping only for browser_/playwright-test/ prefixed tools, not all tools
 - [Phase 15]: No graceful degradation for Playwright MCP -- browser tools are required for agent function
 - [Phase 15]: SkillsMiddleware uses composite_backend (not file_backend) for full routing
+- [Phase 16]: [Phase 16 P01]: WebTest models use explicit id/timestamp columns matching api_test.py pattern
+- [Phase 16]: [Phase 16 P01]: Configuration uses integer autoincrement PK per BrowserStack API pattern
+- [Phase 16]: [Phase 16 P01]: Sub-function routes nested under web-functions prefix for hierarchical resource organization
 
 ### Pending Todos
 
@@ -226,6 +230,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-21T10:17:28.310Z
-Stopped at: Completed 15-02-PLAN.md
+Last session: 2026-05-21T12:04:18.199Z
+Stopped at: Completed 16-01-PLAN.md
 Resume file: None
