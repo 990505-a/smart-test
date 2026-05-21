@@ -369,3 +369,196 @@ export interface WorkspaceCreate {
   slug?: string;
   description?: string;
 }
+
+// === Web Function ===
+export interface WebFunctionInfo {
+  id: string;
+  project_id: string;
+  folder_id: string | null;
+  identifier: string;
+  display_name: string;
+  name: string;
+  description: string | null;
+  base_url: string | null;
+  business_module: string | null;
+  navigation: Record<string, unknown> | null;
+  pages: unknown[] | null;
+  tags: string[] | null;
+  custom_config: Record<string, unknown> | null;
+  total_sub_functions: number;
+  total_test_cases: number;
+  total_test_runs: number;
+  last_run_status: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string | null;
+  sub_functions?: WebSubFunctionInfo[];
+}
+
+export interface WebSubFunctionInfo {
+  id: string;
+  project_id: string;
+  function_id: string;
+  folder_id: string | null;
+  identifier: string;
+  display_name: string;
+  name: string;
+  description: string | null;
+  test_type: string;
+  target_pages: unknown[] | null;
+  test_scenario: string | null;
+  test_data: Record<string, unknown> | null;
+  expected_results: unknown[] | null;
+  priority: string;
+  tags: string[] | null;
+  custom_config: Record<string, unknown> | null;
+  total_test_cases: number;
+  total_test_runs: number;
+  last_run_status: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface WebFunctionCreate {
+  project_id: string;
+  folder_id?: string | null;
+  display_name: string;
+  name: string;
+  description?: string;
+  base_url?: string;
+  business_module?: string;
+  navigation?: Record<string, unknown>;
+  pages?: unknown[];
+  tags?: string[];
+  custom_config?: Record<string, unknown>;
+}
+
+export interface WebFunctionUpdate {
+  display_name?: string;
+  name?: string;
+  description?: string;
+  base_url?: string;
+  business_module?: string;
+  navigation?: Record<string, unknown>;
+  pages?: unknown[];
+  tags?: string[];
+  custom_config?: Record<string, unknown>;
+}
+
+// === Web Test ===
+export interface WebTestInfo {
+  id: string;
+  project_id: string;
+  folder_id: string | null;
+  test_case_id: string | null;
+  function_id: string | null;
+  sub_function_id: string | null;
+  identifier: string;
+  name: string;
+  description: string | null;
+  base_url: string | null;
+  script_path: string | null;
+  script_format: string;
+  script_language: string;
+  test_config: Record<string, unknown>;
+  target_pages: Record<string, unknown> | null;
+  test_flows: Record<string, unknown> | null;
+  generated_by_agent: string;
+  generation_params: Record<string, unknown> | null;
+  total_pages: number;
+  total_flows: number;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface WebTestCreate {
+  project_id: string;
+  folder_id?: string | null;
+  function_id?: string | null;
+  sub_function_id?: string | null;
+  name: string;
+  description?: string;
+  base_url?: string;
+  test_config?: Record<string, unknown>;
+}
+
+export interface WebTestUpdate {
+  name?: string;
+  description?: string;
+  base_url?: string;
+  test_config?: Record<string, unknown>;
+}
+
+export interface WebTestRunInfo {
+  id: string;
+  project_id: string;
+  web_test_id: string;
+  identifier: string;
+  status: string;
+  execution_config: Record<string, unknown> | null;
+  total_tests: number;
+  passed_tests: number;
+  failed_tests: number;
+  skipped_tests: number;
+  duration_ms: number | null;
+  report_path: string | null;
+  screenshots_path: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface WebTestResultInfo {
+  id: string;
+  test_run_id: string;
+  web_test_id: string;
+  scenario_name: string;
+  page_url: string;
+  test_type: string;
+  status: string;
+  test_summary: Record<string, unknown> | null;
+  error_details: Record<string, unknown> | null;
+  error_message: string | null;
+  screenshot_path: string | null;
+  duration_ms: number | null;
+  retry_count: number;
+  created_at: string;
+}
+
+// === Configuration ===
+export interface ConfigurationInfo {
+  id: number;
+  name: string;
+  os: string | null;
+  os_version: string | null;
+  device: string | null;
+  browser: string | null;
+  browser_version: string | null;
+  is_system: boolean;
+  description: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface ConfigurationCreate {
+  name: string;
+  os?: string;
+  os_version?: string;
+  device?: string;
+  browser?: string;
+  browser_version?: string;
+  is_system?: boolean;
+  description?: string;
+}
+
+export interface ConfigurationUpdate {
+  name?: string;
+  os?: string;
+  os_version?: string;
+  device?: string;
+  browser?: string;
+  browser_version?: string;
+  is_system?: boolean;
+  description?: string;
+}
