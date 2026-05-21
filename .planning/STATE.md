@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 13-02-PLAN.md
-last_updated: "2026-05-20T14:17:22.946Z"
-last_activity: 2026-05-20
+status: executing
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-05-21T05:56:11.011Z"
+last_activity: 2026-05-21
 progress:
-  total_phases: 13
+  total_phases: 16
   completed_phases: 12
-  total_plans: 37
-  completed_plans: 39
+  total_plans: 40
+  completed_plans: 40
   percent: 92
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-11)
 
 **Core value:** AI Agent + Skills system to auto-generate high-quality, executable, traceable test assets (cases/scripts/reports)
-**Current focus:** Phase 13 — workspace-management
+**Current focus:** Phase 14 — skills-and-middleware-migration
 
 ## Current Position
 
-Phase: 13 (workspace-management) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-05-20
+Phase: 14 (skills-and-middleware-migration) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-05-21
 
 Progress: [█████████░] 92% (37/37 plans - Phase 13 not planned)
 
@@ -87,6 +87,7 @@ Progress: [█████████░] 92% (37/37 plans - Phase 13 not plann
 | Phase 11 P04 | 7min | 2 tasks | 4 files |
 | Phase 13 P01 | 2min | 2 tasks | 8 files |
 | Phase 13 P02 | 2min | 2 tasks | 4 files |
+| Phase 14 P01 | 3min | 2 tasks | 41 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,9 @@ Recent decisions affecting current work:
 - [Phase 13]: Inline create form (input + Add/Cancel) for workspace creation instead of dialog/popover
 - [Phase 13]: Delete button conditionally rendered only for non-default workspaces (is_default check)
 - [Phase 13]: WorkspaceId changed from literal type to string alias for API-driven flexibility
+- [Phase 14]: API skills replaced with classroom Chinese versions for consistency with classroom codebase
+- [Phase 14]: 5 old exploratory web skills replaced by 8 professional web_mcp pipeline skills
+- [Phase 14]: 3 extra API skills preserved from Phase 11 (api-test-quality, playwright-api-testing, test-scenario-design)
 
 ### Pending Todos
 
@@ -202,9 +206,12 @@ None yet.
 
 - Phase 12 added: GitNexus Code Analysis Integration — embed gitnexus-web frontend via iframe, register gitnexus-impact-analysis skill
 - Phase 13 added: Workspace Management - Add workspace CRUD API, frontend workspace selector with create/switch/delete, directory auto-provisioning
+- Phase 14 added: Skills and Middleware Migration — 14 classroom skills + ContextInjection + ToolErrorHandler + MASTEST system prompt
+- Phase 15 added: Web Agent Playwright MCP Upgrade — Replace Shell Backend with Playwright MCP, new tool registry, 8 web skills
+- Phase 16 added: Backend and Frontend Alignment — New endpoints (web_tests, web_functions, configurations), new models, frontend pages
 
 ## Session Continuity
 
-Last session: 2026-05-20T14:17:22.940Z
-Stopped at: Completed 13-02-PLAN.md
+Last session: 2026-05-21T05:56:11.005Z
+Stopped at: Completed 14-01-PLAN.md
 Resume file: None
