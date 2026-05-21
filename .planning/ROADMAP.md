@@ -348,10 +348,20 @@ Plans:
 
 ### Phase 16: Backend and Frontend Alignment
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 15
-**Plans:** 2/2 plans complete
+**Goal**: Add missing backend endpoints (web_tests, web_functions, configurations), new database models (WebFunction, WebSubFunction, WebTest, WebTestRun, WebTestResult, Configuration), and new frontend pages for web test management to align with classroom implementation
+**Depends on**: Phase 15
+**Requirements**: BE-ALIGN-01, BE-ALIGN-02, BE-ALIGN-03, FE-ALIGN-01, FE-ALIGN-02, FE-ALIGN-03
+**Success Criteria** (what must be TRUE):
+  1. GET /api/v2/projects/{id}/web-functions returns paginated list of web functions with sub-functions
+  2. GET /api/v2/projects/{id}/web-tests returns paginated list of web tests with function/sub-function filters
+  3. GET /api/v2/configurations returns paginated list of OS/browser/device configurations
+  4. All 6 new database tables (web_functions, web_sub_functions, web_tests, web_test_runs, web_test_results, configurations) exist in SQLite
+  5. Frontend /web-tests page displays function tree with expand/collapse and associated web tests
+  6. Management sidebar includes "Web测试" navigation item
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 16 to break down)
+- [ ] 16-01-PLAN.md — Backend models, schemas, repos, services, and routes for WebFunction, WebTest, Configuration (Wave 1)
+- [ ] 16-02-PLAN.md — Frontend types, SWR hooks, web-tests page with function tree, sidebar navigation update (Wave 2)
+
+**UI hint**: yes
