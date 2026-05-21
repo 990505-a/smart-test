@@ -344,14 +344,14 @@ Plans:
 
 Plans:
 - [x] 15-01-PLAN.md -- Config settings, Playwright MCP workspace (package.json + npm install), 16-tool registry package (Wave 1)
-- [ ] 15-02-PLAN.md -- Agent rewrite: MCP session lifecycle, 4-workflow system prompt, targeted error handler, integration verification (Wave 2)
+- [x] 15-02-PLAN.md -- Agent rewrite: MCP session lifecycle, 4-workflow system prompt, targeted error handler, integration verification (Wave 2)
 
 ### Phase 16: Backend and Frontend Alignment
 
 **Goal:** [To be planned]
 **Requirements**: TBD
 **Depends on:** Phase 15
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 16 to break down)

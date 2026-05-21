@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 15-01-PLAN.md
-last_updated: "2026-05-21T10:09:38.758Z"
+status: verifying
+stopped_at: Completed 15-02-PLAN.md
+last_updated: "2026-05-21T10:17:28.320Z"
 last_activity: 2026-05-21
 progress:
   total_phases: 16
-  completed_phases: 13
+  completed_phases: 14
   total_plans: 42
-  completed_plans: 43
+  completed_plans: 44
   percent: 88
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-05-11)
 
 Phase: 15 (web-agent-playwright-mcp-upgrade) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-05-21
 
 Progress: [██████████░] 88% (14/16 phases)
@@ -91,6 +91,7 @@ Progress: [██████████░] 88% (14/16 phases)
 | Phase 14 P03 | 2min | 2 tasks | 4 files |
 | Phase 14 P02 | 2min | 2 tasks | 4 files |
 | Phase 15 P01 | 7min | 2 tasks | 10 files |
+| Phase 15 P02 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,10 @@ Recent decisions affecting current work:
 - [Phase 14]: Tool error wrapping returns tuple (content, artifact) for response_format compatibility
 - [Phase 15]: 18 tools implemented (plan said 16 but listed 18); all listed tools created as specified
 - [Phase 15]: JSON file storage for function/sub-function data; Phase 16 adds WebFunction/WebSubFunction DB models
+- [Phase 15]: Session-level MCP pattern (async with client.session) for Playwright persistent browser state
+- [Phase 15]: Targeted error wrapping only for browser_/playwright-test/ prefixed tools, not all tools
+- [Phase 15]: No graceful degradation for Playwright MCP -- browser tools are required for agent function
+- [Phase 15]: SkillsMiddleware uses composite_backend (not file_backend) for full routing
 
 ### Pending Todos
 
@@ -221,6 +226,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-21T10:09:38.751Z
-Stopped at: Completed 15-01-PLAN.md
+Last session: 2026-05-21T10:17:28.310Z
+Stopped at: Completed 15-02-PLAN.md
 Resume file: None
