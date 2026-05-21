@@ -1,0 +1,371 @@
+[
+  {
+    "name": "标准用户成功登录",
+    "description": "验证使用 standard_user 和有效密码 secret_sauce 可以成功登录到 inventory 页面",
+    "priority": "high",
+    "prerequisites": [
+      "用户未登录",
+      "saucedemo.com 可访问"
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "action": "navigate",
+        "description": "导航到登录页面",
+        "target": "登录页面",
+        "locator": null,
+        "data": "https://www.saucedemo.com"
+      },
+      {
+        "step_number": 2,
+        "action": "fill",
+        "description": "填写用户名",
+        "target": "用户名输入框",
+        "locator": "locator('[data-test=\"username\"]')",
+        "data": "standard_user"
+      },
+      {
+        "step_number": 3,
+        "action": "fill",
+        "description": "填写密码",
+        "target": "密码输入框",
+        "locator": "locator('[data-test=\"password\"]')",
+        "data": "secret_sauce"
+      },
+      {
+        "step_number": 4,
+        "action": "click",
+        "description": "点击登录按钮",
+        "target": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "data": null
+      }
+    ],
+    "expected_result": "用户成功登录并跳转到 inventory 页面，显示 Products 标题和商品列表",
+    "verification_points": [
+      {
+        "type": "url",
+        "description": "验证 URL 已跳转到 inventory 页面",
+        "locator": null,
+        "expected": "/inventory.html"
+      },
+      {
+        "type": "element_visible",
+        "description": "验证 Products 标题可见",
+        "locator": "getByText('Products')",
+        "expected": true
+      }
+    ],
+    "page_elements": [
+      {
+        "name": "用户名输入框",
+        "locator": "locator('[data-test=\"username\"]')",
+        "type": "textbox"
+      },
+      {
+        "name": "密码输入框",
+        "locator": "locator('[data-test=\"password\"]')",
+        "type": "textbox"
+      },
+      {
+        "name": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "type": "button"
+      }
+    ],
+    "tags": ["authentication", "login", "smoke-test", "critical"]
+  },
+  {
+    "name": "错误密码登录",
+    "description": "验证使用正确用户名但错误密码时，显示正确的错误提示信息",
+    "priority": "high",
+    "prerequisites": [
+      "用户未登录",
+      "saucedemo.com 可访问"
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "action": "navigate",
+        "description": "导航到登录页面",
+        "target": "登录页面",
+        "locator": null,
+        "data": "https://www.saucedemo.com"
+      },
+      {
+        "step_number": 2,
+        "action": "fill",
+        "description": "填写用户名",
+        "target": "用户名输入框",
+        "locator": "locator('[data-test=\"username\"]')",
+        "data": "standard_user"
+      },
+      {
+        "step_number": 3,
+        "action": "fill",
+        "description": "填写错误密码",
+        "target": "密码输入框",
+        "locator": "locator('[data-test=\"password\"]')",
+        "data": "wrong_password"
+      },
+      {
+        "step_number": 4,
+        "action": "click",
+        "description": "点击登录按钮",
+        "target": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "data": null
+      }
+    ],
+    "expected_result": "登录失败，显示错误提示信息",
+    "verification_points": [
+      {
+        "type": "element_text",
+        "description": "验证错误信息文本",
+        "locator": "locator('[data-test=\"error\"]')",
+        "expected": "Epic sadface: Username and password do not match any user in this service"
+      },
+      {
+        "type": "element_visible",
+        "description": "验证错误信息可见",
+        "locator": "locator('[data-test=\"error\"]')",
+        "expected": true
+      }
+    ],
+    "page_elements": [
+      {
+        "name": "用户名输入框",
+        "locator": "locator('[data-test=\"username\"]')",
+        "type": "textbox"
+      },
+      {
+        "name": "密码输入框",
+        "locator": "locator('[data-test=\"password\"]')",
+        "type": "textbox"
+      },
+      {
+        "name": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "type": "button"
+      },
+      {
+        "name": "错误信息框",
+        "locator": "locator('[data-test=\"error\"]')",
+        "type": "heading"
+      }
+    ],
+    "tags": ["authentication", "login", "negative-test", "error-handling"]
+  },
+  {
+    "name": "锁定用户登录",
+    "description": "验证 locked_out_user 登录时显示已被锁定的错误提示",
+    "priority": "high",
+    "prerequisites": [
+      "用户未登录",
+      "saucedemo.com 可访问"
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "action": "navigate",
+        "description": "导航到登录页面",
+        "target": "登录页面",
+        "locator": null,
+        "data": "https://www.saucedemo.com"
+      },
+      {
+        "step_number": 2,
+        "action": "fill",
+        "description": "填写锁定用户用户名",
+        "target": "用户名输入框",
+        "locator": "locator('[data-test=\"username\"]')",
+        "data": "locked_out_user"
+      },
+      {
+        "step_number": 3,
+        "action": "fill",
+        "description": "填写密码",
+        "target": "密码输入框",
+        "locator": "locator('[data-test=\"password\"]')",
+        "data": "secret_sauce"
+      },
+      {
+        "step_number": 4,
+        "action": "click",
+        "description": "点击登录按钮",
+        "target": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "data": null
+      }
+    ],
+    "expected_result": "登录失败，显示用户已被锁定的错误提示",
+    "verification_points": [
+      {
+        "type": "element_text",
+        "description": "验证锁定用户错误信息",
+        "locator": "locator('[data-test=\"error\"]')",
+        "expected": "Epic sadface: Sorry, this user has been locked out."
+      },
+      {
+        "type": "element_visible",
+        "description": "验证错误信息可见",
+        "locator": "locator('[data-test=\"error\"]')",
+        "expected": true
+      }
+    ],
+    "page_elements": [
+      {
+        "name": "用户名输入框",
+        "locator": "locator('[data-test=\"username\"]')",
+        "type": "textbox"
+      },
+      {
+        "name": "密码输入框",
+        "locator": "locator('[data-test=\"password\"]')",
+        "type": "textbox"
+      },
+      {
+        "name": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "type": "button"
+      },
+      {
+        "name": "错误信息框",
+        "locator": "locator('[data-test=\"error\"]')",
+        "type": "heading"
+      }
+    ],
+    "tags": ["authentication", "login", "negative-test", "locked-user"]
+  },
+  {
+    "name": "空字段登录",
+    "description": "验证不输入任何内容直接点击登录按钮时，显示用户名必填的错误提示",
+    "priority": "medium",
+    "prerequisites": [
+      "用户未登录",
+      "saucedemo.com 可访问"
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "action": "navigate",
+        "description": "导航到登录页面",
+        "target": "登录页面",
+        "locator": null,
+        "data": "https://www.saucedemo.com"
+      },
+      {
+        "step_number": 2,
+        "action": "click",
+        "description": "不输入任何内容，直接点击登录按钮",
+        "target": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "data": null
+      }
+    ],
+    "expected_result": "显示用户名必填的错误提示",
+    "verification_points": [
+      {
+        "type": "element_text",
+        "description": "验证空字段错误信息",
+        "locator": "locator('[data-test=\"error\"]')",
+        "expected": "Epic sadface: Username is required"
+      },
+      {
+        "type": "element_visible",
+        "description": "验证错误信息可见",
+        "locator": "locator('[data-test=\"error\"]')",
+        "expected": true
+      }
+    ],
+    "page_elements": [
+      {
+        "name": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "type": "button"
+      },
+      {
+        "name": "错误信息框",
+        "locator": "locator('[data-test=\"error\"]')",
+        "type": "heading"
+      }
+    ],
+    "tags": ["authentication", "login", "negative-test", "validation"]
+  },
+  {
+    "name": "性能故障用户登录",
+    "description": "验证 performance_glitch_user 虽然加载较慢但最终能成功登录",
+    "priority": "medium",
+    "prerequisites": [
+      "用户未登录",
+      "saucedemo.com 可访问"
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "action": "navigate",
+        "description": "导航到登录页面",
+        "target": "登录页面",
+        "locator": null,
+        "data": "https://www.saucedemo.com"
+      },
+      {
+        "step_number": 2,
+        "action": "fill",
+        "description": "填写用户名",
+        "target": "用户名输入框",
+        "locator": "locator('[data-test=\"username\"]')",
+        "data": "performance_glitch_user"
+      },
+      {
+        "step_number": 3,
+        "action": "fill",
+        "description": "填写密码",
+        "target": "密码输入框",
+        "locator": "locator('[data-test=\"password\"]')",
+        "data": "secret_sauce"
+      },
+      {
+        "step_number": 4,
+        "action": "click",
+        "description": "点击登录按钮",
+        "target": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "data": null
+      }
+    ],
+    "expected_result": "最终成功登录并跳转到 inventory 页面，显示 Products 标题",
+    "verification_points": [
+      {
+        "type": "url",
+        "description": "验证最终跳转到 inventory 页面",
+        "locator": null,
+        "expected": "/inventory.html"
+      },
+      {
+        "type": "element_visible",
+        "description": "验证 Products 标题可见",
+        "locator": "getByText('Products')",
+        "expected": true
+      }
+    ],
+    "page_elements": [
+      {
+        "name": "用户名输入框",
+        "locator": "locator('[data-test=\"username\"]')",
+        "type": "textbox"
+      },
+      {
+        "name": "密码输入框",
+        "locator": "locator('[data-test=\"password\"]')",
+        "type": "textbox"
+      },
+      {
+        "name": "登录按钮",
+        "locator": "locator('[data-test=\"login-button\"]')",
+        "type": "button"
+      }
+    ],
+    "tags": ["authentication", "login", "performance", "compatibility"]
+  }
+]
