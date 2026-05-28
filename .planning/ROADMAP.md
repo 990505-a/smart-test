@@ -24,6 +24,8 @@ This roadmap delivers an AI-powered intelligent testing platform in 7 phases. Th
 - [x] **Phase 12: GitNexus Code Analysis Integration** - Embed gitnexus-web via iframe, register gitnexus-impact-analysis skill (completed 2026-05-19)
 - [x] **Phase 13: Workspace Management** - Workspace CRUD API, frontend workspace selector, directory auto-provisioning (completed 2026-05-20)
 - [x] **Phase 14: Skills and Middleware Migration** - 14 classroom skills, ContextInjectionMiddleware, ToolErrorHandler, context_schema (completed 2026-05-21)
+- [x] **Phase 15: Web Agent Playwright MCP Upgrade** - Replace Shell Backend with Playwright MCP, new tool registry, 8 web skills (completed 2026-05-21)
+- [x] **Phase 16: Backend and Frontend Alignment** - New endpoints, models, frontend pages for web test management (completed 2026-05-21)
 
 ## Phase Details
 
@@ -254,7 +256,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15 -> 16 -> 17
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -271,6 +273,10 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 11. API Test Execution Engine & GitNexus Integration | 6/6 | Complete | 2026-05-16 |
 | 12. GitNexus Code Analysis Integration | 2/2 | Complete | 2026-05-19 |
 | 13. Workspace Management | 2/2 | Complete   | 2026-05-20 |
+| 14. Skills and Middleware Migration | 3/3 | Complete | 2026-05-21 |
+| 15. Web Agent Playwright MCP Upgrade | 2/2 | Complete | 2026-05-21 |
+| 16. Backend and Frontend Alignment | 2/2 | Complete | 2026-05-21 |
+| 17. Frontend Message Scroll Pagination | 0/2 | Planned | -- |
 
 ### Phase 12: GitNexus Code Analysis Integration
 **Goal**: Embed GitNexus code intelligence into the platform — iframe-based frontend integration for code graph visualization, and register gitnexus-impact-analysis skill for AI-driven code analysis workflows
@@ -363,5 +369,25 @@ Plans:
 Plans:
 - [x] 16-01-PLAN.md — Backend models, schemas, repos, services, and routes for WebFunction, WebTest, Configuration (Wave 1)
 - [x] 16-02-PLAN.md — Frontend types, SWR hooks, web-tests page with function tree, sidebar navigation update (Wave 2)
+
+**UI hint**: yes
+
+### Phase 17: Frontend Message Scroll Pagination
+
+**Goal**: Implement paginated message loading so the frontend never loads 25MB+ at once. Default: load latest 20 messages, scroll up to load more. Compatible with existing streaming during active runs.
+**Depends on**: Phase 16
+**Requirements**: MSG-PAG-01, MSG-PAG-02, MSG-PAG-03, MSG-PAG-04, MSG-PAG-05, MSG-PAG-06
+**Success Criteria** (what must be TRUE):
+  1. Backend endpoint GET /api/v2/threads/{threadId}/messages returns paginated messages with conversation group integrity (AI message + tool results never split)
+  2. Opening an existing thread loads only the latest 20 messages, not the full 25MB state
+  3. Scrolling up triggers loading of older messages (20 per page) without scroll position jumps
+  4. Active streaming auto-scrolls to bottom with new messages; scrolling up pauses auto-scroll
+  5. Tool call boxes show correct pending/completed status even with paginated messages
+  6. @langchain/langgraph-sdk upgraded from 1.0.3 to 1.9.9; use-stick-to-bottom replaced by react-virtuoso
+**Plans**: 2 plans
+
+Plans:
+- [ ] 17-01-PLAN.md — Backend pagination endpoint + frontend data layer: FastAPI /threads/{id}/messages, SWR usePaginatedMessages hook, npm dependencies (Wave 1)
+- [ ] 17-02-PLAN.md — Frontend UI wiring: Virtuoso virtual scroll in ChatInterface, dual-source message merge in useChat, human verification (Wave 2)
 
 **UI hint**: yes
