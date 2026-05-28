@@ -16,7 +16,18 @@ export interface ContentBlock {
   type: "image" | "file";
   mimeType: string;
   data: string;
-  metadata?: { name?: string; filename?: string };
+  metadata?: {
+    name?: string;
+    filename?: string;
+    /** @deprecated Use workspacePath instead. Full text embedding causes thread state bloat. */
+    extractedText?: string;
+    /** Virtual absolute path where file is saved (e.g., /uploads/abc_doc.pdf). Agent reads via read_file tool. */
+    workspacePath?: string;
+    /** Virtual absolute path to extracted text file (e.g., /uploads/abc_doc_extracted.txt). */
+    textFilePath?: string;
+    /** Preview of extracted text (first 200 chars) for display. */
+    textPreview?: string;
+  };
 }
 
 export interface StateType {
@@ -43,9 +54,6 @@ export const PIPELINE_STAGES = [
 ] as const;
 
 export type PipelineStageId = (typeof PIPELINE_STAGES)[number]["id"];
-
-/** Workspace identifier -- the slug string from the API (e.g., "default", "project-alpha"). */
-export type WorkspaceId = string;
 
 /** Tool call with status tracking for UI display. */
 export interface ToolCall {
@@ -78,6 +86,24 @@ export interface TodoItem {
 export interface FileItem {
   path: string;
   content: string;
+}
+
+/** Message shape returned by the paginated backend endpoint. */
+export interface PaginatedMessage {
+  id: string;
+  type: "human" | "ai" | "system" | "tool";
+  content: string | Array<Record<string, unknown>>;
+  additional_kwargs?: Record<string, unknown>;
+  tool_calls?: Array<{ name: string; args?: Record<string, unknown>; id?: string }>;
+  name?: string;
+}
+
+/** Response shape from GET /api/v2/threads/{threadId}/messages */
+export interface PaginatedMessagesResponse {
+  messages: PaginatedMessage[];
+  total: number;
+  has_more: boolean;
+  next_cursor: string | null;
 }
 
 /** Extract displayable text from sub-agent input/output objects. */

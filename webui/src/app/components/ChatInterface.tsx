@@ -2,15 +2,32 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo, Fragment, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon } from "lucide-react";
+import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderGit2, Hash, Settings, BookOpen } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
-import { useStickToBottom } from "use-stick-to-bottom";
+import { useQueryState } from "nuqs";
+
+/** Extract task IDs like M72-177558 from text */
+function extractTaskIds(text: string): string[] {
+  const matches = text.match(/\b[A-Za-z][A-Za-z0-9]*-\d{3,8}\b/g);
+  if (!matches) return [];
+  return [...new Set(matches)];
+}
 import { useFileUpload } from "@/app/hooks/useFileUpload";
 import { ContentBlocksPreview } from "@/app/components/ContentBlocksPreview";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import type { ToolCall, TodoItem } from "@/app/types/types";
 import type { Message } from "@langchain/langgraph-sdk";
+import { useWikis, useCreateWiki, useDeleteWiki } from "@/lib/api/useWikis";
 
 interface ChatInterfaceProps {
   assistantId: string;
@@ -31,7 +48,33 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [input, setInput] = useState("");
   const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
-  const { scrollRef, contentRef } = useStickToBottom();
+  const [repoList, setRepoList] = useState<string[]>([]);
+  const [selectedRepo, setSelectedRepo] = useState("");
+  const [taskId, setTaskId] = useState("");
+  const [repoDialogOpen, setRepoDialogOpen] = useState(false);
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [newRepoPath, setNewRepoPath] = useState("");
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  // Wiki selector state
+  const WIKI_STORAGE_KEY = "smart-test-platform-wiki";
+  const [selectedWiki, setSelectedWiki] = useState("");
+  const [wikiDialogOpen, setWikiDialogOpen] = useState(false);
+  const [newWikiName, setNewWikiName] = useState("");
+  const [newWikiPath, setNewWikiPath] = useState("");
+  const { data: wikiData } = useWikis();
+  const { trigger: createWiki } = useCreateWiki();
+  const { trigger: deleteWiki } = useDeleteWiki();
+  const wikiList = wikiData?.data ?? [];
+
+  // Load selected wiki from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(WIKI_STORAGE_KEY);
+      if (saved) setSelectedWiki(saved);
+    } catch {}
+  }, []);
 
   const {
     contentBlocks,
@@ -42,6 +85,87 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     isDragging,
     handlePaste,
   } = useFileUpload();
+
+  const REPO_STORAGE_KEY = "smart-test-platform-repos";
+  const TASK_MAP_STORAGE_KEY = "smart-test-platform-task-map";
+
+  // Read threadId from URL to persist taskId per thread
+  const [currentThreadId] = useQueryState("threadId");
+
+  // Load repos from localStorage (repo is global, task is per-conversation)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REPO_STORAGE_KEY);
+      if (saved) {
+        const repos: string[] = JSON.parse(saved);
+        setRepoList(repos);
+        if (repos.length > 0) setSelectedRepo(repos[0]);
+      }
+    } catch {}
+  }, []);
+
+  // Load/clear taskId when switching threads
+  useEffect(() => {
+    if (!currentThreadId) {
+      // No thread (new chat) — clear task
+      setTaskId("");
+      return;
+    }
+    // Existing thread — restore its task from localStorage (if saved)
+    try {
+      const mapRaw = localStorage.getItem(TASK_MAP_STORAGE_KEY);
+      const map: Record<string, string> = mapRaw ? JSON.parse(mapRaw) : {};
+      if (map[currentThreadId] !== undefined) {
+        setTaskId(map[currentThreadId]);
+      }
+      // If not saved yet (new thread after first message), don't overwrite
+    } catch {}
+  }, [currentThreadId]);
+
+  // Save taskId for current thread whenever it changes (debounced via dialog close)
+  const persistTaskForThread = useCallback((threadId: string | null, task: string) => {
+    if (!threadId) return;
+    try {
+      const mapRaw = localStorage.getItem(TASK_MAP_STORAGE_KEY);
+      const map: Record<string, string> = mapRaw ? JSON.parse(mapRaw) : {};
+      if (task) {
+        map[threadId] = task;
+      } else {
+        delete map[threadId];
+      }
+      localStorage.setItem(TASK_MAP_STORAGE_KEY, JSON.stringify(map));
+    } catch {}
+  }, []);
+
+  // Save repos to localStorage
+  const saveRepoList = useCallback((repos: string[]) => {
+    setRepoList(repos);
+    localStorage.setItem(REPO_STORAGE_KEY, JSON.stringify(repos));
+  }, []);
+
+  const handleAddRepo = useCallback(() => {
+    const path = newRepoPath.trim();
+    if (!path || repoList.includes(path)) return;
+    const newList = [...repoList, path];
+    saveRepoList(newList);
+    setSelectedRepo(path);
+    setNewRepoPath("");
+    setRepoDialogOpen(false);
+  }, [newRepoPath, repoList, saveRepoList]);
+
+  const handleRemoveRepo = useCallback((path: string) => {
+    const newList = repoList.filter((r) => r !== path);
+    saveRepoList(newList);
+    if (selectedRepo === path) {
+      setSelectedRepo(newList[0] || "");
+    }
+  }, [repoList, selectedRepo, saveRepoList]);
+
+  // Close task dialog and persist for current thread
+  const handleCloseTaskDialog = useCallback(() => {
+    persistTaskForThread(currentThreadId, taskId);
+    setTaskDialogOpen(false);
+  }, [currentThreadId, taskId, persistTaskForThread]);
 
   const {
     stream,
@@ -68,7 +192,22 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
         submitDisabled
       )
         return;
-      sendMessage(messageText, contentBlocks);
+      // Inject code analysis context into message so agent can see it
+      const ids = taskId ? extractTaskIds(taskId) : [];
+      const wikiContext = selectedWiki
+        ? `\n[Wiki 知识库] 当前查询目标: ${selectedWiki}`
+        : "";
+      const contextPrefix = (selectedRepo || ids.length > 0 || selectedWiki)
+        ? `[代码分析上下文 - 可在任何阶段使用此信息辅助分析]${selectedRepo ? ` 仓库路径: ${selectedRepo}` : ""}${ids.length > 0 ? ` 任务单号: ${ids.join(", ")}` : ""}${wikiContext}\n\n`
+        : "";
+      sendMessage(contextPrefix + messageText, contentBlocks, {
+        repoPath: selectedRepo || undefined,
+        taskId: taskId || undefined,
+      });
+      // Persist taskId so it survives thread creation
+      if (taskId && currentThreadId) {
+        persistTaskForThread(currentThreadId, taskId);
+      }
       setInput("");
       clearContentBlocks();
     },
@@ -396,9 +535,72 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
                   type="file"
                   onChange={handleFileUpload}
                   multiple
-                  accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
+                  accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/markdown"
                   className="hidden"
                 />
+                <div className="flex items-center gap-2 border-l border-border pl-4">
+                  {/* Repo selector */}
+                  <div className="flex items-center gap-1">
+                    <FolderGit2 size={14} className="text-muted-foreground" />
+                    <select
+                      value={selectedRepo}
+                      onChange={(e) => setSelectedRepo(e.target.value)}
+                      className="h-7 max-w-48 rounded border border-border bg-transparent px-1.5 text-xs text-foreground outline-none focus:border-primary"
+                    >
+                      <option value="">选择仓库</option>
+                      {repoList.map((r) => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setRepoDialogOpen(true)}
+                      className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      title="管理仓库"
+                    >
+                      <Settings size={12} />
+                    </button>
+                  </div>
+                  {/* Task ID button */}
+                  <button
+                    type="button"
+                    onClick={() => setTaskDialogOpen(true)}
+                    className={cn(
+                      "flex h-7 items-center gap-1 rounded border px-2 text-xs",
+                      taskId
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    )}
+                  >
+                    <Hash size={12} />
+                    {taskId ? `任务 (${extractTaskIds(taskId).length}个)` : "任务单号"}
+                  </button>
+                  {/* Wiki selector */}
+                  <div className="flex items-center gap-1">
+                    <BookOpen size={14} className="text-muted-foreground" />
+                    <select
+                      value={selectedWiki}
+                      onChange={(e) => {
+                        setSelectedWiki(e.target.value);
+                        localStorage.setItem(WIKI_STORAGE_KEY, e.target.value);
+                      }}
+                      className="h-7 max-w-40 rounded border border-border bg-transparent px-1.5 text-xs text-foreground outline-none focus:border-primary"
+                    >
+                      <option value="">全部知识库</option>
+                      {wikiList.map((w) => (
+                        <option key={w.name} value={w.name}>{w.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setWikiDialogOpen(true)}
+                      className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      title="管理知识库"
+                    >
+                      <Settings size={12} />
+                    </button>
+                  </div>
+                </div>
               </div>
               <div className="flex justify-end gap-2">
                 <Button
@@ -428,6 +630,131 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
           </form>
         </div>
       </div>
+
+      {/* Add Repo Dialog */}
+      <Dialog open={repoDialogOpen} onOpenChange={setRepoDialogOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>管理代码仓库</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            {repoList.length > 0 && (
+              <div className="space-y-1.5">
+                {repoList.map((repo) => (
+                  <div key={repo} className="flex items-center justify-between rounded border border-border px-3 py-1.5">
+                    <span className="truncate text-xs font-mono">{repo}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRepo(repo)}
+                      className="ml-2 text-xs text-muted-foreground hover:text-destructive"
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="输入仓库路径，如 D:/projects/my-app"
+                value={newRepoPath}
+                onChange={(e) => setNewRepoPath(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddRepo()}
+                className="text-xs"
+              />
+              <Button size="sm" onClick={handleAddRepo} disabled={!newRepoPath.trim()}>
+                添加
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Task ID Dialog */}
+      <Dialog open={taskDialogOpen} onOpenChange={(open) => { if (!open) handleCloseTaskDialog(); }}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>任务单号</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 py-2">
+            <textarea
+              value={taskId}
+              onChange={(e) => setTaskId(e.target.value)}
+              placeholder={"输入任务单号，多个用逗号或换行分隔\n例如：\nM72-172556\nM72-172557\nM72-172558"}
+              className="min-h-[120px] resize-none rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+            />
+          </div>
+          <DialogFooter>
+            <Button size="sm" onClick={handleCloseTaskDialog}>确定</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Wiki Management Dialog */}
+      <Dialog open={wikiDialogOpen} onOpenChange={setWikiDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>管理 Wiki 知识库</DialogTitle>
+            <DialogDescription>
+              添加或删除 wiki-mcp 知识库目录，修改后自动同步到配置文件。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            {wikiList.length > 0 && (
+              <div className="space-y-1.5">
+                {wikiList.map((wiki) => (
+                  <div key={wiki.name} className="flex items-center justify-between rounded border border-border px-3 py-1.5">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-medium">{wiki.name}</span>
+                      <span className="ml-2 truncate text-xs text-muted-foreground font-mono">{wiki.path}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await deleteWiki(wiki.name);
+                        if (selectedWiki === wiki.name) {
+                          setSelectedWiki("");
+                          localStorage.setItem(WIKI_STORAGE_KEY, "");
+                        }
+                      }}
+                      className="ml-2 text-xs text-muted-foreground hover:text-destructive"
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="名称，如 test-knowledge"
+                value={newWikiName}
+                onChange={(e) => setNewWikiName(e.target.value)}
+                className="text-xs"
+                style={{ flex: 1 }}
+              />
+              <Input
+                placeholder="路径，如 C:/llm_test2/test"
+                value={newWikiPath}
+                onChange={(e) => setNewWikiPath(e.target.value)}
+                className="text-xs"
+                style={{ flex: 2 }}
+              />
+              <Button
+                size="sm"
+                disabled={!newWikiName.trim() || !newWikiPath.trim()}
+                onClick={async () => {
+                  await createWiki({ name: newWikiName.trim(), path: newWikiPath.trim() });
+                  setNewWikiName("");
+                  setNewWikiPath("");
+                }}
+              >
+                添加
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });
