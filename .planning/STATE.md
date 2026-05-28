@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 16-02-PLAN.md
-last_updated: "2026-05-21T12:14:54.884Z"
-last_activity: 2026-05-21
+status: executing
+stopped_at: Completed 17-01-PLAN.md
+last_updated: "2026-05-28T09:07:00Z"
+last_activity: 2026-05-28
 progress:
-  total_phases: 16
+  total_phases: 17
   completed_phases: 15
-  total_plans: 44
-  completed_plans: 46
+  total_plans: 45
+  completed_plans: 47
   percent: 88
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-11)
 
 **Core value:** AI Agent + Skills system to auto-generate high-quality, executable, traceable test assets (cases/scripts/reports)
-**Current focus:** Phase 16 — backend-and-frontend-alignment
+**Current focus:** Phase 17 — message-scroll-pagination
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-05-21
+Phase: 17
+Plan: 01 completed
+Status: Executing
+Last activity: 2026-05-28
 
-Progress: [██████████░] 88% (14/16 phases)
+Progress: [██████████░] 88% (15/17 phases)
 
 ## Performance Metrics
 
@@ -94,6 +94,7 @@ Progress: [██████████░] 88% (14/16 phases)
 | Phase 15 P02 | 5min | 2 tasks | 2 files |
 | Phase 16 P01 | 5min | 2 tasks | 21 files |
 | Phase 16 P02 | 342s | 2 tasks | 9 files |
+| Phase 17 P01 | 5min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -207,6 +208,8 @@ Recent decisions affecting current work:
 - [Phase 16]: [Phase 16 P01]: Sub-function routes nested under web-functions prefix for hierarchical resource organization
 - [Phase 16]: Removed DialogTrigger with asChild due to radix-ui v4 incompatibility; used Button + Dialog open state pattern
 - [Phase 16]: Configurations hooks use /configurations prefix without projectId (global resource)
+- [Phase 17]: langgraph_sdk.get_client() returns AsyncClient directly (no get_async_client), used natively in async FastAPI
+- [Phase 17]: Replaced useStickToBottom with plain refs to prepare for react-virtuoso virtual scroll
 
 ### Pending Todos
 
@@ -230,9 +233,10 @@ None yet.
 - Phase 14 added: Skills and Middleware Migration — 14 classroom skills + ContextInjection + ToolErrorHandler + MASTEST system prompt
 - Phase 15 added: Web Agent Playwright MCP Upgrade — Replace Shell Backend with Playwright MCP, new tool registry, 8 web skills
 - Phase 16 added: Backend and Frontend Alignment — New endpoints (web_tests, web_functions, configurations), new models, frontend pages
+- Phase 17 added: Message Scroll Pagination — Backend paginated messages endpoint, frontend SWR hook, react-virtuoso integration
 
 ## Session Continuity
 
-Last session: 2026-05-21T12:11:07.268Z
-Stopped at: Completed 16-02-PLAN.md
+Last session: 2026-05-28T09:07:00Z
+Stopped at: Completed 17-01-PLAN.md
 Resume file: None

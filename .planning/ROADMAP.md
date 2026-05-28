@@ -276,7 +276,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 14. Skills and Middleware Migration | 3/3 | Complete | 2026-05-21 |
 | 15. Web Agent Playwright MCP Upgrade | 2/2 | Complete | 2026-05-21 |
 | 16. Backend and Frontend Alignment | 2/2 | Complete | 2026-05-21 |
-| 17. Frontend Message Scroll Pagination | 0/2 | Planned | -- |
+| 17. Frontend Message Scroll Pagination | 1/2 | In Progress | 2026-05-28 |
 
 ### Phase 12: GitNexus Code Analysis Integration
 **Goal**: Embed GitNexus code intelligence into the platform — iframe-based frontend integration for code graph visualization, and register gitnexus-impact-analysis skill for AI-driven code analysis workflows
@@ -387,7 +387,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 17-01-PLAN.md — Backend pagination endpoint + frontend data layer: FastAPI /threads/{id}/messages, SWR usePaginatedMessages hook, npm dependencies (Wave 1)
+- [x] 17-01-PLAN.md — Backend pagination endpoint + frontend data layer: FastAPI /threads/{id}/messages, SWR usePaginatedMessages hook, npm dependencies (Wave 1) (completed 2026-05-28)
 - [ ] 17-02-PLAN.md — Frontend UI wiring: Virtuoso virtual scroll in ChatInterface, dual-source message merge in useChat, human verification (Wave 2)
 
 **UI hint**: yes
