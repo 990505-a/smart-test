@@ -388,6 +388,6 @@ Plans:
 
 Plans:
 - [x] 17-01-PLAN.md — Backend pagination endpoint + frontend data layer: FastAPI /threads/{id}/messages, SWR usePaginatedMessages hook, npm dependencies (Wave 1) (completed 2026-05-28)
-- [ ] 17-02-PLAN.md — Frontend UI wiring: Virtuoso virtual scroll in ChatInterface, dual-source message merge in useChat, human verification (Wave 2)
+- [ ] 17-02-PLAN.md — Frontend UI wiring: Virtuoso virtual scroll in ChatInterface, dual-source message merge in useChat, human verification (Wave 2) (auto tasks completed 2026-05-28, Task 3 human-verify pending)
 
 **UI hint**: yes

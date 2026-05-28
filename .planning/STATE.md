@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 17-01-PLAN.md
-last_updated: "2026-05-28T09:07:00Z"
+stopped_at: Completed 17-02-PLAN.md
+last_updated: "2026-05-28T09:17:20Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 17
   completed_phases: 15
   total_plans: 45
-  completed_plans: 47
+  completed_plans: 48
   percent: 88
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-05-11)
 ## Current Position
 
 Phase: 17
-Plan: 01 completed
+Plan: 02 completed
 Status: Executing
 Last activity: 2026-05-28
 
@@ -95,6 +95,7 @@ Progress: [██████████░] 88% (15/17 phases)
 | Phase 16 P01 | 5min | 2 tasks | 21 files |
 | Phase 16 P02 | 342s | 2 tasks | 9 files |
 | Phase 17 P01 | 5min | 2 tasks | 6 files |
+| Phase 17 P02 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -210,6 +211,8 @@ Recent decisions affecting current work:
 - [Phase 16]: Configurations hooks use /configurations prefix without projectId (global resource)
 - [Phase 17]: langgraph_sdk.get_client() returns AsyncClient directly (no get_async_client), used natively in async FastAPI
 - [Phase 17]: Replaced useStickToBottom with plain refs to prepare for react-virtuoso virtual scroll
+- [Phase 17]: Pass threadId:null to useStream to prevent full state fetch; paginated messages via usePaginatedMessages + dual-source merge
+- [Phase 17]: Virtuoso replaces manual scroll with followOutput auto-scroll and atTopStateChange load-more
 
 ### Pending Todos
 
@@ -237,6 +240,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-28T09:07:00Z
-Stopped at: Completed 17-01-PLAN.md
+Last session: 2026-05-28T09:17:20Z
+Stopped at: Completed 17-02-PLAN.md
 Resume file: None
