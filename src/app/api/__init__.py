@@ -9,13 +9,16 @@ from src.app.api.v2 import (
     api_tests,
     attachments,
     configurations,
+    extract_pdf,
     folders,
+    messages,
     projects,
     scenarios,
     test_cases,
     test_runs,
     web_functions,
     web_tests,
+    wikis,
     workspaces,
 )
 
@@ -31,3 +34,6 @@ api_router.include_router(workspaces.router, tags=["Workspaces"])
 api_router.include_router(web_functions.router, tags=["Web Functions"])
 api_router.include_router(web_tests.router, tags=["Web Tests"])
 api_router.include_router(configurations.router, tags=["Configurations"])
+api_router.include_router(wikis.router, tags=["Wikis"])
+api_router.include_router(messages.router, tags=["Messages"])
+api_router.include_router(extract_pdf.router, tags=["PDF Extraction"])
