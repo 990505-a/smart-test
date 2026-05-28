@@ -7,6 +7,7 @@ import { ChatMessage } from "@/app/components/ChatMessage";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useQueryState } from "nuqs";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 /** Extract task IDs like M72-177558 from text */
 function extractTaskIds(text: string): string[] {
@@ -54,8 +55,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   const [repoDialogOpen, setRepoDialogOpen] = useState(false);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [newRepoPath, setNewRepoPath] = useState("");
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  // Virtuoso virtual scroll refs and state
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   // Wiki selector state
   const WIKI_STORAGE_KEY = "smart-test-platform-wiki";
@@ -176,6 +179,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     todos,
     files,
     ui,
+    isLoadingHistory,
+    hasOlderMessages,
+    loadOlderMessages,
   } = useChatContext();
 
   const submitDisabled = isLoading || !assistantId;
@@ -319,23 +325,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   const hasTasks = todos.length > 0;
   const hasFiles = typeof files === "object" && files !== null && Object.keys(files).length > 0;
 
-  // Auto-scroll to bottom when new messages arrive
-  const lastMessageId = messages?.at(-1)?.id;
-
-  useEffect(() => {
-    const scrollElement = scrollRef.current;
-    if (!scrollElement) return;
-
-    const frameId = window.requestAnimationFrame(() => {
-      scrollElement.scrollTo({
-        top: scrollElement.scrollHeight,
-        behavior: isLoading ? "auto" : "smooth",
-      });
-    });
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [lastMessageId, messages?.length, isLoading, scrollRef]);
-
   // Filter UI components per message
   const uiMap = useMemo(() => {
     if (!ui || !Array.isArray(ui)) return new Map<string, unknown[]>();
@@ -355,21 +344,32 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Message list area */}
-      <div
-        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
-        ref={scrollRef}
-      >
-        <div
-          className="mx-auto w-full max-w-[1024px] px-6 pb-6 pt-4"
-          ref={contentRef}
-        >
-          {processedMessages.length > 0 ? (
-            processedMessages.map((data, index) => {
-              const isLastMessage = index === processedMessages.length - 1;
-              const messageUi = uiMap.get(data.message.id ?? "");
-              return (
+      {processedMessages.length > 0 ? (
+        <Virtuoso
+          ref={virtuosoRef}
+          data={processedMessages}
+          followOutput={isAtBottom ? "smooth" : false}
+          atBottomStateChange={setIsAtBottom}
+          atTopStateChange={(atTop) => {
+            if (atTop && hasOlderMessages && !isLoadingHistory) {
+              loadOlderMessages();
+            }
+          }}
+          increaseViewportBy={{ top: 200, bottom: 200 }}
+          defaultItemHeight={80}
+          components={{
+            Header: () => isLoadingHistory ? (
+              <div className="flex justify-center py-4">
+                <span className="text-sm text-muted-foreground">加载中...</span>
+              </div>
+            ) : null,
+          }}
+          itemContent={(index, data) => {
+            const isLastMessage = index === processedMessages.length - 1;
+            const messageUi = uiMap.get(data.message.id ?? "");
+            return (
+              <div className="mx-auto w-full max-w-[1024px] px-6">
                 <ChatMessage
-                  key={data.message.id ?? `msg-${index}`}
                   message={data.message}
                   toolCalls={data.toolCalls}
                   isStreaming={isLastMessage && isLoading}
@@ -377,20 +377,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
                   stream={isLastMessage ? stream : undefined}
                   graphId={isLastMessage ? assistantId : undefined}
                 />
-              );
-            })
-          ) : (
-            <div className="flex flex-col items-center justify-center p-8">
-              <p className="text-lg font-medium text-muted-foreground">
-                智能测试平台
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                输入消息开始对话
-              </p>
-            </div>
-          )}
+              </div>
+            );
+          }}
+        />
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center p-8">
+          <p className="text-lg font-medium text-muted-foreground">
+            智能测试平台
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            输入消息开始对话
+          </p>
         </div>
-      </div>
+      )}
 
       {/* Input area */}
       <div className="flex-shrink-0 bg-background">
