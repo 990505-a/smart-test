@@ -10,7 +10,7 @@ Phase 10 additions:
 """
 
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4 as uuid4_fn
 from zoneinfo import ZoneInfo
 
 from langchain_core.tools import tool
@@ -78,7 +78,9 @@ async def save_test_case_to_db(
     async with async_session_factory() as session:
         try:
             identifier = generate_identifier_simple("TC")
+            case_id = uuid4_fn()
             test_case = TestCase(
+                id=case_id,
                 project_id=UUID(project_id),
                 folder_id=UUID(folder_id) if folder_id else None,
                 identifier=identifier,
@@ -96,7 +98,7 @@ async def save_test_case_to_db(
 
             for i, step in enumerate(steps, 1):
                 test_step = TestStep(
-                    test_case_id=test_case.id,
+                    test_case_id=case_id,
                     step_number=i,
                     action=step["action"],
                     expected_result=step.get("expected_result"),
@@ -146,7 +148,9 @@ async def save_test_cases_batch(
             for case_data in test_cases:
                 try:
                     identifier = generate_identifier_simple("TC")
+                    case_id = uuid4_fn()
                     test_case = TestCase(
+                        id=case_id,
                         project_id=UUID(project_id),
                         folder_id=UUID(folder_id) if folder_id else None,
                         identifier=identifier,
@@ -166,7 +170,7 @@ async def save_test_cases_batch(
 
                     for i, step in enumerate(case_data.get("steps", []), 1):
                         test_step = TestStep(
-                            test_case_id=test_case.id,
+                            test_case_id=case_id,
                             step_number=i,
                             action=step["action"],
                             expected_result=step.get("expected_result"),
