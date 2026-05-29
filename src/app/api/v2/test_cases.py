@@ -189,7 +189,7 @@ def _code_resplit_steps(steps: list[dict]) -> list[dict]:
         return steps
 
     actions = [s["action"].strip() for s in steps]
-    expecteds = [s["expected_result"].strip() for s in steps]
+    expecteds = [(s["expected_result"] or "").strip() for s in steps]
 
     # Count non-empty expected results
     non_empty_er = [e for e in expecteds if e]
