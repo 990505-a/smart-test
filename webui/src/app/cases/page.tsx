@@ -418,7 +418,7 @@ function exportOrganizedAsMarkdown(organized: Array<{
     name: string;
     cases: Array<{
       title: string;
-      steps: string;
+      steps: string | Array<{ action: string; expected_result: string }>;
       expected: string;
       data: string;
       priority: string;
@@ -440,9 +440,39 @@ function exportOrganizedAsMarkdown(organized: Array<{
         const c = sub.cases[ci];
         totalCases++;
         lines.push(`${pad(2)}${mi + 1}.${si + 1}.${ci + 1} ${c.title}`);
-        lines.push(`${pad(3)}操作步骤：${c.steps}`);
-        lines.push(`${pad(3)}预期结果：${c.expected}`);
-        lines.push(`${pad(3)}测试数据：${c.data}`);
+
+        // Steps: render as numbered list if structured, plain text if legacy string
+        if (Array.isArray(c.steps) && c.steps.length > 0) {
+          lines.push(`${pad(3)}操作步骤：`);
+          for (let sti = 0; sti < c.steps.length; sti++) {
+            const step = c.steps[sti];
+            lines.push(`${pad(4)}${sti + 1}. ${step.action}`);
+          }
+          lines.push(`${pad(3)}预期结果：`);
+          for (let sti = 0; sti < c.steps.length; sti++) {
+            const step = c.steps[sti];
+            const er = step.expected_result?.trim();
+            lines.push(`${pad(4)}${sti + 1}. ${er || "（无）"}`);
+          }
+        } else if (typeof c.steps === "string" && c.steps.trim()) {
+          // Legacy fallback: split by semicolons
+          const parts = c.steps.split(/[；;]/).filter((s: string) => s.trim());
+          lines.push(`${pad(3)}操作步骤：`);
+          parts.forEach((s: string, i: number) => lines.push(`${pad(4)}${i + 1}. ${s.trim()}`));
+          if (c.expected?.trim()) {
+            const expParts = c.expected.split(/[；;]/).filter((s: string) => s.trim());
+            lines.push(`${pad(3)}预期结果：`);
+            expParts.forEach((s: string, i: number) => lines.push(`${pad(4)}${i + 1}. ${s.trim()}`));
+          }
+        }
+
+        // Test data: split by newlines for readability
+        if (c.data?.trim()) {
+          lines.push(`${pad(3)}测试数据：`);
+          c.data.split(/\n/).filter((l: string) => l.trim()).forEach(item => {
+            lines.push(`${pad(4)}- ${item.trim()}`);
+          });
+        }
         lines.push(`${pad(3)}状态：⏳`);
         lines.push("");
       }

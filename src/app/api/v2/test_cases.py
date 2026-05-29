@@ -220,14 +220,17 @@ async def organize_test_cases(request: OrganizeRequest) -> OrganizeResponse:
         # Build index → case data lookup
         def build_case(idx: int) -> dict:
             c = cases[idx - 1]
+            # Keep structured steps so frontend can render numbered list
+            raw_steps = c.get("steps") or []
+            structured_steps = [
+                {"action": s.get("action", ""), "expected_result": s.get("expected_result", "")}
+                for s in raw_steps
+                if s.get("action", "").strip()
+            ]
             return {
                 "title": _strip_tc_prefix(c.get("name", "")),
-                "steps": "；".join(
-                    s.get("action", "") for s in (c.get("steps") or []) if s.get("action", "").strip()
-                ),
-                "expected": "；".join(
-                    s.get("expected_result", "") for s in (c.get("steps") or []) if s.get("expected_result", "").strip()
-                ),
+                "steps": structured_steps,
+                "expected": "",
                 "data": c.get("preconditions", "") or "",
                 "priority": priority_map.get(c.get("priority", ""), "P2-中"),
             }
@@ -264,21 +267,27 @@ async def organize_test_cases(request: OrganizeRequest) -> OrganizeResponse:
         logger.error("AI organize failed: %s", e)
 
     # Fallback: no AI, just return flat list
+    def build_fallback_case(c: dict) -> dict:
+        raw_steps = c.get("steps") or []
+        structured_steps = [
+            {"action": s.get("action", ""), "expected_result": s.get("expected_result", "")}
+            for s in raw_steps
+            if s.get("action", "").strip()
+        ]
+        return {
+            "title": _strip_tc_prefix(c.get("name", "")),
+            "steps": structured_steps,
+            "expected": "",
+            "data": c.get("preconditions", "") or "",
+            "priority": priority_map.get(c.get("priority", ""), "P2-中"),
+        }
+
     return OrganizeResponse(
         organized=[{
             "module": "全部用例",
             "sub_modules": [{
                 "name": "未分类",
-                "cases": [
-                    {
-                        "title": _strip_tc_prefix(c.get("name", "")),
-                        "steps": "；".join(s.get("action", "") for s in (c.get("steps") or []) if s.get("action", "").strip()),
-                        "expected": "；".join(s.get("expected_result", "") for s in (c.get("steps") or []) if s.get("expected_result", "").strip()),
-                        "data": c.get("preconditions", "") or "",
-                        "priority": priority_map.get(c.get("priority", ""), "P2-中"),
-                    }
-                    for c in cases
-                ],
+                "cases": [build_fallback_case(c) for c in cases],
             }],
         }],
         raw_count=len(cases),
