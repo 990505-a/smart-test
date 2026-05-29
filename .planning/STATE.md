@@ -228,6 +228,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260517-166 | 全面对比课堂前端代码与我们的前端实现，找出差距并修复 | 2026-05-16 | 8b491fe | [260517-166-frontend-compare-fix](./quick/260517-166-frontend-compare-fix/) |
 | 260518-ln9 | 同步 wiki-query SKILL.md 与 wiki-mcp 官方工具定义对齐 | 2026-05-18 | 41e8683 | [260518-ln9-llm-wiki-skill-github-smart-test-platfor](./quick/260518-ln9-llm-wiki-skill-github-smart-test-platfor/) |
+| 260529-shr | 修复 TestCase Agent 空项目和懒合并 bug | 2026-05-29 | 7245035 | [260529-shr-fix-agent-empty-projects-and-lazy-merge](./quick/260529-shr-fix-agent-empty-projects-and-lazy-merge/) |
 
 ### Roadmap Evolution
 
