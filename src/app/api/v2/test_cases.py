@@ -179,6 +179,148 @@ def _strip_tc_prefix(name: str) -> str:
     return name
 
 
+def _code_resplit_steps(steps: list[dict]) -> list[dict]:
+    """Fallback: code-based splitting when AI resplit is unavailable.
+
+    Detects mismatched action/expected_result counts and redistributes
+    expected_result sentences across steps proportionally.
+    """
+    if not steps:
+        return steps
+
+    actions = [s["action"].strip() for s in steps]
+    expecteds = [s["expected_result"].strip() for s in steps]
+
+    # Count non-empty expected results
+    non_empty_er = [e for e in expecteds if e]
+    if len(non_empty_er) == 0 or len(non_empty_er) == len(actions):
+        # Already balanced or no expected results — nothing to fix
+        return steps
+
+    # Collect all expected_result sentences, split by Chinese/English period
+    all_er_parts: list[str] = []
+    for e in expecteds:
+        if e:
+            # Split by Chinese period (。) or English period followed by space/end
+            import re
+            sentences = re.split(r"(?<=[。；])|(?<=\.\s)", e)
+            all_er_parts.extend(s.strip() for s in sentences if s.strip())
+
+    if not all_er_parts:
+        return steps
+
+    # Redistribute sentences across steps proportionally
+    n_steps = len(actions)
+    per_step = max(1, len(all_er_parts) // n_steps)
+    result = []
+    er_idx = 0
+    for i, action in enumerate(actions):
+        if i < n_steps - 1:
+            chunk = all_er_parts[er_idx:er_idx + per_step]
+            er_idx += per_step
+        else:
+            # Last step gets remaining
+            chunk = all_er_parts[er_idx:]
+        result.append({"action": action, "expected_result": "。".join(chunk)})
+    return result
+
+
+RESPLIT_PROMPT = """你是一个测试用例格式化专家。你会收到若干条测试用例的操作步骤和预期结果数据。
+
+每条用例的 steps 数组中，每个元素有 action 和 expected_result 两个字段。
+问题：有些用例的 action 有多条但 expected_result 只有一条（或反过来），导致操作步骤和预期结果无法一一对应。
+
+你的任务：对每条用例，将操作步骤和预期结果重新拆分为 **1:1 配对** 的列表。每条操作步骤对应一条预期结果。
+
+输出格式（严格JSON，不加markdown标记）：
+{{
+  "cases": [
+    {{
+      "index": 0,
+      "steps": [
+        {{"action": "操作1", "expected_result": "预期结果1"}},
+        {{"action": "操作2", "expected_result": "预期结果2"}}
+      ]
+    }}
+  ]
+}}
+
+index 是输入中的用例编号（从0开始）。
+规则：
+- action 和 expected_result 必须 1:1 配对
+- 如果原始 expected_result 包含多个验证点，按逻辑拆分到对应 action
+- 如果某个 action 没有明确的预期结果，用该 action 应产生的直接结果补充
+- 保持原始语言和内容，不要增删信息
+- 只输出需要处理的用例（steps 已正确配对的跳过）
+
+输入数据：
+{data}"""
+
+
+async def _ai_resplit_steps(organized: list[dict], llm) -> list[dict]:
+    """Use AI to re-split steps into 1:1 action/expected_result pairs."""
+    # Collect all cases that need resplitting
+    needs_resplit: list[tuple[int, int, int]] = []  # (flat_index, module_idx, sub_idx, case_idx)
+    flat_cases: list[dict] = []
+    flat_positions: list[tuple[int, int, int]] = []  # (mi, si, ci)
+
+    for mi, mod in enumerate(organized):
+        for si, sub in enumerate(mod.get("sub_modules", [])):
+            for ci, case in enumerate(sub.get("cases", [])):
+                steps = case.get("steps", [])
+                if not steps or not isinstance(steps, list):
+                    continue
+                actions = [s.get("action", "") for s in steps]
+                expecteds = [s.get("expected_result", "") for s in steps]
+                # Check if steps are mismatched (some expected_result empty while others are long)
+                non_empty_er = [e for e in expecteds if e and e.strip()]
+                if len(non_empty_er) != len(actions) and len(non_empty_er) > 0:
+                    flat_cases.append({"index": len(flat_cases), "title": case["title"], "steps": steps})
+                    flat_positions.append((mi, si, ci))
+
+    if not flat_cases:
+        return organized
+
+    try:
+        import json as _json
+        data_str = _json.dumps(flat_cases, ensure_ascii=False, indent=2)
+        # Limit to first 20 cases to avoid token overflow
+        if len(data_str) > 8000:
+            flat_cases_limited = flat_cases[:20]
+            data_str = _json.dumps(flat_cases_limited, ensure_ascii=False, indent=2)
+        else:
+            flat_cases_limited = flat_cases
+
+        prompt = RESPLIT_PROMPT.format(data=data_str)
+        response = await llm.ainvoke(prompt)
+        content = response.content if hasattr(response, "content") else str(response)
+        content = content.strip()
+        if content.startswith("```"):
+            lines = content.split("\n")
+            content = "\n".join(lines[1:])
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+        result = _json.loads(content)
+        resplit_map = {c["index"]: c["steps"] for c in result.get("cases", [])}
+
+        # Apply resplit results
+        for i, (mi, si, ci) in enumerate(flat_positions):
+            if i < len(flat_cases_limited) and i in resplit_map:
+                organized[mi]["sub_modules"][si]["cases"][ci]["steps"] = resplit_map[i]
+
+        return organized
+
+    except Exception as e:
+        logger.warning("AI resplit failed, falling back to code resplit: %s", e)
+        # Fallback: code-based splitting
+        for mi, si, ci in flat_positions:
+            steps = organized[mi]["sub_modules"][si]["cases"][ci]["steps"]
+            organized[mi]["sub_modules"][si]["cases"][ci]["steps"] = _code_resplit_steps(steps)
+        return organized
+
+
 @router.post(
     "/organize",
     summary="AI-organize test cases into hierarchical structure",
@@ -259,6 +401,9 @@ async def organize_test_cases(request: OrganizeRequest) -> OrganizeResponse:
         if missed:
             organized.append({"module": "其他", "sub_modules": [{"name": "未分类", "cases": missed}]})
 
+        # ---- Phase 2: AI re-split steps/expected_results into 1:1 pairs ----
+        organized = await _ai_resplit_steps(organized, llm)
+
         return OrganizeResponse(organized=organized, raw_count=len(cases))
 
     except json.JSONDecodeError as e:
@@ -266,7 +411,7 @@ async def organize_test_cases(request: OrganizeRequest) -> OrganizeResponse:
     except Exception as e:
         logger.error("AI organize failed: %s", e)
 
-    # Fallback: no AI, just return flat list
+    # Fallback: no AI, just return flat list with code-based resplit
     def build_fallback_case(c: dict) -> dict:
         raw_steps = c.get("steps") or []
         structured_steps = [
@@ -274,6 +419,8 @@ async def organize_test_cases(request: OrganizeRequest) -> OrganizeResponse:
             for s in raw_steps
             if s.get("action", "").strip()
         ]
+        # Apply code-based resplit for mismatched steps
+        structured_steps = _code_resplit_steps(structured_steps)
         return {
             "title": _strip_tc_prefix(c.get("name", "")),
             "steps": structured_steps,
