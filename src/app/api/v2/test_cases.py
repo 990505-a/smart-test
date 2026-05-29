@@ -365,10 +365,12 @@ async def organize_test_cases(request: OrganizeRequest) -> OrganizeResponse:
             # Keep structured steps so frontend can render numbered list
             raw_steps = c.get("steps") or []
             structured_steps = [
-                {"action": s.get("action", ""), "expected_result": s.get("expected_result", "")}
+                {"action": (s.get("action") or ""), "expected_result": (s.get("expected_result") or "")}
                 for s in raw_steps
-                if s.get("action", "").strip()
+                if (s.get("action") or "").strip()
             ]
+            # Resplit: redistribute expected_result sentences to match action count
+            structured_steps = _code_resplit_steps(structured_steps)
             return {
                 "title": _strip_tc_prefix(c.get("name", "")),
                 "steps": structured_steps,
@@ -415,11 +417,10 @@ async def organize_test_cases(request: OrganizeRequest) -> OrganizeResponse:
     def build_fallback_case(c: dict) -> dict:
         raw_steps = c.get("steps") or []
         structured_steps = [
-            {"action": s.get("action", ""), "expected_result": s.get("expected_result", "")}
+            {"action": (s.get("action") or ""), "expected_result": (s.get("expected_result") or "")}
             for s in raw_steps
-            if s.get("action", "").strip()
+            if (s.get("action") or "").strip()
         ]
-        # Apply code-based resplit for mismatched steps
         structured_steps = _code_resplit_steps(structured_steps)
         return {
             "title": _strip_tc_prefix(c.get("name", "")),
