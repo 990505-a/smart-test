@@ -1,360 +1,219 @@
-"""File context injection middleware (FileContextMiddleware).
+"""文件上下文注入中间件 (PDFContextMiddleware)
 
-Extracts files (PDF, image, Excel) from the last HumanMessage's
-additional_kwargs.attachments and content blocks, parses the content,
-and injects it into the agent's system prompt.
+从 messages 中最后一个用户消息的 content 数组中提取文件块（PDF/Markdown），
+将 base64 数据解码后直接提取文本内容，注入到该 HumanMessage 中。
 
-Design notes (v5):
-    - thread_id is obtained via langgraph.config.get_config() from the async context.
-    - The original SYSTEM_PROMPT is passed via the constructor (original_system_prompt param).
-    - Internal state: thread_id -> doc_text dict for per-session document management.
-    - Each request scans only the last user message for file attachments.
-    - MD5 hash dedup prevents re-parsing the same document in the same thread.
-    - Supports PDF, image (png/jpg/jpeg/gif/webp), and Excel (xlsx/xls) file types.
+设计决策：文件内容提取在中间件中确定性完成，不依赖 LLM 的工具调用行为。
+这确保多文件上传时所有文件的内容都被完整注入，而不会因为 LLM 只调用一次工具
+而导致只分析了一个文件。
 
-    v5 key change (multi-file dispatch):
-    - Renamed from PDFContextMiddleware to FileContextMiddleware.
-    - Dispatches to PDFProcessor, ImageProcessor, or ExcelProcessor by MIME type.
-    - Multiple files in a single message are all processed and concatenated.
-    - Backward-compatible alias: PDFContextMiddleware = FileContextMiddleware.
-
-    v4 key change (compatible with SkillsMiddleware):
-    - _build_system_message() accepts current_system_message parameter.
-    - File injection uses current request.system_message as base (already contains
-      Skills content), not hardcoded _original_system_content, preserving
-      SkillsMiddleware-injected Skills list.
-    - awrap_model_call() passes request.system_message to _build_system_message().
-
-    Middleware execution order (onion model, FileContextMiddleware registered last = innermost):
-      |-- SkillsMiddleware     -> append skills to system_message
-      |   |-- dynamic_model    -> select model
-      |   |   |-- FileContextMiddleware -> use current system_message (with Skills) as base, append files
-      |   |   |-- LLM
+注意：LangGraph API 会清空 additional_kwargs，所以文件数据必须放在 content 数组中。
 """
 
 from __future__ import annotations
 
 import base64
-import hashlib
 import logging
+import uuid
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ResponseT
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langgraph.typing import ContextT
-
-from src.app.processors.excel import ExcelProcessor
-from src.app.processors.image import ImageProcessor
-from src.app.processors.pdf import PDFProcessor
 
 logger = logging.getLogger(__name__)
 
-_DOCUMENT_TEMPLATE = """\
-以下是用户上传的参考文档，请在回答时充分参考其内容：
+_UPLOAD_DIR = Path(__file__).resolve().parent.parent / "workspace" / "uploads"
+_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-<document>
-{content}
-</document>
-"""
+_SUPPORTED_MIME = {"application/pdf", "text/markdown"}
+
+# Maximum characters per file to inject into the prompt.
+# Large PDFs can produce hundreds of thousands of characters, overwhelming the LLM context.
+_MAX_CONTENT_CHARS = 50_000
 
 
 def _decode_base64(data: str) -> bytes:
-    """Decode a base64 string to bytes, handling data URI prefix."""
     if "," in data:
         data = data.split(",", 1)[1]
     return base64.b64decode(data)
 
 
-# Supported MIME types for file extraction
-_PDF_MIME = "application/pdf"
-_EXCEL_MIMES = frozenset({
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel",
-})
+def _extract_file_blocks(content: Any) -> list[tuple[bytes, str, str]]:
+    """Extract file data from content array. Returns [(bytes, filename, mime_type)]."""
+    if not isinstance(content, list):
+        return []
+
+    results: list[tuple[bytes, str, str]] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") != "file":
+            continue
+
+        mime = block.get("mimeType", "").lower()
+        if mime not in _SUPPORTED_MIME:
+            continue
+
+        data = block.get("data")
+        if not data or not isinstance(data, str):
+            continue
+
+        try:
+            file_bytes = _decode_base64(data)
+            filename = block.get("metadata", {}).get("filename", "document.pdf")
+            results.append((file_bytes, filename, mime))
+        except Exception as e:
+            logger.warning("[PDFContextMiddleware] 文件解码失败: %s", e)
+
+    return results
 
 
-class FileContextMiddleware(AgentMiddleware):
-    """Multi-file context injection middleware with session isolation.
+def _extract_text_from_bytes(file_bytes: bytes, filename: str, mime_type: str) -> str:
+    """Extract text content from file bytes based on MIME type.
 
-    Core features:
-    1. original_system_prompt passed via constructor, completely independent of runtime
-       request.system_message, avoiding snapshot pollution from server restarts.
-    2. thread_id obtained via langgraph.config.get_config() from async context.
-    3. _session_docs keyed by thread_id for per-session document state, naturally isolated.
-    4. Scans only the last user message for file attachments (PDF, image, Excel).
-    5. Multiple files in a single message are all processed and concatenated.
-    6. Uses request.override() for immutable replacement pattern.
+    For Markdown files, decodes as UTF-8 text.
+    For PDF files, uses the extract_pdf_text function from app.processors.pdf.
     """
+    if mime_type == "text/markdown":
+        try:
+            return file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                return file_bytes.decode("gbk")
+            except UnicodeDecodeError:
+                return file_bytes.decode("utf-8", errors="replace")
 
-    def __init__(
-        self,
-        original_system_prompt: str | list | None = None,
-        enable_cache: bool = True,
-        max_content_length: int = 80_000,
-        api_key: str = "",
-    ):
-        """
-        Args:
-            original_system_prompt: Agent's original system prompt. If None,
-                falls back to reading from request.system_message on first call.
-            enable_cache: Whether to enable PDF parsing cache.
-            max_content_length: Max chars for file content, truncated if exceeded.
-            api_key: OpenAI API key for ImageProcessor (GPT-4o vision).
-        """
-        self._pdf_processor = PDFProcessor(enable_cache=enable_cache)
-        self._image_processor = ImageProcessor(api_key=api_key)
-        self._excel_processor = ExcelProcessor()
-        self._max_content_length = max_content_length
-        # Original system prompt (read-only, never modified at runtime)
-        self._original_system_content: str | list | None = original_system_prompt
-        # Per-session document state: thread_id -> doc_text (accumulation semantics)
-        self._session_docs: dict[str, str] = {}
-        # Per-session parsed file hash: cache_key -> file_md5
-        # Same hash -> reuse, skip parsing; Different hash -> new file, re-parse
-        self._session_file_hash: dict[str, str] = {}
+    # PDF extraction
+    try:
+        from app.processors.pdf import extract_pdf_text
+
+        return extract_pdf_text(file_bytes, filename)
+    except ImportError:
+        logger.warning("[PDFContextMiddleware] PDF processor not available, falling back to save-only mode")
+        return ""
+    except Exception as e:
+        logger.error("[PDFContextMiddleware] PDF text extraction failed for %s: %s", filename, e)
+        return f"[PDF extraction error: {e}]"
+
+
+class PDFContextMiddleware(AgentMiddleware):
+    """文件上下文注入中间件。
+
+    NOTE: This middleware only works with direct agent.ainvoke() calls.
+    LangGraph API bypasses the model node's middleware chain entirely.
+    File extraction is handled by the frontend + /api/v2/extract-pdf-text endpoint.
+    """
 
     async def awrap_model_call(
         self,
         request: ModelRequest[ContextT],
         handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
     ) -> Any:
-        """Intercept LLM call, inject file document context per session.
+        if not request.messages:
+            return await handler(request)
 
-        v5: Multi-file dispatch. Scans last user message for all supported
-        file types (PDF, image, Excel), processes each via appropriate processor,
-        and concatenates results into the session document store.
-        """
-
-        # Step 1: Fallback snapshot (compatibility when original_system_prompt not provided)
-        if self._original_system_content is None and request.system_message is not None:
-            self._original_system_content = request.system_message.content
-            logger.warning(
-                "FileContextMiddleware: original_system_prompt not provided, "
-                "captured from first request.system_message. "
-                "Recommend passing via constructor for safety."
-            )
-
-        # Step 2: Get thread_id from LangGraph async context
-        thread_id = self._get_thread_id()
-
-        # Step 3: Process all file attachments in the last user message
-        files = self._extract_files_from_last_message(request)
-        if files:
-            for file_data, filename, mime_type in files:
-                file_hash = hashlib.md5(file_data).hexdigest()
-                cache_key = f"{thread_id}_{filename}"
-                if self._session_file_hash.get(cache_key) == file_hash:
-                    logger.debug(
-                        "FileContextMiddleware: session %s file %s unchanged (hash=%s), skip re-parsing",
-                        thread_id, filename, file_hash,
-                    )
+        modified = False
+        new_messages = []
+        for msg in request.messages:
+            if isinstance(msg, HumanMessage):
+                _debug_file_content(msg)
+                file_blocks = _extract_file_blocks(msg.content)
+                if file_blocks:
+                    new_msg = self._process_file_message(msg, file_blocks)
+                    new_messages.append(new_msg)
+                    modified = True
                     continue
-                logger.info("FileContextMiddleware: new file detected: %s (%s), extracting text...", filename, mime_type)
-                text = self._process_file(file_data, filename, mime_type)
-                if text:
-                    existing = self._session_docs.get(thread_id, "")
-                    self._session_docs[thread_id] = (existing + "\n\n" + text) if existing else text
-                    self._session_file_hash[cache_key] = file_hash
-                    logger.info(
-                        "FileContextMiddleware: session %s document updated: %s, length: %d chars",
-                        thread_id, filename, len(text),
-                    )
+            new_messages.append(msg)
 
-        # Step 4: Inject document into system_message if present for this session
-        # Key fix: use request.system_message (contains Skills) as base,
-        # not _original_system_content, to preserve SkillsMiddleware content.
-        current_doc = self._session_docs.get(thread_id)
-        if current_doc:
-            current_system_msg = request.system_message
-            request = request.override(
-                system_message=self._build_system_message(current_doc, current_system_msg)
-            )
-            logger.info(
-                "FileContextMiddleware: session %s system_message injected with file context (Skills preserved)",
-                thread_id,
-            )
-        else:
-            logger.debug(
-                "FileContextMiddleware: session %s no document, passing through",
-                thread_id,
-            )
+        if not modified:
+            return await handler(request)
 
+        request = request.override(messages=new_messages)
         return await handler(request)
 
-    # -------------------------------------------------------------------------
-    # Internal helper methods
-    # -------------------------------------------------------------------------
+    def _process_file_message(
+        self, msg: HumanMessage, all_files: list[tuple[bytes, str, str]]
+    ) -> HumanMessage:
+        """Extract file content and return a new HumanMessage with text only."""
+        file_contents: list[tuple[str, str, str, str]] = []
+        for file_bytes, filename, mime_type in all_files:
+            unique_name = f"{uuid.uuid4().hex[:8]}_{Path(filename).name}"
+            file_path = _UPLOAD_DIR / unique_name
 
-    def _get_thread_id(self) -> str:
-        """Get thread_id from LangGraph async context for session differentiation.
+            try:
+                file_path.write_bytes(file_bytes)
+                logger.info("[PDFContextMiddleware] 文件已保存: %s", file_path)
+            except Exception as e:
+                logger.warning("[PDFContextMiddleware] 文件保存失败: %s", e)
 
-        Path: get_config()["configurable"]["thread_id"]
-        Falls back to "__default__" for single-user local debugging.
-        """
-        try:
-            from langgraph.config import get_config
-            config = get_config()
-            tid = (
-                config.get("metadata", {}).get("thread_id")
-                or config.get("configurable", {}).get("thread_id")
+            type_hint = "Markdown" if mime_type == "text/markdown" else "PDF"
+            text = _extract_text_from_bytes(file_bytes, filename, mime_type)
+
+            if text:
+                if len(text) > _MAX_CONTENT_CHARS:
+                    text = text[:_MAX_CONTENT_CHARS] + f"\n\n[... 文件内容已截断，原始长度 {len(text)} 字符 ...]"
+                file_contents.append((filename, text, str(file_path), type_hint))
+                logger.info("[PDFContextMiddleware] 文件内容已提取: %s (%d chars)", filename, len(text))
+            else:
+                file_contents.append((filename, f"[无法提取文件内容，文件已保存至 {file_path}]", str(file_path), type_hint))
+                logger.warning("[PDFContextMiddleware] 无法提取文件内容: %s", filename)
+
+        if not file_contents:
+            return msg
+
+        logger.info(
+            "[PDFContextMiddleware] Processed %d/%d files: %s",
+            len(file_contents), len(all_files),
+            [name for name, _, _, _ in file_contents],
+        )
+
+        content_sections: list[str] = []
+        for filename, text, saved_path, type_hint in file_contents:
+            section = (
+                f"### 文件: {filename} ({type_hint})\n"
+                f"（文件已保存至 {saved_path}）\n\n"
+                f"{text}"
             )
-            if tid:
-                return str(tid)
-        except Exception:
-            pass
-        return "__default__"
+            content_sections.append(section)
 
-    def _extract_files_from_last_message(
-        self, request: ModelRequest
-    ) -> list[tuple[bytes, str, str]]:
-        """Extract all supported file attachments from the last user message.
+        all_content = "\n\n---\n\n".join(content_sections)
+        prompt_text = (
+            f"\n\n[系统提示] 用户上传了 {len(file_contents)} 个文件，"
+            f"以下为各文件的完整内容。请基于所有文件内容进行分析：\n\n{all_content}"
+        )
 
-        Scans both additional_kwargs.attachments and content blocks for:
-        - PDF files (application/pdf)
-        - Image files (image/*)
-        - Excel files (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,
-                       application/vnd.ms-excel)
-
-        Returns:
-            List of (file_bytes, filename, mime_type) tuples.
-        """
-        if not request.messages:
-            return []
-
-        last_msg = request.messages[-1]
-        if not isinstance(last_msg, HumanMessage):
-            return []
-
-        results: list[tuple[bytes, str, str]] = []
-
-        # Source 1: attachments in additional_kwargs
-        attachments = last_msg.additional_kwargs.get("attachments", [])
-        if isinstance(attachments, list):
-            for att in attachments:
-                if not isinstance(att, dict):
-                    continue
-                mime_type = att.get("mimeType", "").lower()
-
-                # Check if it's a supported MIME type
-                if mime_type not in (
-                    _PDF_MIME,
-                    *_EXCEL_MIMES,
-                ) and not mime_type.startswith("image/"):
-                    continue
-
-                data = att.get("data")
-                if not data or not isinstance(data, str):
-                    continue
-
-                try:
-                    file_bytes = _decode_base64(data)
-                    filename = att.get("metadata", {}).get("filename", f"file.{mime_type.split('/')[-1]}")
-                    results.append((file_bytes, filename, mime_type))
-                except Exception as e:
-                    logger.warning("FileContextMiddleware: file decode failed: %s", e)
-                    continue
-
-        # Source 2: image_url content blocks (inline images)
-        content = last_msg.content
-        if isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                if block.get("type") != "image_url":
-                    continue
-                url = block.get("image_url", {}).get("url", "")
-                if not url:
-                    continue
-
-                # Parse data URI: data:image/png;base64,<base64data>
-                if url.startswith("data:image/"):
-                    try:
-                        # Extract MIME type from data URI prefix
-                        header, b64_data = url.split(",", 1)
-                        # header: data:image/png;base64
-                        mime_part = header.split(":")[1].split(";")[0]  # image/png
-                        file_bytes = base64.b64decode(b64_data)
-                        ext = mime_part.split("/")[1]  # png
-                        filename = f"inline_image.{ext}"
-                        results.append((file_bytes, filename, mime_part))
-                    except Exception as e:
-                        logger.warning("FileContextMiddleware: image_url decode failed: %s", e)
-                        continue
-
-        return results
-
-    def _process_file(self, data: bytes, filename: str, mime_type: str) -> str:
-        """Dispatch file to the appropriate processor by MIME type.
-
-        Args:
-            data: Raw file bytes.
-            filename: Original filename.
-            mime_type: MIME type of the file.
-
-        Returns:
-            Extracted text content, or empty string for unsupported types.
-        """
-        if mime_type == _PDF_MIME:
-            return self._pdf_processor.extract_text(data, filename)
-        elif mime_type.startswith("image/"):
-            return self._image_processor.extract_text(data, filename)
-        elif mime_type in _EXCEL_MIMES:
-            return self._excel_processor.extract_text(data, filename)
+        original_content = msg.content
+        if isinstance(original_content, str):
+            new_content = original_content + prompt_text
+        elif isinstance(original_content, list):
+            filtered = [b for b in original_content if not (isinstance(b, dict) and b.get("type") == "file")]
+            new_content = filtered + [{"type": "text", "text": prompt_text}]
         else:
-            logger.warning("FileContextMiddleware: unsupported MIME type: %s", mime_type)
-            return ""
+            new_content = str(original_content) + prompt_text
 
-    def _build_system_message(
-        self,
-        doc_text: str,
-        current_system_message: SystemMessage | None = None,
-    ) -> SystemMessage:
-        """Build new SystemMessage with file block appended.
+        return HumanMessage(content=new_content, additional_kwargs=msg.additional_kwargs)
 
-        v4 key change:
-        Uses current_system_message.content as base (contains Skills injection),
-        falls back to _original_system_content only when None.
-        This preserves all SkillsMiddleware-appended content.
-        """
-        if len(doc_text) > self._max_content_length:
-            doc_text = doc_text[:self._max_content_length] + "\n\n[Document content truncated...]"
 
-        doc_block_text = _DOCUMENT_TEMPLATE.format(content=doc_text)
+# Backward compatibility
+FileContextMiddleware = PDFContextMiddleware
 
-        # Use current request's system_message as base (preserves Skills content)
-        if current_system_message is not None:
-            base_content = current_system_message.content
+def _debug_file_content(msg):
+    """Debug helper to log what the middleware sees."""
+    try:
+        debug_path = Path("D:/test_agent/smart-test-platform/_mw_input_debug.txt")
+        lines = [f"msg type: {type(msg).__name__}"]
+        if isinstance(msg.content, list):
+            for i, block in enumerate(msg.content):
+                if isinstance(block, dict):
+                    lines.append(f"  block[{i}]: type={block.get('type')}, keys={list(block.keys())}")
+                else:
+                    lines.append(f"  block[{i}]: {type(block).__name__} = {str(block)[:100]}")
         else:
-            base_content = self._original_system_content
-
-        if isinstance(base_content, str):
-            new_content: str | list = base_content + "\n\n" + doc_block_text
-        elif isinstance(base_content, list):
-            new_content = list(base_content) + [{"type": "text", "text": doc_block_text}]
-        else:
-            new_content = doc_block_text
-
-        return SystemMessage(content=new_content)
-
-    def clear_session(self, thread_id: str) -> None:
-        """Clear document state for a specific session (e.g., user clears context)."""
-        removed = self._session_docs.pop(thread_id, None)
-        # Clean up file hashes for this thread
-        keys_to_remove = [k for k in self._session_file_hash if k.startswith(f"{thread_id}_")]
-        for k in keys_to_remove:
-            self._session_file_hash.pop(k, None)
-        if removed is not None:
-            logger.info("FileContextMiddleware: session %s document state cleared", thread_id)
-
-    def get_session_stats(self) -> dict:
-        """Get document state statistics for all active sessions."""
-        return {
-            "active_sessions": len(self._session_docs),
-            "session_ids": list(self._session_docs.keys()),
-            "doc_lengths": {tid: len(text) for tid, text in self._session_docs.items()},
-        }
-
-
-# Backward compatibility: PDFContextMiddleware is now FileContextMiddleware
-PDFContextMiddleware = FileContextMiddleware
+            lines.append(f"  content type: {type(msg.content).__name__}")
+            lines.append(f"  content: {str(msg.content)[:200]}")
+        debug_path.write_text("\n".join(lines), encoding="utf-8")
+    except Exception:
+        pass

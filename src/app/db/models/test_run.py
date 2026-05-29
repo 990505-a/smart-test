@@ -8,9 +8,9 @@ Adapted from classroom reference:
 
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -25,7 +25,7 @@ class TestRun(Base, UUIDMixin, TimestampMixin):
     __table_args__ = {"comment": "Test run table"}
 
     project_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -67,25 +67,25 @@ class TestRun(Base, UUIDMixin, TimestampMixin):
     )
     # No TestPlan FK per D-03 - store as plain UUID reference
     test_plan_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         nullable=True,
         index=True,
         comment="Associated test plan ID (reference only, no FK)",
     )
     tags: Mapped[list | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Tags list",
     )
     issues: Mapped[list | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Linked issues list",
     )
     configurations: Mapped[list | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Configuration ID list",
@@ -141,14 +141,14 @@ class TestRunTestCase(Base, UUIDMixin, TimestampMixin):
     __table_args__ = {"comment": "Test run test case association table"}
 
     test_run_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_runs.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="Test run ID",
     )
     test_case_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_cases.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -171,7 +171,7 @@ class TestRunTestCase(Base, UUIDMixin, TimestampMixin):
         comment="Latest test result status",
     )
     latest_result_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         nullable=True,
         comment="Latest test result ID",
     )

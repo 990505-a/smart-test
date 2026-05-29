@@ -15,6 +15,7 @@ export interface PaginatedResponse<T> {
   success: boolean;
   data: T[];
   info: PaginationInfo;
+  pagination?: PaginationInfo;
 }
 
 export interface SuccessResponse<T> {

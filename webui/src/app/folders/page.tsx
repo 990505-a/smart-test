@@ -104,10 +104,10 @@ export default function FoldersPage() {
           <div className="flex items-center gap-4">
             <h2 className="text-2xl font-bold">文件夹管理</h2>
             <Select
-              value={selectedProjectId ?? ""}
+              value={selectedProjectId ?? null}
               onValueChange={setSelectedProjectId}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="选择项目" />
               </SelectTrigger>
               <SelectContent>

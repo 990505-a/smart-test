@@ -98,22 +98,23 @@ class TestRunService:
 
     async def list_by_project(
         self,
-        project_id: UUID,
+        project_id: UUID | None = None,
         offset: int = 0,
         limit: int = 30,
     ) -> tuple[list[TestRunInfo], int]:
-        """List test runs by project with pagination."""
+        """List test runs by project with pagination. If project_id is None, list all."""
         from sqlalchemy import func, select
-        from sqlalchemy.orm import selectinload
 
-        count_result = await self.db.execute(
-            select(func.count())
-            .select_from(TestRun)
-            .where(TestRun.project_id == project_id)
-        )
+        base_q = select(func.count()).select_from(TestRun)
+        if project_id:
+            base_q = base_q.where(TestRun.project_id == project_id)
+        count_result = await self.db.execute(base_q)
         total = count_result.scalar_one()
 
-        runs = await self.repo.get_by_project(project_id, offset, limit)
+        if project_id:
+            runs = await self.repo.get_by_project(project_id, offset, limit)
+        else:
+            runs = await self.repo.get_all(offset=offset, limit=limit)
         return ([TestRunInfo.model_validate(r) for r in runs], total)
 
     async def update_stats(self, test_run_id: UUID) -> None:

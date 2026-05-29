@@ -4,7 +4,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import type { ProjectInfo } from "@/app/types/api";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
-import { format } from "date-fns";
+import { formatUTCDate } from "@/lib/utils";
 
 export function createProjectColumns(
   onEdit: (project: ProjectInfo) => void,
@@ -28,7 +28,7 @@ export function createProjectColumns(
     {
       accessorKey: "created_at",
       header: "创建时间",
-      cell: ({ row }) => format(new Date(row.getValue("created_at")), "yyyy-MM-dd HH:mm"),
+      cell: ({ row }) => formatUTCDate(row.getValue("created_at")),
     },
     {
       id: "actions",

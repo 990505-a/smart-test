@@ -15,7 +15,14 @@ export function ClientProvider({
   apiKey?: string;
 }) {
   const client = useMemo(
-    () => new Client({ apiUrl: deploymentUrl, apiKey }),
+    () =>
+      new Client({
+        apiUrl: deploymentUrl,
+        defaultHeaders: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { "X-Api-Key": apiKey } : {}),
+        },
+      }),
     [deploymentUrl, apiKey],
   );
   return (

@@ -48,17 +48,16 @@ export function usePaginatedMessages(
       },
       fetcher,
       {
-        revalidateFirstPage: false,
         revalidateOnFocus: false,
         revalidateOnReconnect: false,
       },
     );
 
-  // Flatten pages and reverse to chronological order.
-  // API returns pages newest-first, each page is chronologically ordered.
-  // Reversing the flat list gives oldest-to-newest display order.
+  // Reverse page order (oldest page first), then flatten.
+  // Each page's messages are already chronological (oldest→newest).
+  // Page 0 = most recent messages, page 1 = older, so reverse page order first.
   const messages: PaginatedMessage[] = data
-    ? [...data.flatMap((page) => page.messages)].reverse()
+    ? [...data].reverse().flatMap((page) => page?.messages ?? []).filter(Boolean)
     : [];
 
   // Total count from first page

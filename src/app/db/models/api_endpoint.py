@@ -1,13 +1,13 @@
 """API endpoint model definition.
 
-Stores OpenAPI/Swagger parsed API endpoint information with JSONB
+Stores OpenAPI/Swagger parsed API endpoint information with JSON
 for flexible parameter, response, and security schemas.
 """
 
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -26,14 +26,14 @@ class APIEndpoint(Base, UUIDMixin, TimestampMixin):
 
     # Basic info
     project_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="Project ID",
     )
     folder_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("folders.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
@@ -73,38 +73,38 @@ class APIEndpoint(Base, UUIDMixin, TimestampMixin):
 
     # OpenAPI Schema reference
     schema_file_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("attachments.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         comment="Associated OpenAPI Schema file ID",
     )
 
-    # Endpoint config (JSONB)
+    # Endpoint config (JSON)
     parameters: Mapped[dict | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Parameter definitions [{name, in, required, schema, description}]",
     )
     request_body: Mapped[dict | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         comment="Request body definition {content_type, schema, required}",
     )
     responses: Mapped[dict | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         comment="Response definitions {200: {schema, description}, 400: {...}}",
     )
     security: Mapped[dict | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Security config [{type, scheme, scopes}]",
     )
     tags: Mapped[list[str] | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Tags list [tag1, tag2, ...]",
@@ -120,13 +120,13 @@ class APIEndpoint(Base, UUIDMixin, TimestampMixin):
 
     # Associated test cases/scripts
     test_case_ids: Mapped[list[str] | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Associated test case ID list",
     )
     api_test_ids: Mapped[list[str] | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Associated API test script ID list",
@@ -134,7 +134,7 @@ class APIEndpoint(Base, UUIDMixin, TimestampMixin):
 
     # Extended config
     custom_config: Mapped[dict | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=dict,
         comment="Custom config {deprecated, servers, extensions}",

@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { format } from "date-fns";
+import { formatUTCDate } from "@/lib/utils";
 import type { TestRunInfo } from "@/app/types/api";
 
 const runStateLabels: Record<string, string> = {
@@ -127,7 +128,7 @@ export function RunDetailDialog({ open, onOpenChange, run }: RunDetailDialogProp
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {trc.created_at ? format(new Date(trc.created_at), "yyyy-MM-dd HH:mm") : "-"}
+                      {formatUTCDate(trc.created_at)}
                     </TableCell>
                   </TableRow>
                 ))}

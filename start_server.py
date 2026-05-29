@@ -37,7 +37,7 @@ def setup_environment():
         "LANGGRAPH_UI_BUNDLER": "true",
         "LANGGRAPH_RUNTIME_EDITION": "inmem",
         "LANGSMITH_LANGGRAPH_API_VARIANT": "local_dev",
-        "LANGGRAPH_DISABLE_FILE_PERSISTENCE": "false",
+        "LANGGRAPH_DISABLE_FILE_PERSISTENCE": "true",
         "LANGGRAPH_ALLOW_BLOCKING": "true",
         "LANGGRAPH_API_URL": "http://localhost:2026",
         "LANGSERVE_GRAPHS": json.dumps(graphs) if graphs else "{}",

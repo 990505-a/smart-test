@@ -195,11 +195,6 @@ export async function uploadSchemaFile(
       ? JSON.parse(localStorage.getItem("st-config") || "{}")?.fastapiUrl ||
         "http://localhost:8000"
       : "http://localhost:8000";
-  const workspaceId =
-    typeof window !== "undefined"
-      ? JSON.parse(localStorage.getItem("st-config") || "{}")?.workspaceId ||
-        "default"
-      : "default";
 
   const formData = new FormData();
   formData.append("file", file);
@@ -208,7 +203,7 @@ export async function uploadSchemaFile(
     `${baseUrl}/api/v2/projects/${projectId}/api-tests/upload-schema`,
     {
       method: "POST",
-      headers: { "X-Space-Id": workspaceId },
+      headers: { "X-Space-Id": "default" },
       body: formData,
     },
   );

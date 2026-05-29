@@ -238,7 +238,7 @@ function StreamingMarkdownContent({ content }: { content: string }) {
       );
 
       tableBuffer = [];
-  };
+    };
 
     lines.forEach((line, index) => {
       const trimmed = line.trim();

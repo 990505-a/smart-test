@@ -218,7 +218,7 @@ export function ScenarioList({ onSelect }: ScenarioListProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-semibold">测试场景</h2>
-          <Select value={selectedProjectId || "all"} onValueChange={handleProjectChange}>
+          <Select value={selectedProjectId || null} onValueChange={handleProjectChange}>
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="选择项目" />
             </SelectTrigger>

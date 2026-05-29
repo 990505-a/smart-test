@@ -3,7 +3,6 @@ export interface StandaloneConfig {
   assistantId: string;
   langsmithApiKey?: string;
   enablePdfMultimodal?: boolean;  // Phase 4: multimodal mode toggle
-  workspaceId?: string;           // Phase 7: current workspace, default "default"
   fastapiUrl?: string;            // Phase 9: FastAPI backend URL, default http://localhost:8000
 }
 

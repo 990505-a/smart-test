@@ -6,9 +6,9 @@ test execution outcomes at case and step level.
 
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -23,21 +23,21 @@ class TestResult(Base, UUIDMixin, TimestampMixin):
     __table_args__ = {"comment": "Test result table"}
 
     test_run_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_runs.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="Test run ID",
     )
     test_case_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_cases.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="Test case ID",
     )
     test_run_test_case_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_run_test_cases.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -69,18 +69,18 @@ class TestResult(Base, UUIDMixin, TimestampMixin):
         comment="Assignee email",
     )
     issues: Mapped[list | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Linked issues list",
     )
     issue_tracker: Mapped[dict | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         comment="Issue tracker config {name, host}",
     )
     custom_fields: Mapped[dict | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         comment="Custom fields",
     )
@@ -117,7 +117,7 @@ class TestStepResult(Base, UUIDMixin, TimestampMixin):
     __table_args__ = {"comment": "Test step result table"}
 
     test_result_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_results.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -144,7 +144,7 @@ class TestStepResult(Base, UUIDMixin, TimestampMixin):
         comment="Step result description/notes",
     )
     issues: Mapped[list | None] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         default=list,
         comment="Linked issues list",

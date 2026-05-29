@@ -9,7 +9,9 @@ Phase 10 additions:
 - ensure_project: Auto-create project for workspace before saving test cases.
 """
 
+from datetime import datetime
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from langchain_core.tools import tool
 from sqlalchemy import select
@@ -26,6 +28,21 @@ from src.app.db.schemas.enums import (
 from src.app.db.utils.identifier import generate_identifier_simple
 
 DEFAULT_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+@tool
+def get_beijing_timestamp() -> str:
+    """Get the current Beijing time (UTC+8) formatted as YYYY.MM.DD.HH.MM.
+
+    Call this once at the start of Phase 1 to get a reliable timestamp.
+    Use the returned value in workspace directory names and ensure_project calls
+    to ensure consistency (e.g., "七日_2026.05.29.14.30").
+
+    Returns:
+        Beijing time string in YYYY.MM.DD.HH.MM format.
+    """
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    return now.strftime("%Y.%m.%d.%H.%M")
 
 
 @tool
@@ -120,6 +137,12 @@ async def save_test_cases_batch(
         try:
             saved_ids = []
             errors = []
+
+            # Batch insert: create all objects in-memory first, flush once at end.
+            # UUIDMixin generates UUIDs in Python, so no flush needed for IDs.
+            all_test_cases = []
+            all_steps = []
+
             for case_data in test_cases:
                 try:
                     identifier = generate_identifier_simple("TC")
@@ -138,8 +161,8 @@ async def save_test_cases_batch(
                         custom_fields=case_data.get("custom_fields"),
                         created_by=DEFAULT_USER_ID,
                     )
+                    all_test_cases.append(test_case)
                     session.add(test_case)
-                    await session.flush()
 
                     for i, step in enumerate(case_data.get("steps", []), 1):
                         test_step = TestStep(
@@ -148,16 +171,20 @@ async def save_test_cases_batch(
                             action=step["action"],
                             expected_result=step.get("expected_result"),
                         )
+                        all_steps.append(test_step)
                         session.add(test_step)
                     saved_ids.append(identifier)
                 except Exception as e:
                     errors.append({"name": case_data.get("name", "unknown"), "error": str(e)})
 
+            # Single flush + commit for all cases
+            await session.flush()
             await session.commit()
             return {
                 "success": True,
                 "total_count": len(test_cases),
                 "saved_ids": saved_ids,
+                "saved_count": len(saved_ids),
                 "errors": errors if errors else None,
             }
         except Exception as e:
@@ -211,9 +238,10 @@ async def ensure_project(project_name: str = "AI Generated Project") -> dict:
     """Ensure a project exists for the current workspace. If no project exists, create one automatically.
 
     Call this before save_test_cases_batch if you don't have a project_id.
+    The project_name should already include any desired timestamp/suffix for uniqueness.
 
     Args:
-        project_name: Name for auto-created project (default "AI Generated Project").
+        project_name: Full project name (should include timestamp for uniqueness).
 
     Returns:
         Dict with success, project_id, identifier, project_name, and is_new (True if just created).
@@ -221,7 +249,7 @@ async def ensure_project(project_name: str = "AI Generated Project") -> dict:
     async with async_session_factory() as session:
         try:
             result = await session.execute(
-                select(Project).limit(1)
+                select(Project).where(Project.name == project_name).limit(1)
             )
             project = result.scalar_one_or_none()
 

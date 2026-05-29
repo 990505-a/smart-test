@@ -4,9 +4,10 @@ Stores file attachment metadata. Actual files stored on local filesystem
 under workspace/{space_id}/attachments/ (D-07: local filesystem storage).
 """
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from uuid import UUID
+
+from sqlalchemy import ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -28,7 +29,7 @@ class Attachment(Base, UUIDMixin, TimestampMixin):
         comment="Associated entity type",
     )
     entity_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         nullable=False,
         index=True,
         comment="Associated entity ID",
@@ -36,7 +37,7 @@ class Attachment(Base, UUIDMixin, TimestampMixin):
 
     # Project association (for access control)
     project_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

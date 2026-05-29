@@ -7,18 +7,12 @@ class ApiClient {
     return config?.fastapiUrl || "http://localhost:8000";
   }
 
-  private getWorkspaceId(): string {
-    const config = getConfig();
-    return config?.workspaceId || "default";
-  }
-
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const baseUrl = this.getBaseUrl();
-    const workspaceId = this.getWorkspaceId();
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "X-Space-Id": workspaceId,
+      "X-Space-Id": "default",
     };
 
     // Merge with existing headers (handle both cases)
@@ -54,7 +48,13 @@ class ApiClient {
           Object.entries(params).map(([k, v]) => [k, String(v)])
         ).toString()
       : "";
-    return this.request<PaginatedResponse<T>>(`${path}${query}`);
+    const raw = await this.request<Record<string, unknown>>(`${path}${query}`);
+    // Backend returns "pagination", frontend expects "info"
+    return {
+      success: raw.success as boolean,
+      data: raw.data as T[],
+      info: (raw.info ?? raw.pagination) as PaginatedResponse<T>["info"],
+    };
   }
 
   async post<T>(path: string, body: unknown): Promise<SuccessResponse<T>> {

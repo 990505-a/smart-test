@@ -9,16 +9,16 @@ import type { FolderInfo, FolderTreeNode, FolderCreate, FolderUpdate } from "@/a
 // List folders flat
 export function useFolders(projectId: string | null) {
   return useSWR(
-    projectId ? ["/folders", projectId] : null,
-    ([url, pid]) => apiClient.getPaginated<FolderInfo>(url, { project_id: pid })
+    projectId ? ["/folders/project", projectId] : null,
+    ([url, pid]) => apiClient.get<FolderInfo[]>(`${url}/${pid}`)
   );
 }
 
 // Get folder tree
 export function useFolderTree(projectId: string | null) {
   return useSWR(
-    projectId ? ["/folders/tree", projectId] : null,
-    ([url, pid]) => apiClient.get<FolderTreeNode[]>(url, { project_id: pid })
+    projectId ? ["/folders/project", projectId, "tree"] : null,
+    ([url, pid]) => apiClient.get<FolderTreeNode[]>(`${url}/${pid}/tree`)
   );
 }
 

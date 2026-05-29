@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pencil, Trash2 } from "lucide-react";
 import { format } from "date-fns";
+import { formatUTCDate } from "@/lib/utils";
 
 const priorityColors: Record<string, string> = {
   critical: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
@@ -87,7 +88,7 @@ export function createCaseColumns(
       header: "更新时间",
       cell: ({ row }) => {
         const val = row.getValue("updated_at") as string | null;
-        return val ? format(new Date(val), "yyyy-MM-dd HH:mm") : "-";
+        return val ? formatUTCDate(val) : "-";
       },
     },
     {

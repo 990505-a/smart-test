@@ -6,7 +6,7 @@ Per D-04: no auth, uses DEFAULT_USER_ID.
 
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 
 from src.app.api.deps import (
     DbSessionDep,
@@ -29,9 +29,9 @@ router = APIRouter(prefix="/test-runs")
     description="List test runs by project with pagination",
 )
 async def list_test_runs(
-    project_id: UUID,
     service: TestRunServiceDep,
     pagination: PaginationDep,
+    project_id: UUID | None = Query(default=None),
 ):
     """List test runs by project with pagination."""
     runs, total = await service.list_by_project(

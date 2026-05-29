@@ -10,9 +10,8 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -24,14 +23,14 @@ class TestScenario(Base):
 
     __tablename__ = "test_scenarios"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
     folder_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("folders.id", ondelete="SET NULL"),
     )
 
@@ -41,9 +40,9 @@ class TestScenario(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
 
     # Global config
-    global_variables: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    setup_config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    teardown_config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    global_variables: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    setup_config: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    teardown_config: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     # Execution config
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -64,7 +63,7 @@ class TestScenario(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     created_by: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         default=lambda: DEFAULT_USER_ID,
     )
 
@@ -92,15 +91,15 @@ class ScenarioStep(Base):
 
     __tablename__ = "scenario_steps"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     scenario_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_scenarios.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     endpoint_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("api_endpoints.id", ondelete="SET NULL"),
         index=True,
     )
@@ -111,14 +110,14 @@ class ScenarioStep(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
 
     # Request override config
-    request_override: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    headers_override: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    request_override: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    headers_override: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     # Data extractors
-    extractors: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    extractors: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
 
     # Assertions
-    assertions: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    assertions: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
 
     # Conditional execution
     condition_expression: Mapped[Optional[str]] = mapped_column(String(1000))
@@ -152,9 +151,9 @@ class StepDataMapping(Base):
 
     __tablename__ = "step_data_mappings"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     step_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("scenario_steps.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -163,7 +162,7 @@ class StepDataMapping(Base):
     # Data source
     source_type: Mapped[str] = mapped_column(String(50), nullable=False)
     source_step_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("scenario_steps.id"),
         index=True,
     )
@@ -190,9 +189,9 @@ class ScenarioVariable(Base):
 
     __tablename__ = "scenario_variables"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     scenario_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_scenarios.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -200,7 +199,7 @@ class ScenarioVariable(Base):
 
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
-    default_value: Mapped[Optional[dict]] = mapped_column(JSONB)
+    default_value: Mapped[Optional[dict]] = mapped_column(JSON)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
     # Scope
@@ -219,15 +218,15 @@ class ScenarioRun(Base):
 
     __tablename__ = "scenario_runs"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     scenario_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_scenarios.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     project_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -240,8 +239,8 @@ class ScenarioRun(Base):
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending", index=True)
 
     # Runtime data
-    runtime_variables: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    execution_config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    runtime_variables: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    execution_config: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     # Stats
     total_steps: Mapped[int] = mapped_column(Integer, default=0)
@@ -261,7 +260,7 @@ class ScenarioRun(Base):
 
     # Executor (no User FK per D-04)
     executed_by: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         default=lambda: DEFAULT_USER_ID,
     )
 
@@ -277,21 +276,21 @@ class ScenarioStepResult(Base):
 
     __tablename__ = "scenario_step_results"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     run_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("scenario_runs.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     step_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("scenario_steps.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     endpoint_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("api_endpoints.id", ondelete="SET NULL"),
     )
 
@@ -300,14 +299,14 @@ class ScenarioStepResult(Base):
     status: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Request/response data
-    request_data: Mapped[Optional[dict]] = mapped_column(JSONB)
-    response_data: Mapped[Optional[dict]] = mapped_column(JSONB)
+    request_data: Mapped[Optional[dict]] = mapped_column(JSON)
+    response_data: Mapped[Optional[dict]] = mapped_column(JSON)
 
     # Extracted data
-    extracted_data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    extracted_data: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     # Assertion results
-    assertion_results: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    assertion_results: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
 
     # Performance
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer)

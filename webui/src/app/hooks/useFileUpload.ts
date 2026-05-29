@@ -13,7 +13,7 @@ import {
  * Hook for drag-drop + paste file upload with base64 conversion.
  * Returns content blocks, drag state, and file handling callbacks.
  */
-export function useFileUpload() {
+export function useFileUpload(spaceId?: string) {
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
   const dropRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -81,7 +81,7 @@ export function useFileUpload() {
       }
 
       const newBlocks = uniqueFiles.length
-        ? await Promise.all(uniqueFiles.map(fileToContentBlock))
+        ? await Promise.all(uniqueFiles.map((f) => fileToContentBlock(f, spaceId)))
         : [];
       return newBlocks;
     },

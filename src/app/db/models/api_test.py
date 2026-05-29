@@ -10,9 +10,8 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.db.database import Base
@@ -23,20 +22,20 @@ class APITest(Base):
 
     __tablename__ = "api_tests"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     folder_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("folders.id", ondelete="SET NULL"),
         nullable=True,
     )
     test_case_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("test_cases.id", ondelete="SET NULL"),
         nullable=True,
         comment="Link to existing TestCase for traceability",
@@ -60,11 +59,11 @@ class APITest(Base):
     script_language: Mapped[str] = mapped_column(String(50), default="typescript")
 
     # Configuration
-    test_config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    test_config: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     # Generation metadata
     generated_by_agent: Mapped[Optional[str]] = mapped_column(String(100))
-    generation_params: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    generation_params: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     # Stats
     total_endpoints: Mapped[int] = mapped_column(Integer, default=0)
@@ -96,15 +95,15 @@ class APITestRun(Base):
 
     __tablename__ = "api_test_runs"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     api_test_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("api_tests.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -119,7 +118,7 @@ class APITestRun(Base):
     )
 
     # Execution config
-    execution_config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    execution_config: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     # Stats
     total_tests: Mapped[int] = mapped_column(Integer, default=0)
@@ -158,15 +157,15 @@ class APITestResult(Base):
 
     __tablename__ = "api_test_results"
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     test_run_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("api_test_runs.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     api_test_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid,
         ForeignKey("api_tests.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -178,8 +177,8 @@ class APITestResult(Base):
     status: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Request/response summaries
-    request_summary: Mapped[Optional[dict]] = mapped_column(JSONB)
-    response_summary: Mapped[Optional[dict]] = mapped_column(JSONB)
+    request_summary: Mapped[Optional[dict]] = mapped_column(JSON)
+    response_summary: Mapped[Optional[dict]] = mapped_column(JSON)
 
     # Error info
     error_message: Mapped[Optional[str]] = mapped_column(Text)

@@ -2,12 +2,11 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo, Fragment, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderGit2, Hash, Settings, BookOpen } from "lucide-react";
+import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderGit2, Hash, Settings, BookOpen, ChevronUp } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useQueryState } from "nuqs";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 /** Extract task IDs like M72-177558 from text */
 function extractTaskIds(text: string): string[] {
@@ -56,9 +55,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [newRepoPath, setNewRepoPath] = useState("");
 
-  // Virtuoso virtual scroll refs and state
-  const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  // Scroll container ref for auto-scroll
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Wiki selector state
   const WIKI_STORAGE_KEY = "smart-test-platform-wiki";
@@ -171,7 +169,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   }, [currentThreadId, taskId, persistTaskForThread]);
 
   const {
-    stream,
     messages,
     isLoading,
     sendMessage,
@@ -182,6 +179,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     isLoadingHistory,
     hasOlderMessages,
     loadOlderMessages,
+    historyError,
+    threadId,
   } = useChatContext();
 
   const submitDisabled = isLoading || !assistantId;
@@ -240,6 +239,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     >();
 
     messages.forEach((message: Message) => {
+      if (!message) return;
       if (message.type === "ai") {
         const toolCallsInMessage: Array<{
           id?: string;
@@ -341,46 +341,71 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     return map;
   }, [ui]);
 
+  // Auto-scroll to bottom on new messages
+  const lastMessageId = messages?.at(-1)?.id;
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const frameId = window.requestAnimationFrame(() => {
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: isLoading ? "auto" : "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [lastMessageId, messages?.length, isLoading]);
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Message list area */}
       {processedMessages.length > 0 ? (
-        <Virtuoso
-          ref={virtuosoRef}
-          data={processedMessages}
-          followOutput={isAtBottom ? "smooth" : false}
-          atBottomStateChange={setIsAtBottom}
-          atTopStateChange={(atTop) => {
-            if (atTop && hasOlderMessages && !isLoadingHistory) {
-              loadOlderMessages();
-            }
-          }}
-          increaseViewportBy={{ top: 200, bottom: 200 }}
-          defaultItemHeight={80}
-          components={{
-            Header: () => isLoadingHistory ? (
-              <div className="flex justify-center py-4">
-                <span className="text-sm text-muted-foreground">加载中...</span>
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
+        >
+          <div className="mx-auto w-full max-w-[1024px] px-6 pb-6 pt-4">
+            {/* Load older messages button */}
+            {hasOlderMessages && (
+              <div className="mb-4 flex justify-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={loadOlderMessages}
+                  disabled={isLoadingHistory}
+                  className="text-xs text-muted-foreground"
+                >
+                  {isLoadingHistory ? "加载中..." : "加载更早的消息"}
+                  {!isLoadingHistory && <ChevronUp size={14} className="ml-1" />}
+                </Button>
               </div>
-            ) : null,
-          }}
-          itemContent={(index, data) => {
-            const isLastMessage = index === processedMessages.length - 1;
-            const messageUi = uiMap.get(data.message.id ?? "");
-            return (
-              <div className="mx-auto w-full max-w-[1024px] px-6">
+            )}
+            {processedMessages.map((data, index) => {
+              const isLastMessage = index === processedMessages.length - 1;
+              const messageUi = uiMap.get(data.message.id ?? "");
+              return (
                 <ChatMessage
+                  key={data.message.id ?? `msg-${index}`}
                   message={data.message}
                   toolCalls={data.toolCalls}
                   isStreaming={isLastMessage && isLoading}
                   ui={messageUi}
-                  stream={isLastMessage ? stream : undefined}
+                  stream={undefined}
                   graphId={isLastMessage ? assistantId : undefined}
                 />
-              </div>
-            );
-          }}
-        />
+              );
+            })}
+          </div>
+        </div>
+      ) : historyError && threadId ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-8">
+          <p className="text-lg font-medium text-destructive">
+            无法加载会话消息
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            该会话状态过大，暂时无法加载。请尝试新建对话。
+          </p>
+        </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center p-8">
           <p className="text-lg font-medium text-muted-foreground">

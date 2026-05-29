@@ -61,8 +61,8 @@ export default function ReportsPage() {
         {/* Header */}
         <div className="flex items-center gap-4">
           <h2 className="text-2xl font-bold">测试报告</h2>
-          <Select value={selectedProjectId ?? ""} onValueChange={handleProjectChange}>
-            <SelectTrigger>
+          <Select value={selectedProjectId ?? null} onValueChange={handleProjectChange}>
+            <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="选择项目" />
             </SelectTrigger>
             <SelectContent>

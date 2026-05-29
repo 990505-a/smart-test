@@ -10,6 +10,7 @@ import tempfile
 import time
 from typing import Optional
 
+from langchain_core.tools import tool
 from langchain_pymupdf4llm import PyMuPDF4LLMLoader
 
 logger = logging.getLogger(__name__)
@@ -135,3 +136,28 @@ class PDFProcessor:
             "cached_files": len(self.cache) if self.enable_cache else 0,
             "cache_keys": list(self.cache.keys()) if self.enable_cache else [],
         }
+
+
+@tool
+def extract_pdf_text_from_file(file_path: str) -> str:
+    """从PDF文件路径中提取文本，使用模块级缓存避免重复解析。
+
+    Args:
+        file_path: PDF 文件的绝对路径或相对路径
+
+    Returns:
+        提取的文本内容
+    """
+    if not os.path.isfile(file_path):
+        logger.error("PDF文件不存在: %s", file_path)
+        return f"PDF文件不存在: {file_path}"
+
+    try:
+        with open(file_path, "rb") as f:
+            pdf_data = f.read()
+    except OSError as e:
+        logger.error("读取PDF文件失败: %s", e)
+        return f"读取PDF文件失败: {e}"
+
+    filename = os.path.basename(file_path)
+    return extract_pdf_text(pdf_data, filename, _pdf_cache)

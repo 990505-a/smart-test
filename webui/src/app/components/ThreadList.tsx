@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ThreadItem } from "@/app/hooks/useThreads";
 import { useThreads } from "@/app/hooks/useThreads";
-import { useClient } from "@/providers/ClientProvider";
+import { getConfig } from "@/lib/config";
 
 const GROUP_LABELS = {
   today: "今天",
@@ -83,20 +83,24 @@ export function ThreadList({
   const [currentThreadId] = useQueryState("threadId");
   const [, setCurrentThreadId] = useQueryState("threadId");
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
-  const client = useClient();
 
-  const threads = useThreads(client, {
-    limit: 20,
-  });
+  const threads = useThreads();
 
+  // Flatten pages into a single list
   const flattened = useMemo(() => {
-    return threads.data?.flat() ?? [];
+    if (!threads.data) return [];
+    const all: ThreadItem[] = [];
+    for (const page of threads.data) {
+      all.push(...page.threads);
+    }
+    return all;
   }, [threads.data]);
 
   const isLoadingMore =
     threads.size > 0 && threads.data?.[threads.size - 1] == null;
-  const isEmpty = threads.data?.at(0)?.length === 0;
-  const isReachingEnd = isEmpty || (threads.data?.at(-1)?.length ?? 0) < 20;
+  const isEmpty = threads.data?.at(0)?.threads.length === 0;
+  const lastPageThreads = threads.data?.at(-1)?.threads.length ?? 0;
+  const isReachingEnd = isEmpty || lastPageThreads < 20;
 
   // Group threads by time
   const grouped = useMemo(() => {
@@ -169,7 +173,6 @@ export function ThreadList({
 
   useEffect(() => {
     onMutateReadyRef.current?.(mutateFn);
-    // Only run once on mount to avoid infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -183,7 +186,9 @@ export function ThreadList({
 
       setDeletingThreadId(threadId);
       try {
-        await client.threads.delete(threadId);
+        const config = getConfig();
+        const apiBase = config?.fastapiUrl || "http://localhost:8000";
+        await fetch(`${apiBase}/api/v2/threads/${threadId}`, { method: "DELETE" });
 
         if (currentThreadId === threadId) {
           setCurrentThreadId(null);
@@ -197,7 +202,7 @@ export function ThreadList({
         setDeletingThreadId(null);
       }
     },
-    [client, currentThreadId, setCurrentThreadId, mutateFn],
+    [currentThreadId, setCurrentThreadId, mutateFn],
   );
 
   return (

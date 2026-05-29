@@ -5,10 +5,9 @@ shared by all database models.
 """
 
 from datetime import datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import DateTime, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 
@@ -16,7 +15,7 @@ class UUIDMixin:
     """UUID primary key mixin."""
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         primary_key=True,
         default=uuid4,
         comment="Primary key ID",

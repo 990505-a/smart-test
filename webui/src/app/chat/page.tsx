@@ -13,9 +13,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { AGENT_CONFIG, AgentKey } from "@/app/types/types";
-import { WorkspaceId } from "@/app/types/types";
 import { AgentTabs } from "@/app/components/AgentTabs";
-import { WorkspaceSelect } from "@/app/components/WorkspaceSelect";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { ThreadList } from "@/app/components/ThreadList";
 import { ConfigDialog } from "@/app/components/ConfigDialog";
@@ -41,23 +39,6 @@ function HomePageInner({
   const [activeAgent, setActiveAgent] = useQueryState("agent", {
     defaultValue: "testcase",
   });
-
-  // Workspace state: persisted to localStorage via config
-  const [currentWorkspace, setCurrentWorkspace] = useState<WorkspaceId>(
-    (config?.workspaceId as WorkspaceId) || "default",
-  );
-
-  const handleWorkspaceChange = useCallback(
-    (id: WorkspaceId) => {
-      setCurrentWorkspace(id);
-      setThreadId(null); // Prevent cross-workspace data leakage
-      const currentConfig = getConfig();
-      if (currentConfig) {
-        saveConfig({ ...currentConfig, workspaceId: id });
-      }
-    },
-    [setThreadId],
-  );
 
   // Thread list mutation callback
   const mutateThreadsRef = useRef<(() => void) | null>(null);
@@ -120,10 +101,6 @@ function HomePageInner({
           <AgentTabs
             activeAgent={activeAgent ?? "testcase"}
             onAgentChange={handleAgentChange}
-          />
-          <WorkspaceSelect
-            workspaceId={currentWorkspace}
-            onWorkspaceChange={handleWorkspaceChange}
           />
           {/* Right actions */}
           <span className="text-xs text-muted-foreground">
@@ -188,7 +165,7 @@ function HomePageInner({
               <ChatProvider
                 activeAssistant={activeAssistant}
                 onHistoryRevalidate={handleHistoryRevalidate}
-                workspaceId={currentWorkspace}
+                workspaceId="default"
               >
                 <ChatInterface assistantId={assistantId} />
               </ChatProvider>
@@ -206,6 +183,15 @@ function HomePageInner({
 function HomePageContent() {
   const [config, setConfig] = useState<StandaloneConfig | null>(null);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
+
+  // Log unhandled promise rejections for debugging
+  useEffect(() => {
+    const handler = (e: PromiseRejectionEvent) => {
+      console.error("[ChatPage] Unhandled rejection:", e.reason?.message || e.reason, e.reason?.stack);
+    };
+    window.addEventListener("unhandledrejection", handler);
+    return () => window.removeEventListener("unhandledrejection", handler);
+  }, []);
 
   // On mount, check for saved config, otherwise show config dialog
   useEffect(() => {

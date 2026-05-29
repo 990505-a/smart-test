@@ -6,7 +6,6 @@ matching the classroom's tool_registry.py approach.
 
 from langchain.tools import BaseTool
 
-from app.agents.testcase.tools import export_test_cases
 from app.agents.testcase.tools.db_tools import (
     ensure_project,
     list_project_test_cases,
@@ -18,7 +17,6 @@ from app.agents.testcase.tools.db_tools import (
 def get_local_tools() -> list[BaseTool]:
     """Return all locally-defined tools for the TestCase Agent."""
     return [
-        export_test_cases,
         save_test_cases_batch,
         save_test_case_to_db,
         list_project_test_cases,

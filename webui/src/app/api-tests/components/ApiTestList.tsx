@@ -48,8 +48,8 @@ export function ApiTestList({ onSelectTest }: ApiTestListProps) {
   // Project selector
   const { data: projectsData } = useProjects(1, 100);
   const projects = projectsData?.data ?? [];
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(
-    projects[0]?.id ?? "",
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    projects[0]?.id ?? null,
   );
 
   // Resolve projectId once projects load
@@ -212,7 +212,7 @@ export function ApiTestList({ onSelectTest }: ApiTestListProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-semibold">API测试</h2>
-          <Select value={selectedProjectId} onValueChange={handleProjectChange}>
+          <Select value={selectedProjectId ?? null} onValueChange={handleProjectChange}>
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="选择项目" />
             </SelectTrigger>

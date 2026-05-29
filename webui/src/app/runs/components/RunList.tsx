@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Eye, Trash2 } from "lucide-react";
 import { format } from "date-fns";
+import { formatUTCDate } from "@/lib/utils";
 import type { TestRunInfo } from "@/app/types/api";
 
 const runStateColors: Record<string, string> = {
@@ -101,7 +102,7 @@ export function RunList({ runs, onViewDetail, onDelete, isLoading }: RunListProp
       header: "创建时间",
       cell: ({ row }) => {
         const val = row.getValue("created_at") as string;
-        return val ? <span className="text-sm">{format(new Date(val), "yyyy-MM-dd HH:mm")}</span> : "-";
+        return val ? <span className="text-sm">{formatUTCDate(val)}</span> : "-";
       },
     },
     {

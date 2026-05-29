@@ -22,13 +22,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { useProjects } from "@/lib/api/useProjects";
 import { useFolderTree } from "@/lib/api/useFolders";
 import { useTestCases, useCreateTestCase, useDeleteTestCase } from "@/lib/api/useTestCases";
 import { createCaseColumns } from "./components/CaseColumns";
 import { CreateCaseDialog } from "./components/CreateCaseDialog";
 import type { TestCaseInfo, TestCaseCreate } from "@/app/types/api";
+import { apiClient } from "@/lib/api-client";
+import { getConfig } from "@/lib/config";
 
 export default function CasesPage() {
   // Project selector state
@@ -96,6 +98,62 @@ export default function CasesPage() {
     setPage(1);
   };
 
+  const [exporting, setExporting] = useState(false);
+
+  // Export: fetch all cases page by page, then generate file
+  const handleExport = useCallback(async (format: "markdown" | "excel") => {
+    if (!selectedProjectId) return;
+    setExporting(true);
+    try {
+      const pageSize = 300;
+      let page = 1;
+      let allCases: TestCaseInfo[] = [];
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const res = await apiClient.getPaginated<TestCaseInfo>("/test-cases", {
+          p: page, page_size: pageSize, project_id: selectedProjectId,
+          ...(selectedFolderId ? { folder_id: selectedFolderId } : {}),
+        });
+        allCases = allCases.concat(res.data);
+        if (!res.info?.next || res.data.length < pageSize) break;
+        page++;
+      }
+      if (allCases.length === 0) { alert("没有可导出的用例"); return; }
+
+      if (format === "markdown") {
+        // Call AI organize endpoint first
+        const config = getConfig();
+        const apiBase = config?.fastapiUrl || "http://localhost:8000";
+        const casesPayload = allCases.map(c => ({
+          name: c.name,
+          steps: (c.steps ?? []).map(s => ({ action: s.action, expected_result: s.expected_result })),
+          preconditions: c.preconditions,
+          priority: c.priority,
+        }));
+
+        const organizeRes = await fetch(`${apiBase}/api/v2/test-cases/organize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cases: casesPayload }),
+        });
+
+        if (!organizeRes.ok) throw new Error("AI整理失败");
+        const { organized } = await organizeRes.json();
+
+        const md = exportOrganizedAsMarkdown(organized);
+        downloadFile(md, `test-cases-${Date.now()}.md`, "text/markdown");
+      } else {
+        const csv = exportAsCSV(allCases);
+        downloadFile(csv, `test-cases-${Date.now()}.csv`, "text/csv");
+      }
+    } catch (e) {
+      console.error("Export failed:", e);
+      alert("导出失败");
+    } finally {
+      setExporting(false);
+    }
+  }, [selectedProjectId, selectedFolderId]);
+
   return (
     <ManagementLayout>
       <div className="space-y-4">
@@ -103,8 +161,8 @@ export default function CasesPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h2 className="text-2xl font-bold">测试用例</h2>
-            <Select value={selectedProjectId ?? ""} onValueChange={handleProjectChange}>
-              <SelectTrigger>
+            <Select value={selectedProjectId ?? null} onValueChange={handleProjectChange}>
+              <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="选择项目" />
               </SelectTrigger>
               <SelectContent>
@@ -117,7 +175,7 @@ export default function CasesPage() {
             </Select>
             {selectedProjectId && (
               <Select value={selectedFolderId ?? "all"} onValueChange={(val) => { setSelectedFolderId(val === "all" ? null : val); setPage(1); }}>
-                <SelectTrigger>
+                <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="所有文件夹" />
                 </SelectTrigger>
                 <SelectContent>
@@ -131,13 +189,31 @@ export default function CasesPage() {
               </Select>
             )}
           </div>
-          <Button
-            onClick={() => setCreateDialogOpen(true)}
-            disabled={!selectedProjectId || isCreating}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            新建用例
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => handleExport("markdown")}
+              disabled={!selectedProjectId || exporting}
+            >
+              {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+              {exporting ? "AI整理中..." : "导出 Markdown"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleExport("excel")}
+              disabled={!selectedProjectId || exporting}
+            >
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              导出 Excel
+            </Button>
+            <Button
+              onClick={() => setCreateDialogOpen(true)}
+              disabled={!selectedProjectId || isCreating}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              新建用例
+            </Button>
+          </div>
         </div>
 
         {/* Table content */}
@@ -238,4 +314,160 @@ function flattenForSelect(nodes: Array<{ id: string; name: string; children?: Ar
     }
   }
   return result;
+}
+
+// --- Export helpers ---
+
+const HEADERS = ["用例编号", "用例标题", "所属模块", "用例类型", "优先级", "前置条件", "测试步骤", "预期结果", "备注"];
+
+function getRow(c: TestCaseInfo): string[] {
+  const steps = (c.steps ?? []).map((s, i) => `${i + 1}. ${s.action ?? ""}`).join("\n");
+  const expected = (c.steps ?? []).map((s, i) => `${i + 1}. ${s.expected_result ?? ""}`).join("\n");
+  return [
+    c.identifier,
+    c.name,
+    c.feature ?? "",
+    c.test_case_type ?? "",
+    c.priority,
+    c.preconditions ?? "",
+    steps,
+    expected,
+    c.description ?? "",
+  ];
+}
+
+/** Extract module name from description like "模块: xxx | 类型: yyy" */
+function extractModule(desc: string | null): string {
+  if (!desc) return "未分类";
+  const m = desc.match(/模块[：:]\s*(.+?)(?:\s*[|｜]|$)/);
+  return m ? m[1].trim() : "未分类";
+}
+
+/** Strip TC-M72-XXX-NNN： prefix from case name */
+function stripPrefix(name: string): string {
+  return name.replace(/^TC-[A-Z0-9]+-[A-Z0-9]+-\d+[：:]\s*/, "")
+    .replace(/^TC-[A-Z0-9]+-\d+[：:]\s*/, "");
+}
+
+/** Indent helper: N levels of 4 spaces */
+function pad(n: number): string {
+  return "    ".repeat(n);
+}
+
+function exportAsMarkdown(cases: TestCaseInfo[]): string {
+  const lines: string[] = ["# 测试用例\n"];
+
+  // Group by module extracted from description
+  const groups = new Map<string, TestCaseInfo[]>();
+  for (const c of cases) {
+    const mod = extractModule(c.description);
+    if (!groups.has(mod)) groups.set(mod, []);
+    groups.get(mod)!.push(c);
+  }
+
+  for (const [mod, groupCases] of groups) {
+    lines.push(`- ${mod}`);
+    for (const c of groupCases) {
+      const title = stripPrefix(c.name);
+      lines.push(`${pad(1)}- ${title}`);
+
+      // Operation steps — each step on its own line
+      const steps = (c.steps ?? []).filter(s => s.action?.trim());
+      if (steps.length > 0) {
+        lines.push(`${pad(2)}- 操作步骤：`);
+        steps.forEach((s, i) => {
+          lines.push(`${pad(3)}- ${s.action!.replace(/\n/g, `；`)}`);
+        });
+      }
+
+      // Expected result — each step's result on its own line
+      const expected = (c.steps ?? []).filter(s => s.expected_result?.trim());
+      if (expected.length > 0) {
+        lines.push(`${pad(2)}- 预期结果：`);
+        expected.forEach(s => {
+          const items = s.expected_result!.split(/\n/).filter(l => l.trim());
+          items.forEach(item => {
+            lines.push(`${pad(3)}- ${item}`);
+          });
+        });
+      }
+
+      // Test data (preconditions) — each line separate
+      if (c.preconditions?.trim()) {
+        lines.push(`${pad(2)}- 测试数据：`);
+        c.preconditions.split(/\n/).filter(l => l.trim()).forEach(item => {
+          lines.push(`${pad(3)}- ${item.trim()}`);
+        });
+      }
+
+      // Priority & Status
+      const pMap: Record<string, string> = { critical: "P0-严重", high: "P1-高", medium: "P2-中", low: "P3-低" };
+      lines.push(`${pad(2)}- 优先级：${pMap[c.priority] ?? c.priority} | 状态：⏳`);
+      lines.push("");
+    }
+  }
+
+  lines.push(`\n> 共 ${cases.length} 条用例`);
+  return lines.join("\n");
+}
+
+/** Export AI-organized hierarchical structure as Markdown */
+function exportOrganizedAsMarkdown(organized: Array<{
+  module: string;
+  sub_modules: Array<{
+    name: string;
+    cases: Array<{
+      title: string;
+      steps: string;
+      expected: string;
+      data: string;
+      priority: string;
+    }>;
+  }>;
+}>): string {
+  const lines: string[] = ["# 测试用例\n"];
+  let totalCases = 0;
+
+  for (let mi = 0; mi < organized.length; mi++) {
+    const mod = organized[mi];
+    lines.push(`${mi + 1}. ${mod.module}`);
+
+    for (let si = 0; si < mod.sub_modules.length; si++) {
+      const sub = mod.sub_modules[si];
+      lines.push(`${pad(1)}${mi + 1}.${si + 1} ${sub.name}`);
+
+      for (let ci = 0; ci < sub.cases.length; ci++) {
+        const c = sub.cases[ci];
+        totalCases++;
+        lines.push(`${pad(2)}${mi + 1}.${si + 1}.${ci + 1} ${c.title}`);
+        lines.push(`${pad(3)}操作步骤：${c.steps}`);
+        lines.push(`${pad(3)}预期结果：${c.expected}`);
+        lines.push(`${pad(3)}测试数据：${c.data}`);
+        lines.push(`${pad(3)}状态：⏳`);
+        lines.push("");
+      }
+    }
+  }
+
+  lines.push(`> 共 ${totalCases} 条用例`);
+  return lines.join("\n");
+}
+
+function exportAsCSV(cases: TestCaseInfo[]): string {
+  const rows = [HEADERS];
+  for (const c of cases) {
+    rows.push(getRow(c));
+  }
+  const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+  return "﻿" + csv; // UTF-8 BOM for Excel
+}
+
+function downloadFile(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

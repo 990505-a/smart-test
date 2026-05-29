@@ -221,7 +221,7 @@ export_test_cases_to_excel(test_cases, "./exports/CRM登录模块测试用例.xl
 在完成所有测试用例的格式化输出后，**必须**执行以下自动保存流程：
 
 ### 保存步骤
-1. 调用 `ensure_project` 获取当前项目的 project_id（如已有则直接使用）
+1. 调用 `ensure_project(project_name="需求中的项目或产品名称")` 获取或创建项目。**必须传递 project_name 参数**，用需求中的项目或产品名称命名（如 "紫薇养灵玉测试项目"），不要使用默认值 "AI Generated Project"
 2. 将格式化后的所有测试用例转换为 `save_test_cases_batch` 所需的 JSON 格式
 3. 调用 `save_test_cases_batch(project_id, test_cases)` 保存到数据库
 4. 在回复中输出 `[SAVE_RESULT]...[/SAVE_RESULT]` 格式的保存结果

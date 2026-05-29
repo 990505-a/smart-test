@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useDeferredValue } from "react";
 import type { ContentBlock, ToolCall, SubAgent } from "@/app/types/types";
 import { PIPELINE_STAGES } from "@/app/types/types";
 import { cn } from "@/lib/utils";
-import { File } from "lucide-react";
+import { File, ChevronDown, ChevronUp, Brain } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { ToolResultCard, parseSaveResults, stripSaveResultMarkers } from "@/app/components/ToolResultCard";
 import { ToolCallBox } from "@/app/components/ToolCallBox";
 import { SubAgentIndicator } from "@/app/components/SubAgentIndicator";
@@ -49,6 +50,38 @@ interface ChatMessageProps {
   graphId?: string;
 }
 
+/** Collapsible thinking block for DeepSeek R1 reasoning content */
+const ThinkingBlock = React.memo<{ content: string }>(({ content }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="mb-2 overflow-hidden rounded-lg border border-border/50 bg-muted/30">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setIsExpanded((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
+      >
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Brain size={14} />
+          <span className="font-medium">思考过程</span>
+        </div>
+        {isExpanded ? (
+          <ChevronUp size={14} className="shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+        )}
+      </Button>
+      {isExpanded && (
+        <div className="border-t border-border/50 px-3 py-2">
+          <MarkdownContent content={content} className="text-xs text-muted-foreground" />
+        </div>
+      )}
+    </div>
+  );
+});
+ThinkingBlock.displayName = "ThinkingBlock";
+
 function extractStringContent(
   content: string | Array<Record<string, unknown>>,
 ): string {
@@ -64,12 +97,30 @@ function extractStringContent(
   return "";
 }
 
+/** Strip LLM-internal content blocks from user message display. */
+function stripInternalContent(text: string): string {
+  if (!text) return text;
+  // Remove [代码分析上下文 ...] prefix
+  let result = text.replace(/\[代码分析上下文[^\]]*\]\s*/g, "");
+  // Remove [Wiki 知识库] line
+  result = result.replace(/\[Wiki 知识库\][^\n]*\n?/g, "");
+  // Remove [Uploaded N file(s)] header and all ### File content (PDF/MD text)
+  // Users don't need to see extracted file text in their message bubble
+  result = result.replace(/\n*\[Uploaded \d+ file\(s\)\][\s\S]*$/g, "");
+  // Remove leading whitespace from repo/task lines
+  result = result.replace(/^\s*仓库路径:.*$/gm, "");
+  result = result.replace(/^\s*任务单号:.*$/gm, "");
+  return result.trim();
+}
+
 export const ChatMessage = React.memo<ChatMessageProps>(
   ({ message, toolCalls = [], isStreaming = false, ui, stream, graphId }) => {
     const isUser = message.type === "human";
     const isAi = message.type === "ai";
     const isTool = message.type === "tool";
-    const messageContent = extractStringContent(message.content);
+    const rawContent = extractStringContent(message.content);
+    // For user messages, strip LLM-internal sections ([代码分析上下文...] and [Uploaded N file(s)] blocks)
+    const messageContent = isUser ? stripInternalContent(rawContent) : rawContent;
     const hasContent = messageContent && messageContent.trim() !== "";
     const hasToolCalls = toolCalls.length > 0;
     const visibleToolCalls = toolCalls.filter((tc) => tc.name !== "task");
@@ -118,6 +169,24 @@ export const ChatMessage = React.memo<ChatMessageProps>(
 
     const hasAttachments = imageUrlBlocks.length > 0 || pdfBlocks.length > 0;
 
+    // Extract DeepSeek R1 reasoning/thinking content
+    const reasoningContent = useMemo(() => {
+      if (!isAi) return null;
+      // Way 1: additional_kwargs.reasoning_content (DeepSeek API native)
+      const rc = message.additional_kwargs?.reasoning_content;
+      if (typeof rc === "string" && rc.trim()) return rc;
+      // Way 2: thinking block in content array (LangChain standard)
+      if (Array.isArray(message.content)) {
+        const thinkingBlock = (message.content as Array<Record<string, unknown>>).find(
+          (b) => b.type === "thinking" && typeof b.text === "string",
+        );
+        if (thinkingBlock && typeof thinkingBlock.text === "string" && thinkingBlock.text.trim()) {
+          return thinkingBlock.text as string;
+        }
+      }
+      return null;
+    }, [isAi, message.additional_kwargs, message.content]);
+
     // Detect [SAVE_RESULT] blocks in AI message content
     const saveResults = useMemo(() => {
       if (isUser || !messageContent) return [];
@@ -129,6 +198,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
       if (saveResults.length === 0) return messageContent;
       return stripSaveResultMarkers(messageContent);
     }, [messageContent, saveResults]);
+
+    // Defer heavy streaming rendering to keep UI responsive
+    const deferredContent = useDeferredValue(displayContent);
 
     // Detect pipeline stage markers in AI message content
     const detectedStage = useMemo(() => {
@@ -214,6 +286,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   </div>
                 )}
 
+                {/* Thinking block (DeepSeek R1 reasoning content) */}
+                {isAi && reasoningContent && <ThinkingBlock content={reasoningContent} />}
+
                 {/* Tool call boxes (skip "task" calls) */}
                 {visibleToolCalls.length > 0 && (
                   <div className="mb-2 space-y-0.5">
@@ -243,11 +318,11 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   isStreaming ? (
                     <>
                       <MarkdownContent
-                        content={displayContent}
+                        content={deferredContent}
                         streaming
                         className="[&_p:last-child]:inline [&_p:not(:last-child)]:inline-block"
                       />
-                      <span className="animate-pulse">|</span>
+                      <span className="inline-block w-[2px] animate-none bg-foreground opacity-70">|</span>
                     </>
                   ) : (
                     <>

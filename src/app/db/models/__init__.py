@@ -51,3 +51,9 @@ from src.app.db.models.web_test import WebTest, WebTestRun, WebTestResult  # noq
 
 # Configuration (independent)
 from src.app.db.models.configuration import Configuration  # noqa: F401
+
+# Thread Messages (for local message storage, independent of LangGraph state)
+from src.app.db.models.thread_message import ThreadMessage  # noqa: F401
+
+# Thread Info (for persisting thread metadata across LangGraph restarts)
+from src.app.db.models.thread_info import ThreadInfo  # noqa: F401
