@@ -270,8 +270,8 @@ async def _ai_resplit_steps(organized: list[dict], llm) -> list[dict]:
                 steps = case.get("steps", [])
                 if not steps or not isinstance(steps, list):
                     continue
-                actions = [s.get("action", "") for s in steps]
-                expecteds = [s.get("expected_result", "") for s in steps]
+                actions = [(s.get("action") or "") for s in steps]
+                expecteds = [(s.get("expected_result") or "") for s in steps]
                 # Check if steps are mismatched (some expected_result empty while others are long)
                 non_empty_er = [e for e in expecteds if e and e.strip()]
                 if len(non_empty_er) != len(actions) and len(non_empty_er) > 0:
