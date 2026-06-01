@@ -1,9 +1,10 @@
-"""TestCase Agent - fully wired with 3-layer middleware chain, tools, and system prompt.
+"""TestCase Agent - fully wired with 3-layer middleware chain, memory injection, tools, and system prompt.
 
 Architecture (onion middleware model):
     |-- SkillsMiddleware (outer)           -> loads 8 SKILL.md files into system prompt (incl. wiki-query, test-data-generator, code-analysis)
     |   |-- DynamicModelSelection (middle) -> detects images -> switches to GPT-4o
     |   |   |-- FileContextMiddleware (inner) -> injects PDF/Image/Excel document context
+    |   |   |-- MemoryInjectionMiddleware -> injects saved memories into system prompt
     |   |   |-- LLM (deepseek or gpt-4o)
 
 Design decisions:
@@ -17,6 +18,7 @@ Design decisions:
     - D-09: test-data-generator is the 7th Skill auto-discovered by SkillsMiddleware
     - D-16: No middleware changes for wiki-mcp. Tools registered via tools= parameter only.
     - D-05/D-10: wiki-mcp tools loaded via MCP client as LangChain BaseTool objects (no @tool wrapping)
+    - Phase 19: MemoryInjectionMiddleware loads saved memories; save_memory/search_memories tools registered
 """
 
 import asyncio
@@ -32,6 +34,8 @@ from dotenv import load_dotenv
 from app.middleware.pdf_context import PDFContextMiddleware
 from langchain.agents.middleware import wrap_model_call
 from app.middleware.dynamic_model import DynamicModelSelection
+from app.middleware.memory_injection import MemoryInjectionMiddleware
+from app.middleware.message_repair import MessageRepairMiddleware
 from app.middleware.tool_result_limiter import ToolResultLimiterMiddleware
 from app.agents.testcase.tools.db_tools import (
     ensure_project,
@@ -44,6 +48,7 @@ from app.agents.testcase.tools.git_tools import (
     git_log, git_diff_stat, grep_code,
     read_code_file, git_diff_content, grep_code_context,
 )
+from app.agents.testcase.tools.memory_tools import save_memory, search_memories
 from app.core.config import settings
 from app.core.workspace import get_workspace_dir
 from app.mcp.mcp_client import get_mcp_client
@@ -61,6 +66,7 @@ llm = init_chat_model(f"deepseek:{settings.deepseek_model}")
 # Without this, compute_summarization_defaults falls back to trigger=("tokens", 170000)
 # which exceeds deepseek-chat's 128k context window, meaning summarization NEVER triggers.
 llm.profile = {"max_input_tokens": 1_000_000}  # DeepSeek V4 Flash supports 1M token context via API
+llm.request_timeout = 900  # 15 minutes timeout for long-running subagent calls
 
 # ============================================================================
 # Backend configuration
@@ -395,11 +401,11 @@ error: {error_message}
   "project_id": "从 ensure_project 获取",
   "test_cases": [
     {
-      "name": "用例标题",
+      "name": "用例标题（必须包含[正向]/[边界]/[异常]/[安全]/[兼容]/[配置]标签）",
       "description": "用例描述",
       "preconditions": "前置条件文本",
       "priority": "medium|high|low|critical",
-      "test_case_type": "functional",
+      "test_case_type": "根据用例类型填写：[正向]/[边界]/[异常]→functional，[安全]→security，[兼容]→compatibility，[配置]→regression",
       "template": "test_case",
       "steps": [
         {"action": "具体操作", "expected_result": "预期结果"},
@@ -514,6 +520,13 @@ file_middleware = PDFContextMiddleware()
 tool_result_limiter = ToolResultLimiterMiddleware(char_limit=20_000)
 
 # ============================================================================
+# MemoryInjectionMiddleware (auto-loads memories into system prompt)
+# Loads up to 20 recent memories from the database and appends them to
+# the system prompt so the agent has persistent context across conversations.
+# ============================================================================
+memory_injection_middleware = MemoryInjectionMiddleware()
+
+# ============================================================================
 # wiki-mcp tool loading (D-04/D-05/D-16)
 # Uses asyncio.new_event_loop() to safely fetch tools at module import time.
 # Per RESEARCH Pitfall 3: avoids asyncio.run() which crashes inside running
@@ -554,6 +567,7 @@ _all_tools = [
     save_test_case_to_db, list_project_test_cases, ensure_project, get_beijing_timestamp,
     git_log, git_diff_stat, grep_code,
     read_code_file, git_diff_content, grep_code_context,
+    save_memory, search_memories,
 ] + wiki_tools
 for t in _all_tools:
     t.handle_tool_error = True
@@ -571,7 +585,9 @@ agent = create_agent(
         skills_middleware,          # D-05 outer layer: loads SKILL.md into system prompt
         dynamic_model_middleware,   # D-01/D-04 middle layer: switches model for images
         file_middleware,            # D-05 inner layer: injects file context into system prompt
+        memory_injection_middleware,  # injects saved memories into system prompt
         tool_result_limiter,        # Truncates large custom tool results (git, wiki)
+        MessageRepairMiddleware(),  # Repairs broken tool_calls/tool_result message sequences
     ],
     system_prompt=SYSTEM_PROMPT,
 )
