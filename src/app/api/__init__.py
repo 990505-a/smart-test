@@ -11,6 +11,7 @@ from src.app.api.v2 import (
     configurations,
     extract_pdf,
     folders,
+    memories,
     messages,
     projects,
     reports,
@@ -39,3 +40,4 @@ api_router.include_router(wikis.router, tags=["Wikis"])
 api_router.include_router(messages.router, tags=["Messages"])
 api_router.include_router(extract_pdf.router, tags=["PDF Extraction"])
 api_router.include_router(reports.router, tags=["Reports"])
+api_router.include_router(memories.router, tags=["Memories"])
