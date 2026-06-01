@@ -256,7 +256,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15 -> 16 -> 17
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15 -> 16 -> 17 -> 18
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -392,12 +392,21 @@ Plans:
 
 **UI hint**: yes
 
-### Phase 18: 测试报告文件查看器：后端API读取workspace报告列表和内容，前端报告列表页和Markdown渲染详情页
+### Phase 18: Workspace Report File Viewer
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal**: Browse and read Agent-generated markdown test reports from the workspace directory — backend API lists session directories and serves file content, frontend provides a report list page and a markdown detail view with existing MarkdownContent component
 **Depends on:** Phase 17
-**Plans:** 0 plans
+**Requirements:** (no specific requirement IDs — derived from phase description)
+**Success Criteria** (what must be TRUE):
+  1. Backend GET /api/v2/reports/sessions returns all session directories with their .md files
+  2. Backend GET /api/v2/reports/sessions/{name}/files/{file} serves markdown content with path traversal protection
+  3. Frontend /test-reports page shows session list with file counts and clickable file links
+  4. Frontend /test-reports/[session]/[filename] page renders markdown via MarkdownContent component
+  5. ManagementLayout sidebar includes 测试报告 navigation item
+  6. Chinese directory and file names display and route correctly
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 18 to break down)
+- [ ] 18-01-PLAN.md — Backend report API + frontend report pages: 2 backend endpoints, SWR hooks, session list page, markdown detail page, sidebar nav update (Wave 1)
+
+**UI hint**: yes
