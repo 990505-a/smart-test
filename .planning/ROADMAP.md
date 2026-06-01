@@ -423,10 +423,10 @@ Plans:
   4. User can create, edit, and delete memories from the management page
   5. Sidebar navigation includes "智能体记忆" entry linking to /memories
   6. All 5 CRUD API endpoints work at /api/v2/memories
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 19-01-PLAN.md — Backend: Memory model, CRUD API, save_memory tool, MemoryInjectionMiddleware, agent wiring (Wave 1)
-- [ ] 19-02-PLAN.md — Frontend: SWR hooks, memory management page, sidebar navigation update (Wave 2)
+- [x] 19-02-PLAN.md — Frontend: SWR hooks, memory management page, sidebar navigation update (Wave 2)
 
 **UI hint**: yes
