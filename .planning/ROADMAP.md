@@ -410,3 +410,13 @@ Plans:
 - [x] 18-01-PLAN.md — Backend report API + frontend report pages: 2 backend endpoints, SWR hooks, session list page, markdown detail page, sidebar nav update (Wave 1)
 
 **UI hint**: yes
+
+### Phase 19: 智能体持久化记忆系统：主动记忆工具、前端管理页面（增删改查搜索）、记忆自动注入上下文
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 18
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 19 to break down)
