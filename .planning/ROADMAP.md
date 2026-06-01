@@ -404,9 +404,9 @@ Plans:
   4. Frontend /test-reports/[session]/[filename] page renders markdown via MarkdownContent component
   5. ManagementLayout sidebar includes 测试报告 navigation item
   6. Chinese directory and file names display and route correctly
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 18-01-PLAN.md — Backend report API + frontend report pages: 2 backend endpoints, SWR hooks, session list page, markdown detail page, sidebar nav update (Wave 1)
+- [x] 18-01-PLAN.md — Backend report API + frontend report pages: 2 backend endpoints, SWR hooks, session list page, markdown detail page, sidebar nav update (Wave 1)
 
 **UI hint**: yes
