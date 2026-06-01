@@ -7,7 +7,7 @@ stopped_at: Completed 17-02-PLAN.md
 last_updated: "2026-05-28T09:17:20Z"
 last_activity: 2026-05-28
 progress:
-  total_phases: 17
+  total_phases: 18
   completed_phases: 15
   total_plans: 45
   completed_plans: 48
@@ -30,7 +30,7 @@ Plan: 02 completed
 Status: Executing
 Last activity: 2026-05-29 - Completed quick task 260529-shr: 修复 TestCase Agent 空项目和懒合并 bug
 
-Progress: [██████████░] 88% (15/17 phases)
+Progress: [██████████░] 83% (15/18 phases)
 
 ## Performance Metrics
 
@@ -239,6 +239,7 @@ None yet.
 - Phase 15 added: Web Agent Playwright MCP Upgrade — Replace Shell Backend with Playwright MCP, new tool registry, 8 web skills
 - Phase 16 added: Backend and Frontend Alignment — New endpoints (web_tests, web_functions, configurations), new models, frontend pages
 - Phase 17 added: Message Scroll Pagination — Backend paginated messages endpoint, frontend SWR hook, react-virtuoso integration
+- Phase 18 added: 测试报告文件查看器 — 后端API读取workspace报告列表和内容，前端报告列表页和Markdown渲染详情页
 
 ## Session Continuity
 

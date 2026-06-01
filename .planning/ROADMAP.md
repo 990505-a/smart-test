@@ -391,3 +391,13 @@ Plans:
 - [ ] 17-02-PLAN.md — Frontend UI wiring: Virtuoso virtual scroll in ChatInterface, dual-source message merge in useChat, human verification (Wave 2) (auto tasks completed 2026-05-28, Task 3 human-verify pending)
 
 **UI hint**: yes
+
+### Phase 18: 测试报告文件查看器：后端API读取workspace报告列表和内容，前端报告列表页和Markdown渲染详情页
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 17
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 18 to break down)
