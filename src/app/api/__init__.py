@@ -13,6 +13,7 @@ from src.app.api.v2 import (
     folders,
     messages,
     projects,
+    reports,
     scenarios,
     test_cases,
     test_runs,
@@ -37,3 +38,4 @@ api_router.include_router(configurations.router, tags=["Configurations"])
 api_router.include_router(wikis.router, tags=["Wikis"])
 api_router.include_router(messages.router, tags=["Messages"])
 api_router.include_router(extract_pdf.router, tags=["PDF Extraction"])
+api_router.include_router(reports.router, tags=["Reports"])
