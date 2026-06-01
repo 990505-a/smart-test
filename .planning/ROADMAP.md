@@ -256,7 +256,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15 -> 16 -> 17 -> 18
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15 -> 16 -> 17 -> 18 -> 19
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -411,12 +411,22 @@ Plans:
 
 **UI hint**: yes
 
-### Phase 19: 智能体持久化记忆系统：主动记忆工具、前端管理页面（增删改查搜索）、记忆自动注入上下文
+### Phase 19: 智能体持久化记忆系统
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal**: Agent can persist and recall user-specified information across conversations via save_memory tool, MemoryInjectionMiddleware auto-loads memories into system prompt, and frontend management page provides full CRUD with search/filter
 **Depends on:** Phase 18
-**Plans:** 0 plans
+**Requirements:** MEM-01, MEM-02, MEM-03, MEM-04, MEM-05, MEM-06, MEM-07
+**Success Criteria** (what must be TRUE):
+  1. User says "记住XXX" and agent calls save_memory tool, persisting content to database
+  2. New conversations automatically load relevant memories via MemoryInjectionMiddleware
+  3. Frontend /memories page shows all memories with search and category filter
+  4. User can create, edit, and delete memories from the management page
+  5. Sidebar navigation includes "智能体记忆" entry linking to /memories
+  6. All 5 CRUD API endpoints work at /api/v2/memories
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 19 to break down)
+- [ ] 19-01-PLAN.md — Backend: Memory model, CRUD API, save_memory tool, MemoryInjectionMiddleware, agent wiring (Wave 1)
+- [ ] 19-02-PLAN.md — Frontend: SWR hooks, memory management page, sidebar navigation update (Wave 2)
+
+**UI hint**: yes
