@@ -50,7 +50,14 @@ def invalidate_memory_cache() -> None:
 
 
 def _parse_subjects(text: str, limit: int) -> list[str]:
-    """提取 episode 文件里的 Subject 行；兼容原子事实/画像的 `## ` 标题。"""
+    """提取 episode 文件里的 Subject 行；兼容画像/技能的 `## ` 标题。
+
+    EverOS 生成的 episode 正文自带 `## ep_2026…` 内部 ID 标题——那是定位
+    标记不是主题，过滤掉（atomic fact 的 `## af_…` 同理）。
+    """
+    import re
+
+    _id_heading = re.compile(r"^(ep|af|mc)_\d+", re.IGNORECASE)
     subjects: list[str] = []
     lines = text.splitlines()
     for i, line in enumerate(lines):
@@ -59,7 +66,7 @@ def _parse_subjects(text: str, limit: int) -> list[str]:
             nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
             if nxt:
                 subjects.append(nxt)
-        elif stripped.startswith("## ") and not stripped.startswith("## Session"):
+        elif stripped.startswith("## ") and not _id_heading.match(stripped[3:].strip()):
             subjects.append(stripped[3:].strip())
         if len(subjects) >= limit:
             break

@@ -6,8 +6,8 @@ schema_version: 1
 user_id: platform
 track: user
 date: '2026-08-31'
-entry_count: 7
-last_appended_at: '2026-08-31T16:54:29.870473+08:00'
+entry_count: 11
+last_appended_at: '2026-08-31T17:03:31.027999+08:00'
 ---
 <!-- entry:af_20260831_00000001 -->
 ## af_20260831_00000001
@@ -93,3 +93,51 @@ last_appended_at: '2026-08-31T16:54:29.870473+08:00'
 ### Fact
 本次对话中没有其他参与者发言，也没有进一步的讨论。
 <!-- /entry:af_20260831_00000007 -->
+<!-- entry:af_20260831_00000008 -->
+## af_20260831_00000008
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:02:46.053000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000002
+**session_id**: agent-save-20260831-39aa45
+
+### Fact
+平台（platform）写入了一条长期记忆，分类为convention，标识为feishu_export。
+<!-- /entry:af_20260831_00000008 -->
+<!-- entry:af_20260831_00000009 -->
+## af_20260831_00000009
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:02:46.053000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000002
+**session_id**: agent-save-20260831-39aa45
+
+### Fact
+该长期记忆约定：飞书思维导图导出时，同批节点的parent必须已存在。
+<!-- /entry:af_20260831_00000009 -->
+<!-- entry:af_20260831_00000010 -->
+## af_20260831_00000010
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:02:46.053000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000002
+**session_id**: agent-save-20260831-39aa45
+
+### Fact
+该长期记忆约定：飞书思维导图导出时，单批不超过50个节点。
+<!-- /entry:af_20260831_00000010 -->
+<!-- entry:af_20260831_00000011 -->
+## af_20260831_00000011
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:02:46.053000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000002
+**session_id**: agent-save-20260831-39aa45
+
+### Fact
+该长期记忆约定：若不满足上述条件，则需采用分层分块方式写入。
+<!-- /entry:af_20260831_00000011 -->
