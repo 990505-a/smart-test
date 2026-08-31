@@ -84,6 +84,8 @@ const PLATFORM_FIELDS: { key: string; label: string; secret?: boolean; placehold
   { key: "everos_enabled", label: "记忆模块开关 (true/false)" },
   { key: "everos_port", label: "EverOS 记忆服务端口", placeholder: "9631" },
   { key: "everos_embedding_api_key", label: "记忆 Embedding Key（解锁向量检索/反思/技能蒸馏）", secret: true, placeholder: "留空=关键词模式；任意 OpenAI 兼容 key" },
+  { key: "everos_embedding_base_url", label: "记忆 Embedding API 地址", placeholder: "留空复用 LightRAG 的地址；OpenAI 官方填 https://api.openai.com/v1" },
+  { key: "everos_embedding_model", label: "记忆 Embedding 模型", placeholder: "留空复用 LightRAG 的模型；OpenAI 官方填 text-embedding-3-small" },
   { key: "api_auto_max_repair", label: "接口脚本自修复次数上限" },
 ];
 

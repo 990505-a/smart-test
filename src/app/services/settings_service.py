@@ -51,6 +51,8 @@ PLATFORM_KEYS: dict[str, str] = {
     "everos_enabled": "EVEROS_ENABLED",
     "everos_port": "EVEROS_PORT",
     "everos_embedding_api_key": "EVEROS_EMBEDDING_API_KEY",
+    "everos_embedding_base_url": "EVEROS_EMBEDDING_BASE_URL",
+    "everos_embedding_model": "EVEROS_EMBEDDING_MODEL",
     "api_auto_max_repair": "API_AUTO_MAX_REPAIR",
 }
 

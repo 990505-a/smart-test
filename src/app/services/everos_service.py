@@ -88,8 +88,10 @@ def _server_env() -> dict[str, str]:
     embedding_key = settings.everos_embedding_api_key or settings.lightrag_embedding_api_key
     if embedding_key:
         env["EVEROS_EMBEDDING__API_KEY"] = embedding_key
-        env["EVEROS_EMBEDDING__BASE_URL"] = settings.lightrag_embedding_base_url
-        env["EVEROS_EMBEDDING__MODEL"] = settings.lightrag_embedding_model
+        env["EVEROS_EMBEDDING__BASE_URL"] = (
+            settings.everos_embedding_base_url or settings.lightrag_embedding_base_url)
+        env["EVEROS_EMBEDDING__MODEL"] = (
+            settings.everos_embedding_model or settings.lightrag_embedding_model)
 
     if sys.platform == "win32":
         env["PYTHONPATH"] = os.pathsep.join(

@@ -121,9 +121,12 @@ class Settings(BaseSettings):
     everos_llm_model: str = ""
     everos_llm_base_url: str = ""
     everos_llm_api_key: str = ""
-    # Embedding key 留空 = keyword-only 模式（向量/混合检索与反思、技能蒸馏禁用，
-    # 等价于旧版 ILIKE 关键词检索；填任意 OpenAI 兼容 key 自动解锁）
+    # Embedding 三项：key 留空 = keyword-only 模式（向量/混合检索与反思、
+    # 技能蒸馏禁用）；base/model 留空则回退 lightrag_embedding_*（硅基流动）。
+    # 填 OpenAI 官方 key 时用 https://api.openai.com/v1 + text-embedding-3-small
     everos_embedding_api_key: str = ""
+    everos_embedding_base_url: str = ""
+    everos_embedding_model: str = ""
 
     # API automation (接口自动化模块)
     api_script_workspace: str = ""  # default: workspace/default/api-auto

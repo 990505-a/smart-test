@@ -114,8 +114,10 @@ def _everos_env() -> dict[str, str]:
     emb_key = cfg.everos_embedding_api_key or cfg.lightrag_embedding_api_key
     if emb_key:
         env["EVEROS_EMBEDDING__API_KEY"] = emb_key
-        env["EVEROS_EMBEDDING__BASE_URL"] = cfg.lightrag_embedding_base_url
-        env["EVEROS_EMBEDDING__MODEL"] = cfg.lightrag_embedding_model
+        env["EVEROS_EMBEDDING__BASE_URL"] = (
+            cfg.everos_embedding_base_url or cfg.lightrag_embedding_base_url)
+        env["EVEROS_EMBEDDING__MODEL"] = (
+            cfg.everos_embedding_model or cfg.lightrag_embedding_model)
     if IS_WIN:
         shim = str(ROOT / "src" / "app" / "everos_compat")
         env["PYTHONPATH"] = os.pathsep.join(

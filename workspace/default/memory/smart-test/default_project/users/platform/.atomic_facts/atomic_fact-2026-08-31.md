@@ -6,8 +6,8 @@ schema_version: 1
 user_id: platform
 track: user
 date: '2026-08-31'
-entry_count: 11
-last_appended_at: '2026-08-31T17:03:31.027999+08:00'
+entry_count: 16
+last_appended_at: '2026-08-31T17:07:55.764481+08:00'
 ---
 <!-- entry:af_20260831_00000001 -->
 ## af_20260831_00000001
@@ -141,3 +141,63 @@ last_appended_at: '2026-08-31T17:03:31.027999+08:00'
 ### Fact
 该长期记忆约定：若不满足上述条件，则需采用分层分块方式写入。
 <!-- /entry:af_20260831_00000011 -->
+<!-- entry:af_20260831_00000012 -->
+## af_20260831_00000012
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:07:23.805000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000003
+**session_id**: agent-save-20260831-5fb735
+
+### Fact
+平台在2026-08-31 09:07 UTC（周一）写入了一条长期记忆。
+<!-- /entry:af_20260831_00000012 -->
+<!-- entry:af_20260831_00000013 -->
+## af_20260831_00000013
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:07:23.805000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000003
+**session_id**: agent-save-20260831-5fb735
+
+### Fact
+该长期记忆的分类为domain_knowledge。
+<!-- /entry:af_20260831_00000013 -->
+<!-- entry:af_20260831_00000014 -->
+## af_20260831_00000014
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:07:23.805000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000003
+**session_id**: agent-save-20260831-5fb735
+
+### Fact
+该长期记忆的标识为daily_reset。
+<!-- /entry:af_20260831_00000014 -->
+<!-- entry:af_20260831_00000015 -->
+## af_20260831_00000015
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:07:23.805000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000003
+**session_id**: agent-save-20260831-5fb735
+
+### Fact
+该长期记忆的内容为：限时活动的重置校验点应包含活动开始/结束时刻与自然日切换点。
+<!-- /entry:af_20260831_00000015 -->
+<!-- entry:af_20260831_00000016 -->
+## af_20260831_00000016
+
+**owner_id**: platform
+**timestamp**: 2026-08-31T17:07:23.805000+08:00
+**parent_type**: episode
+**parent_id**: ep_20260831_00000003
+**session_id**: agent-save-20260831-5fb735
+
+### Fact
+该长期记忆用于后续检索与校验。
+<!-- /entry:af_20260831_00000016 -->
