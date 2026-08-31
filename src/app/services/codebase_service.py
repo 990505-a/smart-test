@@ -10,7 +10,7 @@ and proxies precomputed graph layout data from the exe's built-in HTTP UI
 Design:
 - stdio MCP core (shim + cached client) unchanged: the exe is spawned on
   demand, one child per calling process.
-- DB access follows evolution_service: background jobs open their own
+- DB access follows everos_service: background jobs open their own
   sessions via async_session_factory; API reads go through the same helpers.
 - Never raises at the API boundary: failures degrade to
   ``{"success": False, "error": ...}``.

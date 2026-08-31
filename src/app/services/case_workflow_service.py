@@ -2,7 +2,7 @@
 
 The Markdown file remains the source of truth for the case tree.  This module
 stores lifecycle, validation, review, and generation metadata in a hidden
-sidecar so the existing Markdown/Feishu/evolution integrations remain
+sidecar so the existing Markdown/Feishu/memory integrations remain
 compatible while workflow state survives process restarts.
 """
 

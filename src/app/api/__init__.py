@@ -12,7 +12,6 @@ from src.app.api.v2 import (
     case_docs,
     codebase,
     configurations,
-    evolution,
     extract_pdf,
     feishu,
     mcp,
@@ -40,7 +39,6 @@ api_router.include_router(memories.router, tags=["Memories"])
 api_router.include_router(auth.router, tags=["Auth (用户模块)"])
 api_router.include_router(settings.router, tags=["Settings (设置模块)"])
 api_router.include_router(feishu.router, tags=["Feishu (飞书模块)"])
-api_router.include_router(evolution.router, tags=["Self Evolution (自进化模块)"])
 api_router.include_router(skills.router, tags=["Skills (Skill 蒸馏模块)"])
 api_router.include_router(api_auto.router, tags=["API Automation (接口自动化模块)"])
 api_router.include_router(ui_auto.router, tags=["UI Automation (UI 自动化模块)"])

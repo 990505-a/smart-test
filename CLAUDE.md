@@ -192,7 +192,7 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 | 用例生成→飞书 | `services/feishu_service.py`（lark-cli：mindnotes 思维导图 + docs 拉取）；testcase agent 新工具 `export_project_mindmap`（按 project_name 读 MD 文档导图） | — |
 | 用例存储 | **2026-08-28 MD 重构**：一个项目 = `workspace/default/cases/{项目名}.md`（唯一事实源），`services/case_docs_service.py` 解析（标题层级=导图节点层级，[P0-P3] 优先级，「前置：」+ `- 操作 ⇒ 预期` 缩进步骤）；智能体工具收敛为 save/read/list_case_document*；API `/api/v2/case-docs`；旧 test_cases/test_steps/case_groups/tags/case_review* 五张表与数据已删除 | `/cases`（MD 查看/编辑器 + 标注工具栏 + 飞书导图按钮） |
 | 用例标注 | 用户直接在 MD 源文件上标注：标题尾部 ✅/❌/⚠️ + `>` 引用批注；漏测用例直接补进文档。无打分表、无 API——下游全是 LLM 读原文 | `/cases` 编辑模式 |
-| 自进化 | `services/evolution_service.py` + `services/scheduler.py`（APScheduler 每日 02:00 Asia/Shanghai）：扫描 cases 目录 → 内容 hash 与 `.evolution_state.json` 比对增量 → 有标注的文档原文喂 LLM 反思（含漏测教训）→ 记 evolution_runs；不改技能文件 | `/evolution` |
+| 记忆（EverOS） | **2026-08-31 重构**：本地 EverOS server（pip 包，MD 单一事实源 + SQLite + LanceDB，离线进化 OME）。`services/everos_service.py` 按需拉起（:9631）/HTTP 客户端/文件操作；agent 工具 save/search_memories 走 REST；注入中间件扫 `workspace/default/memory/**/episodes/*.md` 目录（字节稳定）；`api/v2/memories` 文件浏览/编辑 API。**Windows 两垫片**：`everos_compat/fcntl.py`（msvcrt 锁 shim，PYTHONPATH 注入）+ `tools/patch_everos.py`（everalgo 0.4.0 DetectionResult 失配补丁，启动前自动应用）。自进化模块已删：经验沉淀由 EverOS OME 接管 | `/memories` |
 | 技能库 | `api/v2/skills.py`：上传 SKILL.md / zip 技能包、浏览、删除（技能库由用户手动维护，蒸馏功能已移除） | `/skills` |
 | MCP | `mcp_servers/rag_server.py`（FastMCP stdio，按需拉起）；codebase-memory 由 `mcp_client.py` stdio 直连 exe | `/mcp` |
 | RAG | `services/lightrag_service.py`（LightRAG Server HTTP API；本体由启动器常驻 :9621，LLM=DeepSeek，Embedding=硅基流动 bge-m3） | `/rag` |
@@ -203,7 +203,7 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 
 ## 新路由（/api/v2）
 
-`auth` `settings` `feishu` `evolution` `skills` `api-auto` `ui-auto` `rag` `codebase`（原 `reviews` 路由已随评审沉淀合并进 test-cases 移除）
+`auth` `settings` `feishu` `skills` `api-auto` `ui-auto` `rag` `codebase`（`evolution` 已随自进化移除；`memories` 重写为 EverOS 文件 API）
 新模块路由强制 Bearer 登录；旧路由保持可选认证兼容。
 
 ## 运行前提
@@ -212,14 +212,17 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 - RAG：启动器(:9000)启动 lightrag 本体（:9621）；需 `LIGHTRAG_EMBEDDING_API_KEY`（默认硅基流动 bge-m3，OpenAI 兼容）；LLM 复用 DEEPSEEK_API_KEY；知识库管理在 `/rag` 页，图谱可视化 `:9621/webui`
 - 代码图谱：独立平台模块（不接智能体）。`/codebase` 页三 Tab：仓库管理（多仓库 + 文件类型 include/exclude，规则写入仓库根 `.cbmignore` 代管块，卡片可查看实际内容）/ 图谱可视化（**Sigma.js WebGL** + graphology + 客户端 ForceAtlas2 布局；不用 exe 预计算坐标——那是 3D 布局投影到 2D 无结构，且前 N 节点多为同色 File/Module。节点按 label 配色、度数定大小、默认隐藏结构节点）/ 定时任务（APScheduler IntervalTrigger 每 N 小时，只增量已建库仓库）。索引进度：CLI stderr 逐行回调 → runs API progress 字段 → 前端阶段+最新日志行。exe：管理走 `cli <tool> <json>` 一锤子模式；HTTP 图数据服务 `--ui=true :9749` 由 `ensure_graph_daemon()` 探活+自动拉起。表 `codebase_repos`/`codebase_index_runs`
 - UI 自动化：Unity Editor 打开 m72 项目，Tools > LuaTestTool 启动 Server（:16666），进入 Play Mode
-- 自进化：FastAPI 进程内调度器，每日 02:00 消费新标注；也可 /evolution 页手动触发
-- 启动器(:9000)管理 4 个服务：LangGraph(:2026) / FastAPI(:8001) / WebUI(:3000) / LightRAG(:9621，autostart=False)。MCP（rag/codebase-memory）全部 stdio 按需拉起，不进启动器
+- 记忆（EverOS）：LLM 默认复用 LLM_*/DEEPSEEK_*；embedding key（设置页「记忆 Embedding Key」或 EVEROS_EMBEDDING_API_KEY）留空 = 关键词检索模式，填任意 OpenAI 兼容 key 解锁向量/混合检索与反思、技能蒸馏；写入后索引异步传播（~30s），检索立即可见性以 flush 为准
+- 启动器(:5010)管理 5 个服务：LangGraph(:5011) / FastAPI(:5012) / WebUI(:5013) / LightRAG(:5014，autostart=False) / EverOS(:9631，autostart=False，平台检测不可用时会自动拉起)。MCP（rag/codebase-memory）全部 stdio 按需拉起，不进启动器
 
 ## 数据库
 
-现存表 users/auth_tokens/evolution_runs/api_doc_imports/api_scripts/api_script_runs/
+现存表 users/auth_tokens/api_doc_imports/api_scripts/api_script_runs/
 ui_scripts/ui_script_runs/settings_kv/workspaces/projects/attachments/configurations/
-memories/thread_infos/thread_messages/identifier_seq/codebase_repos/codebase_index_runs，启动自动 create_all。
+thread_infos/thread_messages/identifier_seq/codebase_repos/codebase_index_runs，启动自动 create_all。
+（2026-08-31 记忆 EverOS 化：memories/evolution_runs 表随模型删除，数据为空未迁移；
+记忆存储 = `workspace/default/memory/` 下的 Markdown 文件，Git 跟踪 *.md/*.toml，
+`.index/.tmp/.lock` 二进制索引不进 git）
 （2026-08-28 用例 MD 重构：test_cases/test_steps/case_groups/tags/test_case_tags/
 case_reviews/case_review_batches 及 api/web 自动化等 30 张遗留表连同数据已 DROP，
 备份于 smart_test_platform.backup_*.db；projects 表仅为附件归属锚点保留）

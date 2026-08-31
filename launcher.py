@@ -90,7 +90,49 @@ def _lightrag_env() -> dict[str, str]:
     return env
 
 
+def _everos_env() -> dict[str, str]:
+    """Build the env overlay for the EverOS memory server from platform settings.
+
+    密钥只走环境变量；LLM 复用平台 LLM_*/DEEPSEEK_*，embedding 可选
+    （留空 = keyword-only）。Windows 需注入 fcntl 垫片 PYTHONPATH。
+    """
+    try:
+        from src.app.core.config import settings as cfg
+    except Exception:  # noqa: BLE001 — 控制台保持可独立运行
+        return {}
+    env: dict[str, str] = {
+        "EVEROS_ROOT": str(ROOT / cfg.everos_root),
+        "EVEROS_MEMORY__TIMEZONE": "Asia/Shanghai",
+    }
+    llm_base = cfg.everos_llm_base_url or cfg.llm_base_url
+    if llm_base:
+        env["EVEROS_LLM__BASE_URL"] = llm_base
+        env["EVEROS_LLM__MODEL"] = (
+            cfg.everos_llm_model or cfg.llm_model or cfg.deepseek_model)
+        env["EVEROS_LLM__API_KEY"] = (
+            cfg.everos_llm_api_key or cfg.llm_api_key or cfg.deepseek_api_key)
+    emb_key = cfg.everos_embedding_api_key or cfg.lightrag_embedding_api_key
+    if emb_key:
+        env["EVEROS_EMBEDDING__API_KEY"] = emb_key
+        env["EVEROS_EMBEDDING__BASE_URL"] = cfg.lightrag_embedding_base_url
+        env["EVEROS_EMBEDDING__MODEL"] = cfg.lightrag_embedding_model
+    if IS_WIN:
+        shim = str(ROOT / "src" / "app" / "everos_compat")
+        env["PYTHONPATH"] = os.pathsep.join(
+            p for p in (shim, os.environ.get("PYTHONPATH", "")) if p)
+    return env
+
+
 def _default_services() -> list[ServiceSpec]:
+    everos_port = 9631
+    everos_root = ROOT / "workspace" / "default" / "memory"
+    try:
+        from src.app.core.config import settings as cfg
+        everos_port = cfg.everos_port
+        everos_root = ROOT / cfg.everos_root
+    except Exception:  # noqa: BLE001
+        pass
+    everos_bin = str(Path(PY).parent / ("everos.exe" if IS_WIN else "everos"))
     specs = [
         ServiceSpec(
             name="langgraph", label="LangGraph 智能体服务 (:5011)",
@@ -102,7 +144,7 @@ def _default_services() -> list[ServiceSpec]:
             command=[PY, "-m", "uvicorn", "src.app.fastapi_app:app",
                      "--host", "0.0.0.0", "--port", "5012"],
             cwd=ROOT, port=5012,
-            health_note="平台 API / 自进化调度",
+            health_note="平台 API / 图谱定时调度 / 记忆文件管理",
         ),
         ServiceSpec(
             name="webui", label="Web 前端 Next.js (:5013)",
@@ -117,6 +159,15 @@ def _default_services() -> list[ServiceSpec]:
             port=5014, env=_lightrag_env(), autostart=False,
             health_note="RAG 知识库本体（图谱+向量检索）；自带 WebUI /webui；"
                         "需 LIGHTRAG_EMBEDDING_API_KEY（默认硅基流动 bge-m3）",
+        ),
+        ServiceSpec(
+            name="everos", label=f"EverOS 记忆服务 (:{everos_port})",
+            command=[everos_bin, "server", "start",
+                     "--host", "127.0.0.1", "--port", str(everos_port),
+                     "--root", str(everos_root)],
+            cwd=ROOT, port=everos_port, env=_everos_env(), autostart=False,
+            health_note="Agent 长期记忆（MD 单一事实源 + 离线进化）；"
+                        "平台检测到不可用时也会自动拉起",
         ),
     ]
     return specs

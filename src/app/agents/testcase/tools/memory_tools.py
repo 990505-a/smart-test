@@ -1,27 +1,22 @@
-"""Agent memory tools for persistent memory save and search.
+"""Agent memory tools backed by EverOS (记忆模块).
 
-Per D-05/D-06: Agent tools write directly to database via SQLAlchemy session.
-Uses async_session_factory to bypass FastAPI dependency injection.
+save_memory: 单条显式记忆 → EverOS add + flush 立即蒸馏固化（一次 LLM
+边界检测 + 一次蒸馏调用，保存是低频操作，成本可接受）。
+search_memories: EverOS 检索（有 embedding key 时 hybrid，否则 jieba
+关键词），返回主题+摘要，比旧版 ILIKE 命中率高。
+
+服务不可用/未配置时返回 success=False 让 LLM 自行决定如何提示用户，
+不抛异常打断对话流。
 """
 
+import logging
+
 from langchain_core.tools import tool
-from sqlalchemy import or_, select
 
-from src.app.db.database import async_session_factory
-from src.app.db.models.memory import Memory
+from src.app.services import everos_service
+from src.app.services.everos_service import EverosError
 
-
-async def _invalidate_memory_cache() -> None:
-    """Invalidate the middleware's memory-catalog cache after a write.
-
-    Imported lazily so this module works in both the agent-server and
-    FastAPI processes regardless of which alias is importable there.
-    """
-    try:
-        from src.app.middleware.memory_injection import invalidate_memory_cache
-    except ImportError:
-        from app.middleware.memory_injection import invalidate_memory_cache
-    invalidate_memory_cache()
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -38,107 +33,51 @@ async def save_memory(
         category: Optional category for grouping (e.g. "preference", "domain_knowledge", "project_context", "convention").
 
     Returns:
-        Dict with success status and memory_id.
+        Dict with success status.
     """
-    async with async_session_factory() as session:
-        try:
-            # Check if a memory with same key already exists for default space
-            result = await session.execute(
-                select(Memory).where(
-                    Memory.space_id == "default",
-                    Memory.key == key,
-                )
-            )
-            existing = result.scalar_one_or_none()
-
-            if existing:
-                # Update existing memory (upsert)
-                existing.content = content
-                if category is not None:
-                    existing.category = category
-                from sqlalchemy import func
-                existing.updated_at = func.now()
-                await session.commit()
-                await _invalidate_memory_cache()
-                return {
-                    "success": True,
-                    "memory_id": str(existing.id),
-                    "key": key,
-                    "is_update": True,
-                }
-            else:
-                # Create new memory
-                memory = Memory(
-                    space_id="default",
-                    key=key,
-                    content=content,
-                    category=category,
-                )
-                session.add(memory)
-                await session.commit()
-                await _invalidate_memory_cache()
-                return {
-                    "success": True,
-                    "memory_id": str(memory.id),
-                    "key": key,
-                    "is_update": False,
-                }
-        except Exception as e:
-            await session.rollback()
-            return {"success": False, "error": str(e)}
+    try:
+        result = await everos_service.save_fact(key, content, category)
+        return {
+            "success": True,
+            "key": key,
+            "category": category,
+            "flush_status": (result.get("flush") or {}).get("status"),
+        }
+    except EverosError as e:
+        logger.warning("[save_memory] EverOS 不可用: %s", e)
+        return {"success": False, "error": str(e)}
+    except Exception as e:  # noqa: BLE001
+        logger.exception("[save_memory] 保存失败")
+        return {"success": False, "error": str(e)}
 
 
 @tool
 async def search_memories(
     query: str,
-    limit: int = 10,
+    limit: int = 8,
 ) -> dict:
-    """Search saved memories by keyword. Use this when you need to recall previously saved information.
+    """Search saved memories. Use this when you need to recall previously saved information (domain rules, user preferences, past lessons about a game module).
 
     Args:
-        query: Search term to find in memory keys or content.
-        limit: Maximum number of results to return (default 10).
+        query: Search keywords, Chinese preferred (e.g. "联赛 结算 边界").
+        limit: Maximum number of results to return (default 8).
 
     Returns:
-        Dict with success and memories list.
+        Dict with success and memories list (subject + summary each).
     """
-    async with async_session_factory() as session:
-        try:
-            result = await session.execute(
-                select(Memory)
-                .where(
-                    Memory.space_id == "default",
-                    or_(
-                        Memory.key.ilike(f"%{query}%"),
-                        Memory.content.ilike(f"%{query}%"),
-                    ),
-                )
-                .order_by(Memory.updated_at.desc())
-                .limit(limit)
-            )
-            memories = result.scalars().all()
-
-            if not memories:
-                return {
-                    "success": True,
-                    "memories": [],
-                    "count": 0,
-                    "message": f"No memories found matching '{query}'",
-                }
-
+    try:
+        hits = await everos_service.search_memory(query, top_k=limit)
+        if not hits:
             return {
                 "success": True,
-                "memories": [
-                    {
-                        "id": str(m.id),
-                        "key": m.key,
-                        "content": m.content,
-                        "category": m.category,
-                        "updated_at": str(m.updated_at) if m.updated_at else str(m.created_at),
-                    }
-                    for m in memories
-                ],
-                "count": len(memories),
+                "memories": [],
+                "count": 0,
+                "message": f"No memories found matching '{query}'",
             }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        return {"success": True, "memories": hits, "count": len(hits)}
+    except EverosError as e:
+        logger.warning("[search_memories] EverOS 不可用: %s", e)
+        return {"success": False, "error": str(e)}
+    except Exception as e:  # noqa: BLE001
+        logger.exception("[search_memories] 检索失败")
+        return {"success": False, "error": str(e)}

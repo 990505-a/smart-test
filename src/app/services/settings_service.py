@@ -48,14 +48,14 @@ PLATFORM_KEYS: dict[str, str] = {
     "game_client_repo": "GAME_CLIENT_REPO",
     "unity_host": "UNITY_HOST",
     "unity_port": "UNITY_PORT",
-    "evolution_enabled": "EVOLUTION_ENABLED",
-    "evolution_cron_hour": "EVOLUTION_CRON_HOUR",
-    "evolution_cron_minute": "EVOLUTION_CRON_MINUTE",
+    "everos_enabled": "EVEROS_ENABLED",
+    "everos_port": "EVEROS_PORT",
+    "everos_embedding_api_key": "EVEROS_EMBEDDING_API_KEY",
     "api_auto_max_repair": "API_AUTO_MAX_REPAIR",
 }
 
 SECRET_KEYS = {"llm_api_key", "vision_api_key", "deepseek_api_key",
-               "lightrag_embedding_api_key"}
+               "lightrag_embedding_api_key", "everos_embedding_api_key"}
 
 _ENV_PATH = Path(__file__).parent.parent.parent.parent / ".env"
 

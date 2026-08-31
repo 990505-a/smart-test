@@ -194,18 +194,10 @@ class TestFeishuConversion:
         assert sum(len(l) for l in levels2) == total  # 去根后节点数一致 and "❌" not in opml
 
 
-class TestEvolutionPending:
-    """evolution_service 的 hash 去重状态文件逻辑（不触发 LLM）。"""
+class TestAnnotationFlag:
+    """用例文档的人工标注检测（标题尾 ✅/❌/⚠️；供前端与记忆链路消费）。"""
 
-    def test_state_roundtrip(self, tmp_path, monkeypatch):
-        from src.app.services import evolution_service
-
-        monkeypatch.setattr(svc, "get_workspace_dir", lambda *a, **k: tmp_path)
-        assert evolution_service._load_state() == {}
-        evolution_service._save_state({"a": "h1"})
-        assert evolution_service._load_state() == {"a": "h1"}
-
-    def test_annotated_flag_drives_pending(self, tmp_path, monkeypatch):
+    def test_annotated_flag(self, tmp_path, monkeypatch):
         monkeypatch.setattr(svc, "get_workspace_dir", lambda *a, **k: tmp_path)
         svc.save_doc("未标注", "# t\n\n## g\n\n#### c\n- a ⇒ b\n")
         svc.save_doc("已标注", "# t2\n\n#### c ✅\n- a ⇒ b\n")

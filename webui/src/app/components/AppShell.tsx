@@ -8,7 +8,6 @@ import {
   ListChecks,
   MessageSquare,
   Brain,
-  Sparkles,
   Wand2,
   Gamepad2,
   Settings,
@@ -49,8 +48,7 @@ const NAV_GROUPS = [
   {
     title: "智能与知识",
     items: [
-      // 评审沉淀已合并进「测试用例」页的打分功能（2026-08 verdict merge）
-      { href: "/evolution", label: "自进化", icon: Sparkles },
+      // 自进化已移除（2026-08 记忆系统 EverOS 化）：经验沉淀由 EverOS OME 离线进化接管
       { href: "/skills", label: "技能库", icon: Wand2 },
       { href: "/rag", label: "知识库", icon: BookOpen },
       { href: "/codebase", label: "代码图谱", icon: Network },

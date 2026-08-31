@@ -20,9 +20,6 @@ from src.app.db.models.attachment import Attachment  # noqa: F401
 # Configuration (independent)
 from src.app.db.models.configuration import Configuration  # noqa: F401
 
-# Memory (independent, scoped by space_id)
-from src.app.db.models.memory import Memory  # noqa: F401
-
 # Thread Messages (for local message storage, independent of LangGraph state)
 from src.app.db.models.thread_message import ThreadMessage  # noqa: F401
 
@@ -33,9 +30,6 @@ from src.app.db.models.thread_info import ThreadInfo  # noqa: F401
 
 # User module (用户模块)
 from src.app.db.models.user import User, AuthToken  # noqa: F401
-
-# Self-evolution module (自进化模块)
-from src.app.db.models.evolution import EvolutionRun  # noqa: F401
 
 # Codebase-graph module (代码图谱模块)
 from src.app.db.models.codebase import CodebaseIndexRun, CodebaseRepo  # noqa: F401

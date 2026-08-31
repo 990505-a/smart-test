@@ -81,9 +81,9 @@ const PLATFORM_FIELDS: { key: string; label: string; secret?: boolean; placehold
   { key: "game_client_repo", label: "游戏客户端路径", placeholder: "E:/m72-publish/m72/client" },
   { key: "unity_host", label: "Unity 主机", placeholder: "127.0.0.1" },
   { key: "unity_port", label: "Unity LuaRemoteServer 端口", placeholder: "16666" },
-  { key: "evolution_enabled", label: "每日自进化开关 (true/false)" },
-  { key: "evolution_cron_hour", label: "自进化小时 (0-23)" },
-  { key: "evolution_cron_minute", label: "自进化分钟 (0-59)" },
+  { key: "everos_enabled", label: "记忆模块开关 (true/false)" },
+  { key: "everos_port", label: "EverOS 记忆服务端口", placeholder: "9631" },
+  { key: "everos_embedding_api_key", label: "记忆 Embedding Key（解锁向量检索/反思/技能蒸馏）", secret: true, placeholder: "留空=关键词模式；任意 OpenAI 兼容 key" },
   { key: "api_auto_max_repair", label: "接口脚本自修复次数上限" },
 ];
 

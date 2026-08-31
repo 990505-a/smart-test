@@ -1,77 +1,103 @@
-"""Memory CRUD API endpoints.
+"""Memory routes (EverOS 文件化记忆).
 
-Provides REST endpoints for managing agent persistent memories:
-list, get, create, update, and delete.
+记忆系统的存储是 EverOS 管理的 Markdown 文件（单一事实源），不再是
+memories 表。本路由提供：
+- status：EverOS 服务健康 + 能力（embedding 是否解锁）
+- files / file：浏览、读、写（人工编辑由 EverOS watcher 自动回灌索引）、删
+- search：检索代理（hybrid/keyword 自动选择）
+- save：手动写入一条显式记忆（等价于 Agent 的 save_memory 工具）
 """
 
-from uuid import UUID
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-from fastapi import APIRouter, Query
-
-from src.app.api.deps import MemoryServiceDep
-from src.app.db.schemas.memory import MemoryCreate, MemoryInfo, MemoryUpdate
-from src.app.db.schemas.pagination import PaginatedResponse
+from src.app.api.v2.auth import CurrentUserDep
+from src.app.db.schemas.common import SuccessResponse
+from src.app.middleware.memory_injection import invalidate_memory_cache
+from src.app.services import everos_service
+from src.app.services.everos_service import EverosError
 
 router = APIRouter(prefix="/memories")
 
 
-@router.get("", response_model=PaginatedResponse[MemoryInfo])
-async def list_memories(
-    service: MemoryServiceDep,
-    p: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(30, ge=1, le=300, description="Items per page"),
-    space_id: str = Query("default", description="Workspace scope"),
-    category: str | None = Query(None, description="Filter by category"),
-    search: str | None = Query(None, description="Search in key and content"),
-) -> PaginatedResponse[MemoryInfo]:
-    """List memories with pagination, category filter, and text search."""
-    items, pagination = await service.list_memories(
-        space_id=space_id,
-        page=p,
-        page_size=page_size,
-        category=category,
-        search=search,
-    )
-    return PaginatedResponse(info=pagination, data=items)
+class FileWriteBody(BaseModel):
+    path: str
+    content: str
 
 
-@router.get("/{memory_id}", response_model=dict)
-async def get_memory(
-    memory_id: UUID,
-    service: MemoryServiceDep,
-) -> dict:
-    """Get a single memory by ID."""
-    memory = await service.get_memory(memory_id)
-    return {"success": True, "data": memory}
+class SearchBody(BaseModel):
+    query: str
+    top_k: int = 8
 
 
-@router.post("", response_model=dict)
-async def create_memory(
-    data: MemoryCreate,
-    service: MemoryServiceDep,
-    space_id: str = Query("default", description="Workspace scope"),
-) -> dict:
-    """Create a new memory."""
-    memory = await service.create_memory(data, space_id=space_id)
-    return {"success": True, "data": memory}
+class SaveBody(BaseModel):
+    key: str
+    content: str
+    category: str | None = None
 
 
-@router.patch("/{memory_id}", response_model=dict)
-async def update_memory(
-    memory_id: UUID,
-    data: MemoryUpdate,
-    service: MemoryServiceDep,
-) -> dict:
-    """Update an existing memory."""
-    memory = await service.update_memory(memory_id, data)
-    return {"success": True, "data": memory}
+def _everos_error(exc: EverosError) -> HTTPException:
+    return HTTPException(status_code=503, detail=str(exc))
 
 
-@router.delete("/{memory_id}", response_model=dict)
-async def delete_memory(
-    memory_id: UUID,
-    service: MemoryServiceDep,
-) -> dict:
-    """Delete a memory."""
-    message = await service.delete_memory(memory_id)
-    return {"success": True, "message": message}
+@router.get("/status", response_model=SuccessResponse, summary="EverOS 服务状态与能力")
+async def status(user: CurrentUserDep):
+    data = await everos_service.everos_health()
+    data["files"] = len(everos_service.list_memory_files())
+    return SuccessResponse(success=True, data=data)
+
+
+@router.get("/files", response_model=SuccessResponse, summary="记忆文件列表")
+async def list_files(user: CurrentUserDep):
+    return SuccessResponse(success=True, data=everos_service.list_memory_files())
+
+
+@router.get("/file", response_model=SuccessResponse, summary="读取记忆文件内容")
+async def read_file(user: CurrentUserDep, path: str):
+    try:
+        content = everos_service.read_memory_file(path)
+    except EverosError as exc:
+        raise _everos_error(exc) from exc
+    return SuccessResponse(success=True, data={"path": path, "content": content})
+
+
+@router.put("/file", response_model=SuccessResponse, summary="写入记忆文件（watcher 自动回灌索引）")
+async def write_file(user: CurrentUserDep, body: FileWriteBody):
+    try:
+        everos_service.write_memory_file(body.path, body.content)
+    except EverosError as exc:
+        raise _everos_error(exc) from exc
+    invalidate_memory_cache()
+    return SuccessResponse(success=True, data={"path": body.path, "saved": True})
+
+
+@router.delete("/file", response_model=SuccessResponse, summary="删除记忆文件")
+async def delete_file(user: CurrentUserDep, path: str):
+    try:
+        everos_service.delete_memory_file(path)
+    except EverosError as exc:
+        raise _everos_error(exc) from exc
+    invalidate_memory_cache()
+    return SuccessResponse(success=True, data={"path": path, "deleted": True})
+
+
+@router.post("/search", response_model=SuccessResponse, summary="检索记忆")
+async def search(user: CurrentUserDep, body: SearchBody):
+    try:
+        hits = await everos_service.search_memory(body.query, top_k=body.top_k)
+    except EverosError as exc:
+        raise _everos_error(exc) from exc
+    return SuccessResponse(success=True, data=hits)
+
+
+@router.post("/save", response_model=SuccessResponse, summary="手动写入一条长期记忆")
+async def save(user: CurrentUserDep, body: SaveBody):
+    try:
+        result = await everos_service.save_fact(body.key, body.content, body.category)
+    except EverosError as exc:
+        raise _everos_error(exc) from exc
+    invalidate_memory_cache()
+    return SuccessResponse(success=True, data={
+        "key": body.key,
+        "flush_status": (result.get("flush") or {}).get("status"),
+    })

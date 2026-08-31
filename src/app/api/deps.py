@@ -65,13 +65,3 @@ async def get_configuration_service(db: DbSessionDep) -> "ConfigurationService":
 
 
 ConfigurationServiceDep = Annotated["ConfigurationService", Depends(get_configuration_service)]
-
-
-# Memory service
-async def get_memory_service(db: DbSessionDep) -> "MemoryService":
-    from src.app.db.services.memory_service import MemoryService
-
-    return MemoryService(db)
-
-
-MemoryServiceDep = Annotated["MemoryService", Depends(get_memory_service)]

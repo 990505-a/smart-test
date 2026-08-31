@@ -12,27 +12,8 @@ const fetcher = <T,>(path: string) => apiClient.get<T>(path).then((r) => r.data)
 // ---------------------------------------------------------------------------
 // （用例打分/评审沉淀已随 2026-08 MD 重构移除：用户直接在用例 MD 文档上
 //  标注 ✅/❌/⚠️ + 批注，见 useCaseDocs.ts 与 /cases 页）
-
-export interface EvolutionRun {
-  id: string;
-  trigger: string;
-  status: string;
-  annotations_total: number;
-  good_count: number;
-  bad_count: number;
-  modules_touched: string | null;
-  lessons: string | null;
-  skill_patches: string | null;
-  regression_summary: string | null;
-  error: string | null;
-  created_at: string | null;
-  finished_at: string | null;
-}
-
-export interface ScheduleInfo {
-  running: boolean;
-  jobs: { id: string; name: string; next_run: string | null; trigger: string }[];
-}
+// （自进化模块已移除 2026-08-31：记忆系统改为 EverOS，经验沉淀由其
+//  OME 离线进化策略接管，见 useMemories.ts）
 
 export interface SkillTreeNode {
   name: string;
@@ -129,14 +110,6 @@ export interface FeishuDeviceLogin {
 // ---------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------
-
-export function useEvolutionRuns() {
-  return useSWR("/evolution/runs", () => fetcher<EvolutionRun[]>("/evolution/runs"));
-}
-
-export function useEvolutionSchedule() {
-  return useSWR("/evolution/schedule", () => fetcher<ScheduleInfo>("/evolution/schedule"));
-}
 
 export function useSkillTree() {
   return useSWR("/skills/tree", () => fetcher<SkillTreeNode[]>("/skills/tree"));

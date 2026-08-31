@@ -1,25 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { PageHeader, EmptyState, Pagination } from "@/app/components/ui-patterns";
+import { useState } from "react";
+import { toast } from "sonner";
+import { PageHeader, EmptyState } from "@/app/components/ui-patterns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardHeader,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,456 +20,323 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Search, Save, Trash2, Loader2, FileText, Plus } from "lucide-react";
 import {
-  Plus,
-  Search,
-  Pencil,
-  Trash2,
-  Loader2,
-} from "lucide-react";
-import {
-  useMemories,
-  useCreateMemory,
-  useUpdateMemory,
-  useDeleteMemory,
+  useMemoryStatus,
+  useMemoryFiles,
+  useReadMemoryFile,
+  useWriteMemoryFile,
+  useDeleteMemoryFile,
+  searchMemories,
+  saveMemory,
+  type MemoryHit,
 } from "@/lib/api/useMemories";
-import type { MemoryInfo, MemoryCreate, MemoryUpdate } from "@/lib/api/useMemories";
 
-const CATEGORY_OPTIONS = [
-  { value: "preference", label: "偏好" },
-  { value: "domain_knowledge", label: "领域知识" },
-  { value: "project_context", label: "项目上下文" },
-  { value: "convention", label: "约定" },
-] as const;
-
-function getCategoryLabel(category: string | null): string {
-  if (!category) return "未分类";
-  const found = CATEGORY_OPTIONS.find((o) => o.value === category);
-  return found ? found.label : category;
+function formatSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  return `${(size / 1024).toFixed(1)} KB`;
 }
 
-function getCategoryBadgeVariant(
-  category: string | null
-): "default" | "secondary" | "outline" {
-  switch (category) {
-    case "preference":
-      return "default";
-    case "domain_knowledge":
-      return "secondary";
-    case "project_context":
-      return "outline";
-    default:
-      return "outline";
-  }
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "-";
-  try {
-    return new Date(dateStr).toLocaleString("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-// === Memory Form Dialog (shared between create and edit) ===
-function MemoryFormDialog({
-  open,
-  onOpenChange,
-  title,
-  initialValues,
-  onSubmit,
-  isSubmitting,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  initialValues: { key: string; content: string; category: string };
-  onSubmit: (data: MemoryCreate) => Promise<void>;
-  isSubmitting: boolean;
-}) {
-  const [formKey, setFormKey] = useState(initialValues.key);
-  const [formContent, setFormContent] = useState(initialValues.content);
-  const [formCategory, setFormCategory] = useState(initialValues.category);
-
-  // Reset form when dialog opens with new initial values
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      if (nextOpen) {
-        setFormKey(initialValues.key);
-        setFormContent(initialValues.content);
-        setFormCategory(initialValues.category);
-      }
-      onOpenChange(nextOpen);
-    },
-    [initialValues, onOpenChange]
-  );
-
-  const handleSubmit = useCallback(async () => {
-    if (!formKey.trim() || !formContent.trim()) return;
-    await onSubmit({
-      key: formKey.trim(),
-      content: formContent.trim(),
-      category: formCategory || undefined,
-    });
-    onOpenChange(false);
-  }, [formKey, formContent, formCategory, onSubmit, onOpenChange]);
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label htmlFor="memory-key">键 (Key)</Label>
-            <Input
-              id="memory-key"
-              value={formKey}
-              onChange={(e) => setFormKey(e.target.value)}
-              placeholder="记忆的唯一标识键"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="memory-content">内容 (Content)</Label>
-            <Textarea
-              id="memory-content"
-              value={formContent}
-              onChange={(e) => setFormContent(e.target.value)}
-              placeholder="记忆内容"
-              rows={4}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="memory-category">分类 (Category)</Label>
-            <Select
-              value={formCategory || "none"}
-              onValueChange={(val) =>
-                setFormCategory(val === "none" ? "" : (val ?? ""))
-              }
-            >
-              <SelectTrigger id="memory-category">
-                <SelectValue placeholder="选择分类" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">无分类</SelectItem>
-                {CATEGORY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-          >
-            取消
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={!formKey.trim() || !formContent.trim() || isSubmitting}
-          >
-            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            确定
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// === Main Page ===
 export default function MemoriesPage() {
-  // Filters
-  const [search, setSearch] = useState("");
-  const [searchInput, setSearchInput] = useState("");
-  const [category, setCategory] = useState<string | null>(null);
+  const status = useMemoryStatus();
+  const files = useMemoryFiles();
+  const [selected, setSelected] = useState<string | null>(null);
+  const file = useReadMemoryFile(selected);
+  const { trigger: writeTrigger, isMutating: writingFile } = useWriteMemoryFile();
+  const { trigger: deleteTrigger } = useDeleteMemoryFile();
+  const [draft, setDraft] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // Pagination
-  const [page, setPage] = useState(1);
-  const pageSize = 30;
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [hits, setHits] = useState<MemoryHit[] | null>(null);
 
-  // Data
-  const { data: memoriesData, isLoading, error } = useMemories(
-    page,
-    pageSize,
-    category ?? undefined,
-    search || undefined
-  );
-  const memories = memoriesData?.data ?? [];
-  const info = memoriesData?.info;
+  const [newKey, setNewKey] = useState("");
+  const [newContent, setNewContent] = useState("");
+  const [newCategory, setNewCategory] = useState<string>("");
+  const [saving, setSaving] = useState(false);
 
-  // Mutations
-  const { trigger: createMemory, isMutating: isCreating } = useCreateMemory();
-  const { trigger: updateMemory, isMutating: isUpdating } = useUpdateMemory();
-  const { trigger: deleteMemory, isMutating: isDeleting } = useDeleteMemory();
+  const embedEnabled = status.data?.capabilities?.embed === true;
 
-  // Dialog states
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedMemory, setSelectedMemory] = useState<MemoryInfo | null>(null);
+  const onSearch = async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    try {
+      setHits(await searchMemories(query.trim()));
+    } catch (e) {
+      toast.error(`检索失败：${e instanceof Error ? e.message : e}`);
+    } finally {
+      setSearching(false);
+    }
+  };
 
-  // Handlers
-  const handleCreate = useCallback(
-    async (data: MemoryCreate) => {
-      await createMemory(data);
-      setCreateDialogOpen(false);
-    },
-    [createMemory]
-  );
+  const onSaveFile = async () => {
+    if (!selected || draft === null) return;
+    try {
+      await writeTrigger({ path: selected, content: draft });
+      setDraft(null);
+      toast.success("已保存，索引将由 EverOS 自动更新");
+    } catch (e) {
+      toast.error(`保存失败：${e instanceof Error ? e.message : e}`);
+    }
+  };
 
-  const handleUpdate = useCallback(
-    async (data: MemoryCreate) => {
-      if (!selectedMemory) return;
-      const updateData: MemoryUpdate = {};
-      if (data.key !== selectedMemory.key) updateData.key = data.key;
-      if (data.content !== selectedMemory.content) updateData.content = data.content;
-      if ((data.category ?? "") !== (selectedMemory.category ?? "")) updateData.category = data.category;
-      await updateMemory({ id: selectedMemory.id, data: updateData });
-      setEditDialogOpen(false);
-      setSelectedMemory(null);
-    },
-    [selectedMemory, updateMemory]
-  );
-
-  const handleDelete = useCallback(async () => {
-    if (!selectedMemory) return;
-    await deleteMemory(selectedMemory.id);
-    setDeleteDialogOpen(false);
-    setSelectedMemory(null);
-  }, [selectedMemory, deleteMemory]);
-
-  const handleSearch = useCallback(() => {
-    setSearch(searchInput);
-    setPage(1);
-  }, [searchInput]);
-
-  const handleSearchKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        handleSearch();
+  const onDeleteFile = async () => {
+    if (!confirmDelete) return;
+    try {
+      await deleteTrigger(confirmDelete);
+      if (selected === confirmDelete) {
+        setSelected(null);
+        setDraft(null);
       }
-    },
-    [handleSearch]
-  );
+      setConfirmDelete(null);
+      toast.success("已删除");
+    } catch (e) {
+      toast.error(`删除失败：${e instanceof Error ? e.message : e}`);
+      setConfirmDelete(null);
+    }
+  };
 
-  const handleCategoryChange = useCallback((val: string | null) => {
-    setCategory(val === "all" ? null : val);
-    setPage(1);
-  }, []);
+  const onSaveMemory = async () => {
+    if (!newKey.trim() || !newContent.trim()) {
+      toast.error("标识和内容都不能为空");
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await saveMemory(
+        newKey.trim(),
+        newContent.trim(),
+        newCategory || undefined
+      );
+      setNewKey("");
+      setNewContent("");
+      toast.success(
+        result?.flush_status === "extracted"
+          ? "已写入并蒸馏为长期记忆"
+          : "已写入记忆"
+      );
+    } catch (e) {
+      toast.error(`写入失败：${e instanceof Error ? e.message : e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const openEditDialog = useCallback((memory: MemoryInfo) => {
-    setSelectedMemory(memory);
-    setEditDialogOpen(true);
-  }, []);
-
-  const openDeleteDialog = useCallback((memory: MemoryInfo) => {
-    setSelectedMemory(memory);
-    setDeleteDialogOpen(true);
-  }, []);
+  const editorValue = draft ?? file.data?.content ?? "";
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-6 py-8 lg:px-8">
-        <div className="space-y-4">
-          {/* Header */}
-          <PageHeader
-            title="智能体记忆"
-            actions={
-              <>
-                <div className="flex items-center gap-1">
-                  <Input
-                    placeholder="搜索记忆..."
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    onKeyDown={handleSearchKeyDown}
-                    className="w-[200px]"
-                  />
-                  <Button variant="outline" size="icon" onClick={handleSearch}>
-                    <Search className="h-4 w-4" />
-                  </Button>
+    <div className="flex h-full flex-col overflow-hidden">
+      <PageHeader
+        title="Agent 记忆"
+        description={`EverOS 本地记忆服务${status.data?.version ? ` v${status.data.version}` : ""} — Markdown 单一事实源，人工可直接编辑`}
+      />
+
+      {status.data && !status.data.up && (
+        <div className="mx-6 mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+          EverOS 服务不可用：{status.data.error ?? "未知原因"}（保存/检索会在使用时自动尝试拉起）
+        </div>
+      )}
+      {status.data?.up && !embedEnabled && (
+        <div className="mx-6 mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-600 dark:text-amber-400">
+          关键词检索模式：在「设置」页填写记忆 Embedding Key 后可解锁向量/混合检索、反思与技能蒸馏（离线进化）。
+        </div>
+      )}
+
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden px-6 pb-6 lg:grid-cols-[380px_1fr]">
+        {/* 左列：检索 + 文件列表 + 手动写入 */}
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Search className="h-4 w-4" /> 记忆检索
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && onSearch()}
+                  placeholder="关键词，如：联赛 结算 边界"
+                />
+                <Button size="sm" onClick={onSearch} disabled={searching}>
+                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : "检索"}
+                </Button>
+              </div>
+              {hits && (
+                <div className="space-y-2">
+                  {hits.length === 0 && (
+                    <p className="text-[13px] text-muted-foreground">没有命中的记忆</p>
+                  )}
+                  {hits.map((h) => (
+                    <div key={h.id ?? h.subject} className="rounded-lg border px-3 py-2">
+                      <p className="text-[13px] font-medium">{h.subject}</p>
+                      {h.summary && (
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {h.summary}
+                        </p>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                {/* Category filter */}
-                <Select
-                  value={category ?? "all"}
-                  onValueChange={handleCategoryChange}
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <FileText className="h-4 w-4" /> 记忆文件（{files.data?.length ?? "…"}）
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {files.isLoading && <Skeleton className="h-40 w-full" />}
+              {files.data?.length === 0 && (
+                <p className="text-[13px] text-muted-foreground">
+                  暂无记忆文件：与 Agent 对话中让它「记住…」，或用下方表单手动写入
+                </p>
+              )}
+              {files.data?.map((f) => (
+                <button
+                  key={f.path}
+                  onClick={() => {
+                    setSelected(f.path);
+                    setDraft(null);
+                    setHits(null);
+                  }}
+                  className={`w-full rounded-lg border px-3 py-2 text-left transition-colors hover:bg-accent ${
+                    selected === f.path ? "border-primary bg-accent" : ""
+                  }`}
                 >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="全部分类" />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[13px] font-medium">
+                      {f.path.split("/").pop()}
+                    </span>
+                    <Badge variant={f.track === "agent" ? "secondary" : "outline"}>
+                      {f.track === "agent" ? "技能" : "经历"}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {f.path} · {formatSize(f.size)} · {f.modified_at}
+                  </p>
+                </button>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Plus className="h-4 w-4" /> 手动写入长期记忆
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  value={newKey}
+                  onChange={(e) => setNewKey(e.target.value)}
+                  placeholder="标识，如 settlement_rule"
+                />
+                <Select value={newCategory} onValueChange={(v) => setNewCategory(v ?? "")}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="分类" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">全部分类</SelectItem>
-                    {CATEGORY_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="preference">偏好</SelectItem>
+                    <SelectItem value="domain_knowledge">领域知识</SelectItem>
+                    <SelectItem value="project_context">项目上下文</SelectItem>
+                    <SelectItem value="convention">约定</SelectItem>
                   </SelectContent>
                 </Select>
-                {/* Create button */}
-                <Button onClick={() => setCreateDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  新建记忆
+              </div>
+              <Textarea
+                value={newContent}
+                onChange={(e) => setNewContent(e.target.value)}
+                placeholder="要长期记住的内容（将经 LLM 蒸馏固化为 episode）"
+                rows={3}
+              />
+              <Button size="sm" onClick={onSaveMemory} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "写入"}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* 右列：文件查看/编辑器 */}
+        <Card className="flex min-h-0 flex-col">
+          <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="truncate text-sm">
+              {selected ?? "选择左侧文件查看 / 编辑"}
+            </CardTitle>
+            {selected && (
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onSaveFile}
+                  disabled={draft === null || writingFile}
+                >
+                  {writingFile ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  保存
                 </Button>
-              </>
-            }
-          />
-
-        {/* Content */}
-        {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-28 w-full" />
-            ))}
-          </div>
-        ) : error ? (
-          <div className="py-8 text-center">
-            <p className="text-destructive">加载失败</p>
-            <Button
-              variant="outline"
-              className="mt-2"
-              onClick={() => window.location.reload()}
-            >
-              重试
-            </Button>
-          </div>
-        ) : memories.length === 0 ? (
-          <EmptyState
-            title="暂无记忆"
-            description="点击「新建记忆」按钮创建，供智能体在对话中检索"
-          />
-        ) : (
-          <>
-            <div className="space-y-3">
-              {memories.map((memory) => (
-                <Card key={memory.id}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={getCategoryBadgeVariant(memory.category)}>
-                          {getCategoryLabel(memory.category)}
-                        </Badge>
-                        <span className="font-medium">{memory.key}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEditDialog(memory)}
-                          title="编辑"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openDeleteDialog(memory)}
-                          title="删除"
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">
-                      {memory.content}
-                    </p>
-                  </CardContent>
-                  <CardFooter className="text-xs text-muted-foreground">
-                    <span>创建: {formatDate(memory.created_at)}</span>
-                    {memory.updated_at && (
-                      <span className="ml-4">
-                        更新: {formatDate(memory.updated_at)}
-                      </span>
-                    )}
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
-
-            {/* Pagination */}
-            {info && (
-              <Pagination
-                page={info.page}
-                pageSize={info.page_size}
-                total={info.total}
-                onPageChange={(next) => setPage(next)}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setConfirmDelete(selected)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+          </CardHeader>
+          <CardContent className="min-h-0 flex-1">
+            {!selected ? (
+              <EmptyState
+                title="未选择文件"
+                description="记忆以 Markdown 文件存储（episodes=经历、user.md=画像、agents/=技能）。编辑保存后 EverOS 会自动重建索引。"
+              />
+            ) : file.isLoading ? (
+              <Skeleton className="h-full w-full" />
+            ) : file.error ? (
+              <p className="text-[13px] text-destructive">
+                读取失败：{file.error instanceof Error ? file.error.message : "未知错误"}
+              </p>
+            ) : (
+              <Textarea
+                value={editorValue}
+                onChange={(e) => setDraft(e.target.value)}
+                className="h-full min-h-[420px] resize-none font-mono text-xs"
               />
             )}
-          </>
-        )}
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Create dialog */}
-      <MemoryFormDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-        title="新建记忆"
-        initialValues={{ key: "", content: "", category: "" }}
-        onSubmit={handleCreate}
-        isSubmitting={isCreating}
-      />
-
-      {/* Edit dialog */}
-      <MemoryFormDialog
-        open={editDialogOpen}
-        onOpenChange={(open) => {
-          setEditDialogOpen(open);
-          if (!open) setSelectedMemory(null);
-        }}
-        title="编辑记忆"
-        initialValues={{
-          key: selectedMemory?.key ?? "",
-          content: selectedMemory?.content ?? "",
-          category: selectedMemory?.category ?? "",
-        }}
-        onSubmit={handleUpdate}
-        isSubmitting={isUpdating}
-      />
-
-      {/* Delete confirmation */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog open={!!confirmDelete} onOpenChange={(v) => !v && setConfirmDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogTitle>删除记忆文件？</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除记忆 &quot;{selectedMemory?.key}&quot;
-              吗？此操作不可撤销。
+              {confirmDelete}
+              <br />
+              删除后不可恢复（如需保留请先复制内容），索引会自动同步。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={isDeleting}
-            >
-              {isDeleting && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              删除
-            </AlertDialogAction>
+            <AlertDialogAction onClick={onDeleteFile}>删除</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

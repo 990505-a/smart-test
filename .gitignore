@@ -29,6 +29,11 @@ workspace/default/dsh/
 # RAG storage
 rag_storage/
 
+# EverOS memory: track the .md/.toml source of truth, not the binary indexes
+workspace/default/memory/.index/
+workspace/default/memory/.tmp/
+workspace/default/memory/.lock
+
 # Runtime logs
 *.log
 logs/

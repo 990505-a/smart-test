@@ -356,51 +356,42 @@ async def analyze_image(image_path: str, prompt: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 自进化（复用 services/evolution_service；每日定时由平台 FastAPI 进程内调度，
-# MCP 侧提供手动触发与历史/调度查询）
+# 记忆（EverOS；平台原生工具同名能力的 MCP 面）
 # ---------------------------------------------------------------------------
 
 @mcp.tool
-async def evolution_trigger() -> dict:
-    """同步触发一次自进化（等待结果）：扫描用例文档新增人工标注
-    （✅❌⚠️ 与 > 批注）→ LLM 反思产出好模式/反模式/漏测教训 → 记录运行历史。
-    无新标注时返回 skipped。长耗时操作（LLM 反思），超时需给足。
+async def memory_save(key: str, content: str, category: str | None = None) -> dict:
+    """把一条信息写入长期记忆（EverOS 持久化，跨会话生效）。
+    用户明确要求"记住"或分享了应长期保留的上下文时调用。
     """
-    from src.app.services import evolution_service
+    from src.app.services import everos_service
 
-    return await evolution_service.run_evolution(trigger="manual")
-
-
-@mcp.tool
-async def evolution_runs(limit: int = 20) -> dict:
-    """查自进化运行历史（状态/标注统计/教训摘要）。"""
-    from sqlalchemy import select
-
-    from src.app.db.database import async_session_factory
-    from src.app.db.models.evolution import EvolutionRun
-
-    async with async_session_factory() as db:
-        rows = list((await db.execute(
-            select(EvolutionRun).order_by(EvolutionRun.created_at.desc()).limit(limit)
-        )).scalars().all())
-    return {"success": True, "data": [{
-        "id": str(r.id), "trigger": r.trigger, "status": r.status,
-        "annotations_total": r.annotations_total,
-        "good_count": r.good_count, "bad_count": r.bad_count,
-        "modules_touched": r.modules_touched, "lessons": r.lessons,
-        "skill_patches": r.skill_patches, "regression_summary": r.regression_summary,
-        "error": r.error,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
-        "finished_at": r.finished_at,
-    } for r in rows]}
+    try:
+        result = await everos_service.save_fact(key, content, category)
+        return {"success": True, "key": key,
+                "flush_status": (result.get("flush") or {}).get("status")}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool
-async def evolution_schedule() -> dict:
-    """查每日自进化调度状态（时间/是否启用）。"""
-    from src.app.services.scheduler import scheduler_info
+async def memory_search(query: str, top_k: int = 8) -> dict:
+    """检索长期记忆（领域规则/用户偏好/历史经验教训），返回主题+摘要列表。"""
+    from src.app.services import everos_service
 
-    return {"success": True, "data": scheduler_info()}
+    try:
+        hits = await everos_service.search_memory(query, top_k=top_k)
+        return {"success": True, "data": hits}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool
+async def memory_status() -> dict:
+    """查 EverOS 记忆服务状态（版本/能力/embedding 是否解锁/文件数）。"""
+    from src.app.services import everos_service
+
+    return {"success": True, "data": await everos_service.everos_health()}
 
 
 # ---------------------------------------------------------------------------

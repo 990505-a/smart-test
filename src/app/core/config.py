@@ -106,11 +106,24 @@ class Settings(BaseSettings):
     unity_host: str = "127.0.0.1"
     unity_port: int = 16666
 
-    # Self-evolution scheduler (自进化模块)
-    evolution_enabled: bool = True
-    evolution_cron_hour: int = 2
-    evolution_cron_minute: int = 0
-    evolution_min_annotations: int = 1  # 低于该数量则跳过当次进化
+    # EverOS memory (记忆模块) — 本地 EverOS server，按需拉起（见 everos_service）
+    # Windows 说明：EverOS 官方不支持 Windows（fcntl），启动时通过
+    # src/app/everos_compat/fcntl.py 垫片 + tools/patch_everos.py 补丁拉起。
+    everos_enabled: bool = True
+    everos_host: str = "127.0.0.1"
+    everos_port: int = 9631
+    everos_root: str = "workspace/default/memory"  # 相对项目根目录（MD 单一事实源，进 git）
+    # 记忆隔离维度（平台单机单用户，固定三个维度即可）
+    everos_app_id: str = "smart-test"
+    everos_project_id: str = "default"
+    everos_user_id: str = "platform"
+    # LLM 三项留空则复用 llm_*（再回退 deepseek_*）
+    everos_llm_model: str = ""
+    everos_llm_base_url: str = ""
+    everos_llm_api_key: str = ""
+    # Embedding key 留空 = keyword-only 模式（向量/混合检索与反思、技能蒸馏禁用，
+    # 等价于旧版 ILIKE 关键词检索；填任意 OpenAI 兼容 key 自动解锁）
+    everos_embedding_api_key: str = ""
 
     # API automation (接口自动化模块)
     api_script_workspace: str = ""  # default: workspace/default/api-auto
@@ -127,7 +140,7 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def _blank_non_text_values_fall_back_to_default(cls, data: Any) -> Any:
-        # 设置页会把空表单项回写成 ENV= 空值行（如 EVOLUTION_CRON_MINUTE=）。
+        # 设置页会把空表单项回写成 ENV= 空值行（如 UNITY_PORT=）。
         # 非字符串字段解析空串会抛 ValidationError，而 Settings() 在 import 时
         # 实例化——任何一个空值都会让 FastAPI/LangGraph 全部起不来。空值视为
         # 未设置，回退字段默认值；str 字段不处理（空串本身是合法语义）。

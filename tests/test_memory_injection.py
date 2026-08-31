@@ -1,6 +1,8 @@
-"""Unit tests for MemoryInjectionMiddleware (catalog-style injection + cache)."""
-from contextlib import asynccontextmanager
-from types import SimpleNamespace
+"""Unit tests for MemoryInjectionMiddleware (EverOS file-scan catalog + cache).
+
+记忆目录从 EverOS 的 Markdown 记忆根目录扫描生成（不再查 DB）：
+episodes/*.md 的 `### Subject` 行 → 「[日期] 主题」目录条目。
+"""
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,39 +11,40 @@ from langchain_core.messages import SystemMessage
 import src.app.middleware.memory_injection as memory_injection
 from src.app.middleware.memory_injection import (
     MemoryInjectionMiddleware,
+    build_memory_catalog,
     invalidate_memory_cache,
 )
 from tests.conftest import MockModelRequest
 
+EPISODE_MD = """---
+id: episode_log_tester_2026-08-31
+type: episode_daily
+user_id: platform
+date: '2026-08-31'
+entry_count: 2
+---
 
-def _make_memory(key: str, content: str, category: str | None = None) -> SimpleNamespace:
-    return SimpleNamespace(key=key, content=content, category=category)
+<!-- entry:ep_1 -->
+## ep_1
 
+### Subject
+第一条记忆主题行
 
-class _FakeSessionFactory:
-    """Stand-in for async_session_factory returning canned memory rows."""
+### Summary
+摘要内容
 
-    def __init__(self, rows: list):
-        self.rows = rows
-        self.calls = 0
-        self.statements = []
+<!-- /entry:ep_1 -->
+<!-- entry:ep_2 -->
+## ep_2
 
-    def __call__(self):
-        self.calls += 1
-        rows = self.rows
-        statements = self.statements
+### Subject
+第二条记忆主题行
 
-        @asynccontextmanager
-        async def _ctx():
-            async def _execute(stmt):
-                statements.append(stmt)
-                return SimpleNamespace(
-                    scalars=lambda: SimpleNamespace(all=lambda: rows)
-                )
+### Summary
+摘要内容 2
 
-            yield SimpleNamespace(execute=_execute)
-
-        return _ctx()
+<!-- /entry:ep_2 -->
+"""
 
 
 @pytest.fixture(autouse=True)
@@ -52,84 +55,76 @@ def _reset_cache():
 
 
 @pytest.fixture
+def memory_root(tmp_path, monkeypatch):
+    """把 EverOS 记忆根目录指到临时目录。"""
+    import src.app.services.everos_service as everos_service
+
+    root = tmp_path / "memory"
+    root.mkdir()
+    monkeypatch.setattr(everos_service, "memory_root", lambda: root)
+    return root
+
+
+@pytest.fixture
 def mock_handler():
     async def _handler(request):
         return request
     return AsyncMock(side_effect=_handler)
 
 
-@pytest.fixture
-def patch_db(monkeypatch):
-    """Patch the DB session factory; returns the factory for row setup."""
-    import src.app.db.database as db_module
-
-    factory = _FakeSessionFactory(rows=[])
-    monkeypatch.setattr(db_module, "async_session_factory", factory)
-    return factory
-
-
 class TestCatalogFormat:
-    @pytest.mark.asyncio
-    async def test_catalog_line_format_and_preview_truncation(self, patch_db):
-        patch_db.rows = [
-            _make_memory("pref_lang", "v" * 200, category="preference"),
-        ]
+    def test_subjects_extracted_with_date_label(self, memory_root):
+        (memory_root / "smart-test" / "default" / "users" / "platform" / "episodes").mkdir(
+            parents=True)
+        (memory_root / "smart-test" / "default" / "users" / "platform" / "episodes"
+         / "episode-2026-08-31.md").write_text(EPISODE_MD, encoding="utf-8")
 
-        block = await MemoryInjectionMiddleware._load_memory_catalog()
+        block = build_memory_catalog()
 
         assert "<agent_memories>" in block
         assert "search_memories" in block
-        assert "- [preference] pref_lang: " in block
-        # Preview capped at 80 chars + ellipsis
-        line = [l for l in block.splitlines() if l.startswith("- [preference]")][0]
-        assert "v" * 80 + "…" in line
-        assert "v" * 81 not in line
+        assert "- [2026-08-31] 第一条记忆主题行" in block
+        assert "- [2026-08-31] 第二条记忆主题行" in block
 
-    @pytest.mark.asyncio
-    async def test_uncategorized_label(self, patch_db):
-        patch_db.rows = [_make_memory("k1", "short content", category=None)]
+    def test_only_episodes_and_profile_scanned(self, memory_root):
+        """原子事实（标题是内部 ID）不进目录。"""
+        user_dir = memory_root / "smart-test" / "default" / "users" / "platform"
+        (user_dir / ".atomic_facts").mkdir(parents=True)
+        (user_dir / ".atomic_facts" / "atomic_fact-2026-08-31.md").write_text(
+            "## af_20260831_00000001\n内部原子事实\n", encoding="utf-8")
 
-        block = await MemoryInjectionMiddleware._load_memory_catalog()
+        block = build_memory_catalog()
+        assert block == ""
 
-        assert "- [未分类] k1: short content" in block
+    def test_empty_root_gives_empty_block(self, memory_root):
+        assert build_memory_catalog() == ""
 
-    @pytest.mark.asyncio
-    async def test_entry_limit_enforced_in_query(self, patch_db):
-        """The catalog query itself is LIMIT-bounded (the DB does the capping)."""
-        patch_db.rows = [
-            _make_memory(f"key_{i}", f"content {i}") for i in range(20)
-        ]
+    def test_long_subject_truncated(self, memory_root):
+        eps = memory_root / "episodes"
+        eps.mkdir(parents=True)
+        (eps / "episode-2026-08-30.md").write_text(
+            f"### Subject\n{'长' * 200}\n", encoding="utf-8")
 
-        block = await MemoryInjectionMiddleware._load_memory_catalog()
+        block = build_memory_catalog()
 
-        assert "<agent_memories>" in block
-        assert patch_db.statements[0]._limit == memory_injection.MAX_ENTRIES
+        line = [l for l in block.splitlines() if l.startswith("- [")][0]
+        assert "长" * 80 + "…" in line
+        assert "长" * 81 not in line
 
-    @pytest.mark.asyncio
-    async def test_block_size_bounded(self, patch_db):
-        """Oversized catalogs are truncated with a marker instead of growing the prompt."""
-        patch_db.rows = [
-            _make_memory("k" * 300, "content") for _ in range(15)
-        ]
+    def test_disabled_feature_gives_empty_block(self, memory_root, monkeypatch):
+        from src.app.core.config import settings
 
-        block = await MemoryInjectionMiddleware._load_memory_catalog()
-
-        assert "已截断" in block
-        assert len(block) <= memory_injection.MAX_BLOCK_CHARS + 300  # block + wrapper text
-
-    @pytest.mark.asyncio
-    async def test_multiline_content_flattened_in_preview(self, patch_db):
-        patch_db.rows = [_make_memory("k", "line1\nline2", category="c")]
-
-        block = await MemoryInjectionMiddleware._load_memory_catalog()
-
-        assert "line1 line2" in block
+        monkeypatch.setattr(settings, "everos_enabled", False)
+        assert build_memory_catalog() == ""
 
 
 class TestInjection:
     @pytest.mark.asyncio
-    async def test_appends_to_string_system_message(self, patch_db, mock_handler):
-        patch_db.rows = [_make_memory("k", "content", category="c")]
+    async def test_appends_to_string_system_message(self, memory_root, mock_handler):
+        eps = memory_root / "episodes"
+        eps.mkdir(parents=True)
+        (eps / "episode-2026-08-31.md").write_text(
+            "### Subject\n主题内容\n", encoding="utf-8")
         request = MockModelRequest(
             messages=[],
             system_message=SystemMessage(content="BASE PROMPT"),
@@ -141,27 +136,10 @@ class TestInjection:
         called_req = mock_handler.call_args[0][0]
         assert called_req.system_message.content.startswith("BASE PROMPT")
         assert "<agent_memories>" in called_req.system_message.content
+        assert "主题内容" in called_req.system_message.content
 
     @pytest.mark.asyncio
-    async def test_no_memories_leaves_prompt_untouched(self, patch_db, mock_handler):
-        patch_db.rows = []
-        request = MockModelRequest(
-            messages=[],
-            system_message=SystemMessage(content="BASE PROMPT"),
-        )
-        middleware = MemoryInjectionMiddleware()
-
-        await middleware.awrap_model_call(request, mock_handler)
-
-        called_req = mock_handler.call_args[0][0]
-        assert called_req.system_message.content == "BASE PROMPT"
-
-    @pytest.mark.asyncio
-    async def test_db_failure_passes_through(self, patch_db, mock_handler):
-        def _boom():
-            raise RuntimeError("db down")
-
-        patch_db.__call__ = _boom
+    async def test_no_memories_leaves_prompt_untouched(self, memory_root, mock_handler):
         request = MockModelRequest(
             messages=[],
             system_message=SystemMessage(content="BASE PROMPT"),
@@ -175,35 +153,25 @@ class TestInjection:
 
 
 class TestCache:
-    @pytest.mark.asyncio
-    async def test_second_call_hits_cache(self, patch_db):
-        patch_db.rows = [_make_memory("k", "content")]
+    def test_second_call_hits_cache(self, memory_root):
+        eps = memory_root / "episodes"
+        eps.mkdir(parents=True)
+        (eps / "episode-2026-08-31.md").write_text(
+            "### Subject\n主题\n", encoding="utf-8")
 
-        await MemoryInjectionMiddleware._load_memory_catalog()
-        await MemoryInjectionMiddleware._load_memory_catalog()
+        first = build_memory_catalog()
+        second = build_memory_catalog()
 
-        assert patch_db.calls == 1
+        assert first == second  # byte-stable: prompt prefix caching stays valid
 
-    @pytest.mark.asyncio
-    async def test_invalidate_forces_reload(self, patch_db):
-        patch_db.rows = [_make_memory("k", "content")]
+    def test_invalidate_forces_rescan(self, memory_root):
+        eps = memory_root / "episodes"
+        eps.mkdir(parents=True)
+        ep = eps / "episode-2026-08-31.md"
+        ep.write_text("### Subject\n主题A\n", encoding="utf-8")
 
-        await MemoryInjectionMiddleware._load_memory_catalog()
-        invalidate_memory_cache()
-        await MemoryInjectionMiddleware._load_memory_catalog()
-
-        assert patch_db.calls == 2
-
-    def test_invalidate_clears_under_every_module_alias(self):
-        """Aliases ("app." / "src.app.") must not diverge — invalidate clears both."""
-        import sys
-
-        memory_injection._cached_block = "stale"
-        memory_injection._cached_at = 0.0
-
+        build_memory_catalog()
+        ep.write_text("### Subject\n主题B\n", encoding="utf-8")
         invalidate_memory_cache()
 
-        for name in memory_injection._MODULE_ALIASES:
-            mod = sys.modules.get(name)
-            if mod is not None:
-                assert mod._cached_block is None
+        assert "主题B" in build_memory_catalog()
