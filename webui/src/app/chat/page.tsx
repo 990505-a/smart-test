@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
-import { useQueryState } from "nuqs";
-import { getConfig, saveConfig, StandaloneConfig } from "@/lib/config";
+import { useQueryState, parseAsString } from "nuqs";
+import { getConfig, getDeploymentUrl, StandaloneConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { ClientProvider } from "@/providers/ClientProvider";
 import { ChatProvider } from "@/providers/ChatProvider";
-import { Settings, SquarePen, MessagesSquare } from "lucide-react";
+import { SquarePen, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -16,26 +16,17 @@ import { AGENT_CONFIG, AgentKey } from "@/app/types/types";
 import { AgentTabs } from "@/app/components/AgentTabs";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { ThreadList } from "@/app/components/ThreadList";
-import { ConfigDialog } from "@/app/components/ConfigDialog";
-import { Header } from "@/app/components/Header";
 import { Assistant } from "@langchain/langgraph-sdk";
 
 // ---------------------------------------------------------------------------
-// HomePageInner -- the main layout with header, tabs, and resizable panels
+// HomePageInner — slim top bar + resizable [threads | chat] panels.
+// Global navigation lives in the AppShell rail; this header only carries
+// chat-scoped controls.
 // ---------------------------------------------------------------------------
-function HomePageInner({
-  config,
-  configDialogOpen,
-  setConfigDialogOpen,
-  handleSaveConfig,
-}: {
-  config: StandaloneConfig;
-  configDialogOpen: boolean;
-  setConfigDialogOpen: (open: boolean) => void;
-  handleSaveConfig: (config: StandaloneConfig) => void;
-}) {
+function HomePageInner() {
   const [threadId, setThreadId] = useQueryState("threadId");
-  const [sidebar, setSidebar] = useQueryState("sidebar");
+  // "1" (default) shows the session list, "0" hides it.
+  const [sidebar, setSidebar] = useQueryState("sidebar", parseAsString.withDefault("1"));
   const [activeAgent, setActiveAgent] = useQueryState("agent", {
     defaultValue: "testcase",
   });
@@ -86,72 +77,58 @@ function HomePageInner({
     [assistantId, currentConfig?.label],
   );
 
+  const threadsVisible = sidebar !== "0";
+
   return (
-    <>
-      <ConfigDialog
-        open={configDialogOpen}
-        onOpenChange={setConfigDialogOpen}
-        onSave={handleSaveConfig}
-        initialConfig={config}
-      />
-      <div className="flex h-screen flex-col">
-        {/* Header with chat-specific controls */}
-        <Header>
-          {/* Agent tabs + Workspace selector */}
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Slim chat header：三段布局——左：侧边栏开关（位置固定，图标随状态切换）；
+          中：Agent Tabs；右：新对话 */}
+      <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b bg-background px-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setSidebar(threadsVisible ? "0" : "1")}
+          title={threadsVisible ? "隐藏对话列表" : "显示对话列表"}
+          className="shrink-0"
+        >
+          {threadsVisible ? (
+            <PanelLeftClose className="h-4 w-4" />
+          ) : (
+            <PanelLeftOpen className="h-4 w-4" />
+          )}
+        </Button>
+        <div className="flex min-w-0 flex-1 justify-center">
           <AgentTabs
             activeAgent={activeAgent ?? "testcase"}
             onAgentChange={handleAgentChange}
           />
-          {/* Right actions */}
-          <span className="text-xs text-muted-foreground">
-            助手: {assistantId}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setConfigDialogOpen(true)}
-          >
-            <Settings className="mr-2 h-4 w-4" />
-            设置
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNewChat}
-            disabled={!threadId}
-            className="border-primary bg-primary text-primary-foreground hover:bg-primary/80"
-          >
-            <SquarePen className="mr-2 h-4 w-4" />
-            新建对话
-          </Button>
-          {!sidebar && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSidebar("1")}
-              className="rounded-md border bg-card text-foreground hover:bg-accent"
-            >
-              <MessagesSquare className="mr-2 h-4 w-4" />
-              对话列表
-            </Button>
-          )}
-        </Header>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleNewChat}
+          className="shrink-0"
+        >
+          <SquarePen className="h-4 w-4" />
+          <span className="ml-1.5">新对话</span>
+        </Button>
+      </div>
 
         {/* Main content area with resizable panels */}
-        <div className="flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1">
           <ResizablePanelGroup orientation="horizontal" id="smart-test-platform">
-            {sidebar && (
+            {threadsVisible && (
               <>
                 <ResizablePanel
                   id="thread-history"
-                  defaultSize={25}
-                  minSize={20}
-                  className="relative z-20 min-w-[300px] overflow-hidden bg-background"
+                  defaultSize="22%"
+                  minSize="18%"
+                  maxSize="35%"
+                  className="relative z-20 overflow-hidden bg-background"
                 >
                   <ThreadList
                     onThreadSelect={handleThreadSelect}
                     onMutateReady={handleMutateReady}
-                    onClose={() => setSidebar(null)}
                   />
                 </ResizablePanel>
                 <ResizableHandle />
@@ -173,16 +150,14 @@ function HomePageInner({
           </ResizablePanelGroup>
         </div>
       </div>
-    </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// HomePageContent -- loads config, wraps in ClientProvider
+// HomePageContent — resolves optional address overrides, wraps ClientProvider
 // ---------------------------------------------------------------------------
 function HomePageContent() {
   const [config, setConfig] = useState<StandaloneConfig | null>(null);
-  const [configDialogOpen, setConfigDialogOpen] = useState(false);
 
   // Log unhandled promise rejections for debugging
   useEffect(() => {
@@ -193,71 +168,36 @@ function HomePageContent() {
     return () => window.removeEventListener("unhandledrejection", handler);
   }, []);
 
-  // On mount, check for saved config, otherwise show config dialog
+  // Resolve localStorage overrides once after mount (avoids SSR/localStorage
+  // hydration mismatch); defaults are used when nothing is stored.
   useEffect(() => {
-    const savedConfig = getConfig();
-    if (savedConfig) {
-      setConfig(savedConfig);
-    } else {
-      setConfigDialogOpen(true);
-    }
+    setConfig(getConfig() ?? {});
   }, []);
-
-  const handleSaveConfig = useCallback((newConfig: StandaloneConfig) => {
-    saveConfig(newConfig);
-    setConfig(newConfig);
-  }, []);
-
-  const langsmithApiKey =
-    config?.langsmithApiKey || process.env.NEXT_PUBLIC_LANGSMITH_API_KEY || "";
 
   if (!config) {
     return (
-      <>
-        <ConfigDialog
-          open={configDialogOpen}
-          onOpenChange={setConfigDialogOpen}
-          onSave={handleSaveConfig}
-        />
-        <div className="flex h-screen items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold">欢迎使用智能测试平台</h1>
-            <p className="mt-2 text-muted-foreground">
-              请配置您的部署以开始使用
-            </p>
-            <Button onClick={() => setConfigDialogOpen(true)} className="mt-4">
-              打开配置
-            </Button>
-          </div>
-        </div>
-      </>
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-muted-foreground">加载中…</p>
+      </div>
     );
   }
 
   return (
-    <ClientProvider
-      deploymentUrl={config.deploymentUrl}
-      apiKey={langsmithApiKey}
-    >
-      <HomePageInner
-        config={config}
-        configDialogOpen={configDialogOpen}
-        setConfigDialogOpen={setConfigDialogOpen}
-        handleSaveConfig={handleSaveConfig}
-      />
+    <ClientProvider deploymentUrl={getDeploymentUrl()}>
+      <HomePageInner />
     </ClientProvider>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ChatPage -- Suspense wrapper (required by nuqs)
+// ChatPage — Suspense wrapper (required by nuqs)
 // ---------------------------------------------------------------------------
 export default function ChatPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex h-screen items-center justify-center">
-          <p className="text-muted-foreground">加载中...</p>
+        <div className="flex h-full items-center justify-center">
+          <p className="text-sm text-muted-foreground">加载中…</p>
         </div>
       }
     >

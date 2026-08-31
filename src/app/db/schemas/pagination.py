@@ -4,7 +4,6 @@ Based on BrowserStack Test Management API pagination pattern.
 Provides PaginationParams, PaginationInfo, and PaginatedResponse.
 """
 
-from datetime import datetime
 from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel, Field
@@ -42,31 +41,6 @@ class PaginationParams(BaseModel):
     def limit(self) -> int:
         """Limit for database query."""
         return self.page_size
-
-
-class TestCaseFilterParams(PaginationParams):
-    """Test case filter parameters extending pagination."""
-
-    test_case_id: Optional[str] = Field(
-        default=None,
-        description="Test case ID filter",
-    )
-    updated_after: Optional[datetime] = Field(
-        default=None,
-        description="Updated after timestamp",
-    )
-    updated_before: Optional[datetime] = Field(
-        default=None,
-        description="Updated before timestamp",
-    )
-    issue_ids: Optional[str] = Field(
-        default=None,
-        description="Linked issue IDs (comma-separated)",
-    )
-    issue_type: Optional[str] = Field(
-        default=None,
-        description="Linked issue type",
-    )
 
 
 class PaginationInfo(BaseModel):

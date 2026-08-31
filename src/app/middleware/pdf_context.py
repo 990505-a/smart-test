@@ -119,7 +119,6 @@ class PDFContextMiddleware(AgentMiddleware):
         new_messages = []
         for msg in request.messages:
             if isinstance(msg, HumanMessage):
-                _debug_file_content(msg)
                 file_blocks = _extract_file_blocks(msg.content)
                 if file_blocks:
                     new_msg = self._process_file_message(msg, file_blocks)
@@ -199,21 +198,3 @@ class PDFContextMiddleware(AgentMiddleware):
 
 # Backward compatibility
 FileContextMiddleware = PDFContextMiddleware
-
-def _debug_file_content(msg):
-    """Debug helper to log what the middleware sees."""
-    try:
-        debug_path = Path("D:/test_agent/smart-test-platform/_mw_input_debug.txt")
-        lines = [f"msg type: {type(msg).__name__}"]
-        if isinstance(msg.content, list):
-            for i, block in enumerate(msg.content):
-                if isinstance(block, dict):
-                    lines.append(f"  block[{i}]: type={block.get('type')}, keys={list(block.keys())}")
-                else:
-                    lines.append(f"  block[{i}]: {type(block).__name__} = {str(block)[:100]}")
-        else:
-            lines.append(f"  content type: {type(msg.content).__name__}")
-            lines.append(f"  content: {str(msg.content)[:200]}")
-        debug_path.write_text("\n".join(lines), encoding="utf-8")
-    except Exception:
-        pass

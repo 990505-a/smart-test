@@ -19,6 +19,7 @@ const LoadExternalComponent = lazy(() =>
     default: m.LoadExternalComponent,
   })),
 );
+type ExternalComponentProps = React.ComponentProps<typeof LoadExternalComponent>;
 
 const TOOL_DISPLAY: Record<string, string> = {
   ls: "列出目录",
@@ -35,6 +36,10 @@ const TOOL_DISPLAY: Record<string, string> = {
   save_test_case_to_db: "保存用例",
   list_project_test_cases: "查询用例列表",
   ensure_project: "创建项目",
+  lint_case_document: "检查用例质量",
+  review_case_document: "二次复核用例",
+  save_requirement_package: "保存需求包",
+  get_case_workflow_status: "查看用例状态",
 };
 
 interface ToolCallBoxProps {
@@ -44,9 +49,27 @@ interface ToolCallBoxProps {
   graphId?: string;
 }
 
+/**
+ * 用户手动展开/收起的记忆（tool call id -> 展开态）。
+ * 消息列表是虚拟化的：滚出视口的条目会卸载、滚回来重新挂载，组件内部
+ * state 随之丢失，展开状态会被重置成看起来"随机变化"。把选择记在组件外，
+ * 重挂载后恢复用户上一次的选择；未操作过的卡片默认收起。
+ */
+const expandedStateById = new Map<string, boolean>();
+
+function rememberExpanded(id: string, expanded: boolean) {
+  expandedStateById.set(id, expanded);
+  if (expandedStateById.size > 1000) {
+    // 超长会话兜底：全清（最坏情况是展开态回到默认收起）
+    expandedStateById.clear();
+  }
+}
+
 export const ToolCallBox = React.memo<ToolCallBoxProps>(
   ({ toolCall, uiComponent, stream, graphId }) => {
-    const [isExpanded, setIsExpanded] = useState(() => !!toolCall.result || !!uiComponent);
+    const [isExpanded, setIsExpanded] = useState(
+      () => expandedStateById.get(toolCall.id) ?? false,
+    );
     const [expandedArgs, setExpandedArgs] = useState<Record<string, boolean>>({});
 
     const { name, args, result, status } = useMemo(() => {
@@ -63,21 +86,31 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     const statusIcon = useMemo(() => {
       switch (status) {
         case "completed":
-          return <CircleCheckBig size={14} className="text-green-500" />;
+          return <CircleCheckBig size={14} className="text-success" />;
         case "error":
           return <AlertCircle size={14} className="text-destructive" />;
         case "pending":
-          return <Loader2 size={14} className="animate-spin text-muted-foreground" />;
+          // calm running dot (no spinner): the row itself carries the sweep
+          return (
+            <span className="relative flex h-2 w-2 items-center justify-center">
+              <span className="absolute h-2 w-2 rounded-full bg-brand/20" />
+              <span className="h-1 w-1 rounded-full bg-brand" />
+            </span>
+          );
         case "interrupted":
-          return <StopCircle size={14} className="text-orange-500" />;
+          return <StopCircle size={14} className="text-warning" />;
         default:
           return <Terminal size={14} className="text-muted-foreground" />;
       }
     }, [status]);
 
     const toggleExpanded = useCallback(() => {
-      setIsExpanded((prev) => !prev);
-    }, []);
+      setIsExpanded((prev) => {
+        const next = !prev;
+        rememberExpanded(toolCall.id, next);
+        return next;
+      });
+    }, [toolCall.id]);
 
     const toggleArgExpanded = useCallback((argKey: string) => {
       setExpandedArgs((prev) => ({ ...prev, [argKey]: !prev[argKey] }));
@@ -91,6 +124,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
         className={cn(
           "w-full overflow-hidden rounded-lg border-none shadow-none outline-none transition-colors duration-200 hover:bg-accent",
           isExpanded && hasContent && "bg-accent",
+          status === "pending" && "sweep-running",
         )}
       >
         <Button
@@ -108,7 +142,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
             {statusIcon}
             <span className="text-sm font-medium text-foreground">{label}</span>
             {status === "pending" && (
-              <span className="text-xs text-muted-foreground animate-pulse">执行中…</span>
+              <span className="text-xs text-shimmer">执行中</span>
             )}
           </div>
           {hasContent &&
@@ -131,11 +165,10 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                     </div>
                   }
                 >
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                   <LoadExternalComponent
                     key={(uiComponent as { id: string }).id}
-                    stream={stream as any}
-                    message={uiComponent as any}
+                    stream={stream as ExternalComponentProps["stream"]}
+                    message={uiComponent as ExternalComponentProps["message"]}
                     namespace={graphId!}
                     meta={{ status, args, result: result ?? "暂无结果" }}
                   />

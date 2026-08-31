@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 import { cn } from "@/lib/utils";
 
 interface MarkdownContentProps {
@@ -14,14 +15,17 @@ interface MarkdownContentProps {
 function CodeBlock({
   language,
   code,
+  plain = false,
 }: {
   language?: string;
   code: string;
+  /** Render as a plain <pre> (no Prism). Used for code still streaming in. */
+  plain?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const [SyntaxHighlighterComponent, setSyntaxHighlighterComponent] = useState<any>(null);
-  const [syntaxStyle, setSyntaxStyle] = useState<any>(null);
+  const [SyntaxHighlighterComponent, setSyntaxHighlighterComponent] = useState<React.ElementType | null>(null);
+  const [syntaxStyle, setSyntaxStyle] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -42,7 +46,7 @@ function CodeBlock({
   }, [isVisible]);
 
   useEffect(() => {
-    if (!isVisible || !language || SyntaxHighlighterComponent) return;
+    if (plain || !isVisible || !language || SyntaxHighlighterComponent) return;
 
     let disposed = false;
     Promise.all([
@@ -55,7 +59,7 @@ function CodeBlock({
     });
 
     return () => { disposed = true; };
-  }, [SyntaxHighlighterComponent, isVisible, language]);
+  }, [SyntaxHighlighterComponent, isVisible, language, plain]);
 
   const fallback = (
     <pre className="m-0 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-[#282c34] p-4 font-mono text-sm leading-6 text-white">
@@ -65,7 +69,7 @@ function CodeBlock({
 
   return (
     <div ref={containerRef} className="my-4 max-w-full overflow-hidden last:mb-0">
-      {language && SyntaxHighlighterComponent && syntaxStyle ? (
+      {!plain && language && SyntaxHighlighterComponent && syntaxStyle ? (
         <SyntaxHighlighterComponent
           style={syntaxStyle}
           language={language}
@@ -159,220 +163,279 @@ function renderInlineMarkdown(text: string) {
   });
 }
 
-function StreamingMarkdownContent({ content }: { content: string }) {
-  const lines = useMemo(() => content.split(/\r?\n/), [content]);
+/**
+ * Parse line-oriented markdown into React rows. Pure function.
+ *
+ * @param openFencePlain when true, a code fence left open at the END of the
+ *   content (still streaming in) renders as a plain <pre> instead of running
+ *   Prism over the whole block on every token.
+ */
+function parseMarkdownRows(content: string, openFencePlain: boolean): React.ReactNode[] {
+  const lines = content.split(/\r?\n/);
+  const rows: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeLanguage = "";
+  let codeLines: string[] = [];
+  let tableBuffer: string[] = [];
 
-  const renderedRows = useMemo(() => {
-    const rows: React.ReactNode[] = [];
-    let inCodeBlock = false;
-    let codeLanguage = "";
-    let codeLines: string[] = [];
-    let tableBuffer: string[] = [];
-
-    const flushTable = (keyPrefix: string) => {
-      if (tableBuffer.length < 2) {
-        tableBuffer.forEach((tableLine, tableIndex) => {
-          rows.push(
-            <p key={`${keyPrefix}-fallback-${tableIndex}`} className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">
-              {renderInlineMarkdown(tableLine)}
-            </p>,
-          );
-        });
-        tableBuffer = [];
-        return;
-      }
-
-      const normalizedRows = tableBuffer
-        .map((row) => row.trim())
-        .filter(Boolean)
-        .map((row) =>
-          row
-            .replace(/^\||\|$/g, "")
-            .split("|")
-            .map((cell) => cell.trim()),
+  const flushTable = (keyPrefix: string) => {
+    if (tableBuffer.length < 2) {
+      tableBuffer.forEach((tableLine, tableIndex) => {
+        rows.push(
+          <p key={`${keyPrefix}-fallback-${tableIndex}`} className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">
+            {renderInlineMarkdown(tableLine)}
+          </p>,
         );
+      });
+      tableBuffer = [];
+      return;
+    }
 
-      const separatorPattern = /^:?-{3,}:?$/;
-      const hasHeaderSeparator = normalizedRows[1]?.every((cell) => separatorPattern.test(cell));
+    const normalizedRows = tableBuffer
+      .map((row) => row.trim())
+      .filter(Boolean)
+      .map((row) =>
+        row
+          .replace(/^\||\|$/g, "")
+          .split("|")
+          .map((cell) => cell.trim()),
+      );
 
-      if (!hasHeaderSeparator) {
-        tableBuffer.forEach((tableLine, tableIndex) => {
-          rows.push(
-            <p key={`${keyPrefix}-plain-${tableIndex}`} className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">
-              {renderInlineMarkdown(tableLine)}
-            </p>,
-          );
-        });
-        tableBuffer = [];
-        return;
-      }
+    const separatorPattern = /^:?-{3,}:?$/;
+    const hasHeaderSeparator = normalizedRows[1]?.every((cell) => separatorPattern.test(cell));
 
-      const headers = normalizedRows[0] ?? [];
-      const bodyRows = normalizedRows.slice(2);
+    if (!hasHeaderSeparator) {
+      tableBuffer.forEach((tableLine, tableIndex) => {
+        rows.push(
+          <p key={`${keyPrefix}-plain-${tableIndex}`} className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">
+            {renderInlineMarkdown(tableLine)}
+          </p>,
+        );
+      });
+      tableBuffer = [];
+      return;
+    }
 
-      rows.push(
-        <div key={`${keyPrefix}-table`} className="my-2 overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr>
-                {headers.map((header, headerIndex) => (
-                  <th key={`${keyPrefix}-th-${headerIndex}`} className="border border-border bg-muted px-2 py-1 text-left font-semibold">
-                    {renderInlineMarkdown(header)}
-                  </th>
+    const headers = normalizedRows[0] ?? [];
+    const bodyRows = normalizedRows.slice(2);
+
+    rows.push(
+      <div key={`${keyPrefix}-table`} className="my-2 overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              {headers.map((header, headerIndex) => (
+                <th key={`${keyPrefix}-th-${headerIndex}`} className="border border-border bg-muted px-2 py-1 text-left font-semibold">
+                  {renderInlineMarkdown(header)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {bodyRows.map((row, rowIndex) => (
+              <tr key={`${keyPrefix}-tr-${rowIndex}`}>
+                {row.map((cell, cellIndex) => (
+                  <td key={`${keyPrefix}-td-${rowIndex}-${cellIndex}`} className="border border-border px-2 py-1 align-top">
+                    {renderInlineMarkdown(cell)}
+                  </td>
                 ))}
               </tr>
-            </thead>
-            <tbody>
-              {bodyRows.map((row, rowIndex) => (
-                <tr key={`${keyPrefix}-tr-${rowIndex}`}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={`${keyPrefix}-td-${rowIndex}-${cellIndex}`} className="border border-border px-2 py-1 align-top">
-                      {renderInlineMarkdown(cell)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>,
-      );
+            ))}
+          </tbody>
+        </table>
+      </div>,
+    );
 
-      tableBuffer = [];
-    };
+    tableBuffer = [];
+  };
 
-    lines.forEach((line, index) => {
-      const trimmed = line.trim();
-      const codeFenceMatch = /^```([a-zA-Z0-9_-]*)\s*$/.exec(trimmed);
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    const codeFenceMatch = /^```([a-zA-Z0-9_-]*)\s*$/.exec(trimmed);
 
-      if (codeFenceMatch) {
-        flushTable(`table-before-fence-${index}`);
+    if (codeFenceMatch) {
+      flushTable(`table-before-fence-${index}`);
 
-        if (!inCodeBlock) {
-          inCodeBlock = true;
-          codeLanguage = codeFenceMatch[1] || "";
-          codeLines = [];
-        } else {
-          rows.push(
-            <div key={`code-${index}`} className="my-2">
-              <CodeBlock language={codeLanguage || undefined} code={codeLines.join("\n")} />
-            </div>,
-          );
-          inCodeBlock = false;
-          codeLanguage = "";
-          codeLines = [];
-        }
-        return;
-      }
-
-      if (inCodeBlock) {
-        codeLines.push(line);
-        return;
-      }
-
-      if (trimmed.includes("|")) {
-        tableBuffer.push(line);
-        return;
-      }
-
-      if (tableBuffer.length > 0) {
-        flushTable(`table-${index}`);
-      }
-
-      if (!trimmed) {
-        rows.push(<div key={`empty-${index}`} className="h-2" />);
-        return;
-      }
-
-      const headingMatch = /^(#{1,6})\s+(.*)$/.exec(line);
-      if (headingMatch) {
-        const level = headingMatch[1].length;
-        const headingClassName =
-          {
-            1: "text-2xl font-semibold",
-            2: "text-xl font-semibold",
-            3: "text-lg font-semibold",
-            4: "text-base font-semibold",
-            5: "text-sm font-semibold",
-            6: "text-sm font-medium",
-          }[level] ?? "text-base font-semibold";
-
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeLanguage = codeFenceMatch[1] || "";
+        codeLines = [];
+      } else {
         rows.push(
-          <div key={`heading-${index}`} className={cn("mt-2", headingClassName)}>
-            {renderInlineMarkdown(headingMatch[2])}
+          <div key={`code-${index}`} className="my-2">
+            <CodeBlock language={codeLanguage || undefined} code={codeLines.join("\n")} />
           </div>,
         );
-        return;
+        inCodeBlock = false;
+        codeLanguage = "";
+        codeLines = [];
       }
-
-      const quoteMatch = /^>\s?(.*)$/.exec(line);
-      if (quoteMatch) {
-        rows.push(
-          <blockquote key={`quote-${index}`} className="border-l-4 border-border pl-4 italic text-primary/70">
-            {renderInlineMarkdown(quoteMatch[1])}
-          </blockquote>,
-        );
-        return;
-      }
-
-      const taskListMatch = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(line);
-      if (taskListMatch) {
-        const checked = taskListMatch[1].toLowerCase() === "x";
-        rows.push(
-          <div key={`task-${index}`} className="flex items-start gap-2 pl-2">
-            <span className="mt-[0.1rem] text-sm">{checked ? "☑" : "☐"}</span>
-            <span className={cn(checked && "text-muted-foreground line-through")}>
-              {renderInlineMarkdown(taskListMatch[2])}
-            </span>
-          </div>,
-        );
-        return;
-      }
-
-      const unorderedListMatch = /^\s*[-*+]\s+(.*)$/.exec(line);
-      if (unorderedListMatch) {
-        rows.push(
-          <div key={`ul-${index}`} className="flex items-start gap-2 pl-2">
-            <span className="mt-[0.4rem] text-xs">•</span>
-            <span>{renderInlineMarkdown(unorderedListMatch[1])}</span>
-          </div>,
-        );
-        return;
-      }
-
-      const orderedListMatch = /^\s*([0-9]+)\.\s+(.*)$/.exec(line);
-      if (orderedListMatch) {
-        rows.push(
-          <div key={`ol-${index}`} className="flex items-start gap-2 pl-2">
-            <span className="min-w-5 text-sm text-muted-foreground">{orderedListMatch[1]}.</span>
-            <span>{renderInlineMarkdown(orderedListMatch[2])}</span>
-          </div>,
-        );
-        return;
-      }
-
-      rows.push(
-        <p key={`p-${index}`} className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">
-          {renderInlineMarkdown(line)}
-        </p>,
-      );
-    });
-
-    if (tableBuffer.length > 0) {
-      flushTable("table-final");
+      return;
     }
 
     if (inCodeBlock) {
-      rows.push(
-        <div key="code-open-final" className="my-2">
-          <CodeBlock language={codeLanguage || undefined} code={codeLines.join("\n")} />
-        </div>,
-      );
+      codeLines.push(line);
+      return;
     }
 
-    return rows;
-  }, [lines]);
+    if (trimmed.includes("|")) {
+      tableBuffer.push(line);
+      return;
+    }
 
-  return <div className="space-y-3">{renderedRows}</div>;
+    if (tableBuffer.length > 0) {
+      flushTable(`table-${index}`);
+    }
+
+    if (!trimmed) {
+      rows.push(<div key={`empty-${index}`} className="h-2" />);
+      return;
+    }
+
+    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const headingClassName =
+        {
+          1: "text-2xl font-semibold",
+          2: "text-xl font-semibold",
+          3: "text-lg font-semibold",
+          4: "text-base font-semibold",
+          5: "text-sm font-semibold",
+          6: "text-sm font-medium",
+        }[level] ?? "text-base font-semibold";
+
+      rows.push(
+        <div key={`heading-${index}`} className={cn("mt-2", headingClassName)}>
+          {renderInlineMarkdown(headingMatch[2])}
+        </div>,
+      );
+      return;
+    }
+
+    const quoteMatch = /^>\s?(.*)$/.exec(line);
+    if (quoteMatch) {
+      rows.push(
+        <blockquote key={`quote-${index}`} className="border-l-4 border-border pl-4 italic text-primary/70">
+          {renderInlineMarkdown(quoteMatch[1])}
+        </blockquote>,
+      );
+      return;
+    }
+
+    const taskListMatch = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(line);
+    if (taskListMatch) {
+      const checked = taskListMatch[1].toLowerCase() === "x";
+      rows.push(
+        <div key={`task-${index}`} className="flex items-start gap-2 pl-2">
+          <span className="mt-[0.1rem] text-sm">{checked ? "☑" : "☐"}</span>
+          <span className={cn(checked && "text-muted-foreground line-through")}>
+            {renderInlineMarkdown(taskListMatch[2])}
+          </span>
+        </div>,
+      );
+      return;
+    }
+
+    const unorderedListMatch = /^\s*[-*+]\s+(.*)$/.exec(line);
+    if (unorderedListMatch) {
+      rows.push(
+        <div key={`ul-${index}`} className="flex items-start gap-2 pl-2">
+          <span className="mt-[0.4rem] text-xs">•</span>
+          <span>{renderInlineMarkdown(unorderedListMatch[1])}</span>
+        </div>,
+      );
+      return;
+    }
+
+    const orderedListMatch = /^\s*([0-9]+)\.\s+(.*)$/.exec(line);
+    if (orderedListMatch) {
+      rows.push(
+        <div key={`ol-${index}`} className="flex items-start gap-2 pl-2">
+          <span className="min-w-5 text-sm text-muted-foreground">{orderedListMatch[1]}.</span>
+          <span>{renderInlineMarkdown(orderedListMatch[2])}</span>
+        </div>,
+      );
+      return;
+    }
+
+    rows.push(
+      <p key={`p-${index}`} className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">
+        {renderInlineMarkdown(line)}
+      </p>,
+    );
+  });
+
+  if (tableBuffer.length > 0) {
+    flushTable("table-final");
+  }
+
+  if (inCodeBlock) {
+    rows.push(
+      <div key="code-open-final" className="my-2">
+        <CodeBlock
+          language={codeLanguage || undefined}
+          code={codeLines.join("\n")}
+          plain={openFencePlain}
+        />
+      </div>,
+    );
+  }
+
+  return rows;
+}
+
+/** Minimum lines kept in the re-parsed tail so short paragraphs don't thrash. */
+const STREAMING_TAIL_MIN_LINES = 3;
+
+/**
+ * Incremental streaming renderer: content is split at the last blank line
+ * outside a code fence into a stable prefix and an active tail. The stable
+ * subtree is memoized as an element (same reference → React skips its
+ * reconciliation entirely), so each token only re-parses the tail — the old
+ * implementation re-parsed every line of the whole message per token (O(n²)).
+ */
+function StreamingMarkdownContent({ content }: { content: string }) {
+  const { stableContent, tailContent, stableKey } = useMemo(() => {
+    const lines = content.split(/\r?\n/);
+    let inCode = false;
+    let boundaryIdx = -1;
+    for (let i = 0; i < lines.length - 1; i++) {
+      const trimmed = lines[i].trim();
+      if (/^```/.test(trimmed)) {
+        inCode = !inCode;
+        continue;
+      }
+      if (!inCode && trimmed === "") boundaryIdx = i;
+    }
+    if (boundaryIdx >= 0 && lines.length - 1 - boundaryIdx >= STREAMING_TAIL_MIN_LINES) {
+      return {
+        stableContent: lines.slice(0, boundaryIdx + 1).join("\n"),
+        tailContent: lines.slice(boundaryIdx + 1).join("\n"),
+        stableKey: `${boundaryIdx}-${lines.length}`,
+      };
+    }
+    return { stableContent: "", tailContent: content, stableKey: "none" };
+  }, [content]);
+
+  const stableRows = useMemo(
+    () => (stableContent ? <>{parseMarkdownRows(stableContent, false)}</> : null),
+    // Recompute only when the boundary moves; content before it is immutable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stableKey],
+  );
+
+  const tailRows = useMemo(
+    () => parseMarkdownRows(tailContent, true),
+    [tailContent],
+  );
+
+  return (
+    <div className="space-y-3">
+      {stableRows}
+      {tailRows}
+    </div>
+  );
 }
 
 const markdownComponents = {
@@ -414,10 +477,10 @@ const markdownComponents = {
     );
   },
   ul({ children }: { children?: React.ReactNode }) {
-    return <ul className="my-4 pl-6 [&>li:last-child]:mb-0 [&>li]:mb-1">{children}</ul>;
+    return <ul className="my-4 pl-6 list-disc [&>li:last-child]:mb-0 [&>li]:mb-1">{children}</ul>;
   },
   ol({ children }: { children?: React.ReactNode }) {
-    return <ol className="my-4 pl-6 [&>li:last-child]:mb-0 [&>li]:mb-1">{children}</ol>;
+    return <ol className="my-4 pl-6 list-decimal [&>li:last-child]:mb-0 [&>li]:mb-1">{children}</ol>;
   },
   table({ children }: { children?: React.ReactNode }) {
     return (
@@ -464,7 +527,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
 
     return (
       <div className={containerClassName}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
           {content}
         </ReactMarkdown>
       </div>

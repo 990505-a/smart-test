@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { ManagementLayout } from "@/app/components/ManagementLayout";
+import { PageHeader, EmptyState, Pagination } from "@/app/components/ui-patterns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,8 +44,6 @@ import {
   Pencil,
   Trash2,
   Loader2,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
 import {
   useMemories,
@@ -302,51 +300,51 @@ export default function MemoriesPage() {
   }, []);
 
   return (
-    <ManagementLayout>
-      <div className="space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h2 className="text-2xl font-bold">智能体记忆</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Search */}
-            <div className="flex items-center gap-1">
-              <Input
-                placeholder="搜索记忆..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                className="w-[200px]"
-              />
-              <Button variant="outline" size="icon" onClick={handleSearch}>
-                <Search className="h-4 w-4" />
-              </Button>
-            </div>
-            {/* Category filter */}
-            <Select
-              value={category ?? "all"}
-              onValueChange={handleCategoryChange}
-            >
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="全部分类" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部分类</SelectItem>
-                {CATEGORY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* Create button */}
-            <Button onClick={() => setCreateDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              新建记忆
-            </Button>
-          </div>
-        </div>
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-5xl px-6 py-8 lg:px-8">
+        <div className="space-y-4">
+          {/* Header */}
+          <PageHeader
+            title="智能体记忆"
+            actions={
+              <>
+                <div className="flex items-center gap-1">
+                  <Input
+                    placeholder="搜索记忆..."
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    className="w-[200px]"
+                  />
+                  <Button variant="outline" size="icon" onClick={handleSearch}>
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
+                {/* Category filter */}
+                <Select
+                  value={category ?? "all"}
+                  onValueChange={handleCategoryChange}
+                >
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="全部分类" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部分类</SelectItem>
+                    {CATEGORY_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {/* Create button */}
+                <Button onClick={() => setCreateDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  新建记忆
+                </Button>
+              </>
+            }
+          />
 
         {/* Content */}
         {isLoading ? (
@@ -367,9 +365,10 @@ export default function MemoriesPage() {
             </Button>
           </div>
         ) : memories.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            暂无记忆，点击新建记忆按钮创建
-          </div>
+          <EmptyState
+            title="暂无记忆"
+            description="点击「新建记忆」按钮创建，供智能体在对话中检索"
+          />
         ) : (
           <>
             <div className="space-y-3">
@@ -422,35 +421,16 @@ export default function MemoriesPage() {
 
             {/* Pagination */}
             {info && (
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
-                  共 {info.total} 条，第 {info.page} /{" "}
-                  {Math.ceil(info.total / info.page_size)} 页
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!info.prev}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    <ChevronLeft className="mr-1 h-4 w-4" />
-                    上一页
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!info.next}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    下一页
-                    <ChevronRight className="ml-1 h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+              <Pagination
+                page={info.page}
+                pageSize={info.page_size}
+                total={info.total}
+                onPageChange={(next) => setPage(next)}
+              />
             )}
           </>
         )}
+        </div>
       </div>
 
       {/* Create dialog */}
@@ -504,6 +484,6 @@ export default function MemoriesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </ManagementLayout>
+    </div>
   );
 }

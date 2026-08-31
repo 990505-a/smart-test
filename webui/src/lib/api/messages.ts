@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import useSWRInfinite from "swr/infinite";
 import type {
   PaginatedMessagesResponse,
@@ -7,7 +8,13 @@ import type {
 } from "@/app/types/types";
 import { getConfig } from "@/lib/config";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+const fetcher = async (url: string): Promise<PaginatedMessagesResponse> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch messages: ${response.status}`);
+  }
+  return response.json();
+};
 
 /**
  * Hook for paginated message loading from the backend endpoint.
@@ -32,7 +39,7 @@ export function usePaginatedMessages(
         if (previousPageData && !previousPageData.has_more) return null;
 
         const config = getConfig();
-        const apiBase = config?.fastapiUrl || "http://localhost:8000";
+        const apiBase = config?.fastapiUrl || "http://localhost:5012";
 
         // First page: no cursor
         if (pageIndex === 0) {
@@ -50,21 +57,33 @@ export function usePaginatedMessages(
       {
         revalidateOnFocus: false,
         revalidateOnReconnect: false,
+        // Keep the previous thread's list visible while the new key loads —
+        // switching threads no longer unmounts/remounts the whole message list.
+        keepPreviousData: true,
       },
     );
 
   // Reverse page order (oldest page first), then flatten.
   // Each page's messages are already chronological (oldest→newest).
   // Page 0 = most recent messages, page 1 = older, so reverse page order first.
-  const messages: PaginatedMessage[] = data
-    ? [...data].reverse().flatMap((page) => page?.messages ?? []).filter(Boolean)
-    : [];
+  // Memoized: a stable identity here keeps downstream memo chains intact
+  // (the raw expression built a new array on every render).
+  // threadId 为空（点「新对话」）时必须立即清空：keepPreviousData 会在 key
+  // 变 null 后一直保留上一个会话的消息，界面上就表现为「点了新对话没反应」。
+  const messages: PaginatedMessage[] = useMemo(
+    () =>
+      threadId && data
+        ? [...data].reverse().flatMap((page) => page?.messages ?? []).filter(Boolean)
+        : [],
+    [data, threadId],
+  );
 
   // Total count from first page
-  const total: number = data?.[0]?.total ?? 0;
+  const total: number = threadId ? data?.[0]?.total ?? 0 : 0;
 
   // Whether more older messages exist
-  const hasMore: boolean = data ? data[data.length - 1]?.has_more ?? false : false;
+  const hasMore: boolean =
+    threadId && data ? data[data.length - 1]?.has_more ?? false : false;
 
   // Load next page (older messages)
   const loadMore = () => setSize(size + 1);

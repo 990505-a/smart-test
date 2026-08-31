@@ -4,11 +4,11 @@
     "testcase_agent": {
       "path": "./src/app/agents/testcase/agent.py:agent"
     },
-    "web_agent": {
-      "path": "./src/app/agents/web/agent.py:agent"
+    "unity_agent": {
+      "path": "./src/app/agents/unity/agent.py:agent"
     },
-    "api_agent": {
-      "path": "./src/app/agents/api/agent.py:agent"
+    "code_analyst_agent": {
+      "path": "./src/app/agents/code_analyst/agent.py:agent"
     }
   },
   "env": ".env"

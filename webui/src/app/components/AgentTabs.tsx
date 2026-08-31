@@ -2,12 +2,12 @@
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AGENT_CONFIG, type AgentKey } from "@/app/types/types";
-import { Bug, Globe, Code } from "lucide-react";
+import { Bug, CodeXml, Gamepad2 } from "lucide-react";
 
 const AGENT_ICONS: Record<AgentKey, React.ComponentType<{ className?: string }>> = {
   testcase: Bug,
-  web: Globe,
-  api: Code,
+  unity: Gamepad2,
+  codeanalyst: CodeXml,
 };
 
 export function AgentTabs({

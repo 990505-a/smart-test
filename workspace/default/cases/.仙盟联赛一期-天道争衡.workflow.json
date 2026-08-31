@@ -1,0 +1,476 @@
+{
+  "schema_version": 1,
+  "document_name": "仙盟联赛一期-天道争衡",
+  "revision": 4,
+  "content_hash": "df6fd9cd7ff496ce8b5f1e0d6855fe422da0554155c0626d2ce1449ad4d4bd77",
+  "lifecycle_status": "needs_clarification",
+  "lint_status": "passed",
+  "review_status": "not_run",
+  "lint_report": {
+    "ok": true,
+    "errors": [],
+    "warnings": [],
+    "stats": {
+      "case_count": 155,
+      "recognized_cases": 155,
+      "metadata_count": 155,
+      "requirements_covered": 21,
+      "risks_covered": 11
+    },
+    "content_hash": "df6fd9cd7ff496ce8b5f1e0d6855fe422da0554155c0626d2ce1449ad4d4bd77"
+  },
+  "review_report": null,
+  "review_round": 1,
+  "review_calls_total": 0,
+  "requirements": [
+    {
+      "acceptance_examples": [
+        "34 个单位报名：星级前 8 进天阶",
+        "黄阶不足 8 单位全部进黄阶"
+      ],
+      "description": "三通道报名（宗门达标/被邀请结盟/申请入盟），未报名成功宗门不可创建仙盟；报名期起点判定仙盟解锁（代码 is_union_unlock：解锁时间≤报名期起点才开，中途解锁不追溯；等号边界=解锁时间恰为报名期起点时判已解锁，列入 UQ-05 待确认）",
+      "id": "REQ-TDZH-001",
+      "priority": "P0",
+      "source": "需求PDF §报名 + GangSeasonUnionD.is_union_unlock 代码"
+    },
+    {
+      "acceptance_examples": [
+        "天道争衡赛季开启仙盟结盟入口",
+        "不允许结盟赛季全部仙盟功能隐藏"
+      ],
+      "description": "仙盟结盟玩法与结构兼容，不允许结盟赛季隐藏全部仙盟功能",
+      "id": "REQ-TDZH-002",
+      "priority": "P0",
+      "source": "需求PDF §结盟"
+    },
+    {
+      "acceptance_examples": [
+        "3+2=5 星组、2+1+1=4 星组",
+        "落单宗门以宗门单位参赛"
+      ],
+      "description": "报名期结束自动结盟：按星级降序、同星战力降序排序，以最高星宗门为盟主贪心装箱（累计星级≤5），不足 5 星剩余宗门同样成盟；执行异常时降级行为见 UQ-03",
+      "id": "REQ-TDZH-003",
+      "priority": "P0",
+      "source": "需求PDF §自动结盟 + 代码 UnionD.auto_make_union"
+    },
+    {
+      "acceptance_examples": [
+        "报名开始前入口未开",
+        "匹配确认时点后名单锁定"
+      ],
+      "description": "赛季阶段流程与时间窗口（报名/匹配确认/正赛/休赛），匹配确认时点后名单锁定",
+      "id": "REQ-TDZH-004",
+      "priority": "P0",
+      "source": "需求PDF §赛季流程"
+    },
+    {
+      "acceptance_examples": [
+        "第一轮 8 单位首尾配对 1v8/2v7/3v6/4v5",
+        "奇数组顺位最靠前且未轮空者轮空，全员轮空过一圈后清空标记重开一圈",
+        "第 4 轮按排名每 4 单位一组混战"
+      ],
+      "description": "分档匹配（每档 8 单位）与瑞士轮四轮对战规则（含轮空细则与第四轮分组）；末组轮空位次口径见 UQ-04",
+      "id": "REQ-TDZH-005",
+      "priority": "P0",
+      "source": "需求PDF §正赛 + VeinCongressMatchD.gen_turn_match_by_area"
+    },
+    {
+      "acceptance_examples": [
+        "同胜场败者积分低者靠前"
+      ],
+      "description": "排名规则：final_rank > 胜场 > 失败积分升序 > 星级 > 报名战力 > 时间 > rid；第四轮按灵气名次重排槽位",
+      "id": "REQ-TDZH-006",
+      "priority": "P0",
+      "source": "需求PDF §排名 + VeinCongressRankD 代码口径"
+    },
+    {
+      "acceptance_examples": [
+        "第 51 人进主战场被拦截"
+      ],
+      "description": "正赛战场玩法（灵阵/灵气/战勋/主副战场/人数上限/传送复活）",
+      "id": "REQ-TDZH-007",
+      "priority": "P1",
+      "source": "需求PDF §战场"
+    },
+    {
+      "acceptance_examples": [
+        "冠军仙盟两宗门分属两位面均获福泽"
+      ],
+      "description": "赛季与轮次奖励（冠军福泽多位面、头像底板、零胜参与奖）",
+      "id": "REQ-TDZH-008",
+      "priority": "P0",
+      "source": "需求PDF §奖励"
+    },
+    {
+      "acceptance_examples": [
+        "零投注每方赔率 2.12（截断非四舍五入）"
+      ],
+      "description": "料事如神竞猜：天阶盘口、支持率与赔率公式（截断保留 2 位小数）、投注锁赔率；结算三态（猜中按锁定赔率返奖、未中按 bet_lose_return=0.3 返还、无结果全额返还，代码口径）",
+      "id": "REQ-TDZH-009",
+      "priority": "P1",
+      "source": "需求PDF §竞猜 + VeinCongressBetD/GangSeasonUserD.do_bet_settlement 代码口径"
+    },
+    {
+      "acceptance_examples": [
+        "第 3 个灵脉宣战仅飘字达上限"
+      ],
+      "description": "灵脉宣战（个人上限 2/灵脉总上限/管理标记/退宗清除）",
+      "id": "REQ-TDZH-010",
+      "priority": "P0",
+      "source": "需求PDF §宣战 + gang_season_vein_config"
+    },
+    {
+      "acceptance_examples": [
+        "败也有 100 保底积分且扣光生命"
+      ],
+      "description": "灵脉争夺（镜像独立防守生命、进攻 10 次上限、积分规则、镇守保底、自动进攻、退宗清数据保积分、超时无效、1v1 不可手动操作）",
+      "id": "REQ-TDZH-011",
+      "priority": "P0",
+      "source": "需求PDF §争夺 + GangSeasonVeinFightD"
+    },
+    {
+      "acceptance_examples": [
+        "灵脉 1 第 2、灵脉 2 第 1 仅得灵脉 2 奖励；补发验证用 GM 缩短 back_time 而非真实等待 33 小时"
+      ],
+      "description": "灵脉结算（同分先达成、每盟最好一份奖励、back_time 补发邮件）",
+      "id": "REQ-TDZH-012",
+      "priority": "P0",
+      "source": "需求PDF §灵脉结算"
+    },
+    {
+      "acceptance_examples": [
+        "退宗后支脉进度保留"
+      ],
+      "description": "支脉蕴养（个人养成、材料校验、退宗保留、buff 生效）",
+      "id": "REQ-TDZH-013",
+      "priority": "P1",
+      "source": "需求PDF §支脉"
+    },
+    {
+      "acceptance_examples": [
+        "第 51 名起气运不计入且清零"
+      ],
+      "description": "主脉蕴养（每周六 20:20 Top50 汇总后清零、管理操作、三类灵气 buff、退宗继承进度但 buff 待新势力激活；赛季重置口径见 ASM-010/UQ-02）",
+      "id": "REQ-TDZH-014",
+      "priority": "P0",
+      "source": "需求PDF §主脉 + GangSeasonVeinAriseD 代码口径"
+    },
+    {
+      "acceptance_examples": [
+        "GM 置 chance=1/0 验证分支，概率值走统计口径（样本≥200 偏差±5%）"
+      ],
+      "description": "天道赐运日常事件（概率/保底/上限/刷新周期/休赛关闭；概率验证用 GM 固定 chance）",
+      "id": "REQ-TDZH-015",
+      "priority": "P1",
+      "source": "需求PDF §赐运"
+    },
+    {
+      "acceptance_examples": [
+        "正赛期第 N+1 人操作被拦截"
+      ],
+      "description": "仙盟管制（正赛期加入退出拦截、休赛期放开、人数限制、个人不可直接进出）",
+      "id": "REQ-TDZH-016",
+      "priority": "P0",
+      "source": "需求PDF §仙盟管制 + gang_union_config"
+    },
+    {
+      "acceptance_examples": [
+        "「本宗」全部改为「我方」"
+      ],
+      "description": "界面与文案改版（动态仙盟/宗门文本、势力榜、第四轮四方样式、拍脸、艺术字）",
+      "id": "REQ-TDZH-017",
+      "priority": "P1",
+      "source": "需求PDF §界面改版"
+    },
+    {
+      "acceptance_examples": [
+        "进入界面后红点消失"
+      ],
+      "description": "红点体系（宣战/进攻/领奖/蕴养/蕴养奖励/结盟提示/受邀结盟/申请处理）",
+      "id": "REQ-TDZH-018",
+      "priority": "P1",
+      "source": "需求PDF §红点"
+    },
+    {
+      "acceptance_examples": [
+        "仙盟发言进度+1，老赛季不计"
+      ],
+      "description": "周边兼容（未开仙盟服、老玩法模块、玉令双频道、人气应援）",
+      "id": "REQ-TDZH-019",
+      "priority": "P1",
+      "source": "需求PDF §兼容 + GangSeasonBattlePassD.is_yuling_chat_channel 代码"
+    },
+    {
+      "acceptance_examples": [
+        "汇总日志增量=Top50 求和"
+      ],
+      "description": "日志（宣战/争夺/蕴养/匹配/竞猜）",
+      "id": "REQ-TDZH-020",
+      "priority": "P2",
+      "source": "需求PDF §日志"
+    },
+    {
+      "acceptance_examples": [
+        "宣战期重启后宣战记录不变"
+      ],
+      "description": "稳定性（重启恢复、并发、临界、数据落地、人员变动、合服、海外）",
+      "id": "REQ-TDZH-021",
+      "priority": "P0",
+      "source": "需求PDF §稳定性"
+    }
+  ],
+  "coverage_plan": [
+    {
+      "notes": "ENT-001~005",
+      "req_id": "REQ-TDZH-001"
+    },
+    {
+      "notes": "SGN/UN/PROTO-005/SPC-004",
+      "req_id": "REQ-TDZH-002"
+    },
+    {
+      "notes": "UN-004~007",
+      "req_id": "REQ-TDZH-003"
+    },
+    {
+      "notes": "ENT-001/ENT-003/SGN-002/MTH-006/CFG-001",
+      "req_id": "REQ-TDZH-004"
+    },
+    {
+      "notes": "MTH/BTL/RNK",
+      "req_id": "REQ-TDZH-005"
+    },
+    {
+      "notes": "MTH-004/MTH-006/BTL/RNK",
+      "req_id": "REQ-TDZH-006"
+    },
+    {
+      "notes": "BTL-001~012/CFG-007/SPC-005",
+      "req_id": "REQ-TDZH-007"
+    },
+    {
+      "notes": "RWD/PROTO-006",
+      "req_id": "REQ-TDZH-008"
+    },
+    {
+      "notes": "BET-001~008/PROTO-004/LOG-005",
+      "req_id": "REQ-TDZH-009"
+    },
+    {
+      "notes": "DCL-001~008/PROTO-001/LOG-001",
+      "req_id": "REQ-TDZH-010"
+    },
+    {
+      "notes": "FGT-001~014/PROTO-002/LOG-002",
+      "req_id": "REQ-TDZH-011"
+    },
+    {
+      "notes": "VST-001~007/FGT-012/CFG-005",
+      "req_id": "REQ-TDZH-012"
+    },
+    {
+      "notes": "SLF-001~007/PROTO-003/CFG-004",
+      "req_id": "REQ-TDZH-013"
+    },
+    {
+      "notes": "MAIN-001~009/LOG-003",
+      "req_id": "REQ-TDZH-014"
+    },
+    {
+      "notes": "FRT-001~004/CFG-006",
+      "req_id": "REQ-TDZH-015"
+    },
+    {
+      "notes": "UN-003/UN-008/CTL-001~004/PROTO-005/CFG-008",
+      "req_id": "REQ-TDZH-016"
+    },
+    {
+      "notes": "ENT/各阶段拍脸与界面用例",
+      "req_id": "REQ-TDZH-017"
+    },
+    {
+      "notes": "RD-001~008",
+      "req_id": "REQ-TDZH-018"
+    },
+    {
+      "notes": "SPC-003/SPC-004/SPC-006/SPC-007/RNK-002/MTH-005/UI-002",
+      "req_id": "REQ-TDZH-019"
+    },
+    {
+      "notes": "LOG-001~005",
+      "req_id": "REQ-TDZH-020"
+    },
+    {
+      "notes": "EXC-001~007/CFG-009/SPC-001/SPC-002",
+      "req_id": "REQ-TDZH-021"
+    }
+  ],
+  "risks": [
+    {
+      "description": "万道争锋框架复用度低导致老功能回归",
+      "id": "RISK-TDZH-001",
+      "impact": "high",
+      "mitigation": "SPC-003/SPC-004 全流程回归 + 老玩法对照"
+    },
+    {
+      "description": "报名/结盟数据竞态导致名单错乱（并发覆盖缺口见 R3 high 项，待用户决策是否补并发用例）",
+      "id": "RISK-TDZH-002",
+      "impact": "high",
+      "mitigation": "SGN-007 并发用例 + EXC-004；建议补充结盟邀请/审批/脱离/满星临界并发用例（待用户决策）"
+    },
+    {
+      "description": "自动结盟算法边界（贪心装箱、落单、异常降级）出错",
+      "id": "RISK-TDZH-003",
+      "impact": "medium",
+      "mitigation": "UN-004~007 按代码 clan_sort 口径构造；UN-006 异常降级口径待 UQ-03"
+    },
+    {
+      "description": "匹配分档/瑞士轮配对错误",
+      "id": "RISK-TDZH-004",
+      "impact": "high",
+      "mitigation": "MTH-001 边界 + BTL-001~004；BTL-004 末组位次待 UQ-04"
+    },
+    {
+      "description": "灵脉争夺互斥/上限/超时边界并发问题",
+      "id": "RISK-TDZH-005",
+      "impact": "high",
+      "mitigation": "FGT-002/003/010 + EXC-004/005"
+    },
+    {
+      "description": "管理职务与权限校验遗漏（两套职务）",
+      "id": "RISK-TDZH-006",
+      "impact": "medium",
+      "mitigation": "BTL-008/009、DCL-004、MAIN-003、CTL 组"
+    },
+    {
+      "description": "蕴养数据跨势力迁移与每周清零口径错误",
+      "id": "RISK-TDZH-007",
+      "impact": "medium",
+      "mitigation": "MAIN-001/002/006/007；赛季重置口径待 UQ-02"
+    },
+    {
+      "description": "奖励重复发放/漏发/补发失败",
+      "id": "RISK-TDZH-008",
+      "impact": "high",
+      "mitigation": "VST-002/004、RWD 组、PROTO-006"
+    },
+    {
+      "description": "竞猜赔率与结算计算错误",
+      "id": "RISK-TDZH-009",
+      "impact": "medium",
+      "mitigation": "BET-002~006 按代码公式"
+    },
+    {
+      "description": "定时任务重启恢复/幂等补做出错",
+      "id": "RISK-TDZH-010",
+      "impact": "high",
+      "mitigation": "EXC-001/006、MAIN-002"
+    },
+    {
+      "description": "配置表与文档数值不一致上线风险",
+      "id": "RISK-TDZH-011",
+      "impact": "medium",
+      "mitigation": "CFG 组逐表核对 + CFG-009 差异清单"
+    }
+  ],
+  "source_manifest": [],
+  "scope": {
+    "in": [
+      "天道争衡赛季（module=3）报名/结盟/匹配/正赛/结算全流程",
+      "灵脉逐鹿（宣战/争夺/结算）",
+      "灵脉蕴养（支脉/主脉/赐运）",
+      "料事如神竞猜",
+      "赛季奖励与仙盟管制",
+      "界面文案/红点/日志/协议/异常/专项",
+      "周边兼容：未开仙盟服、老玩法模块、玉令双频道、人气应援"
+    ],
+    "out": [
+      "宗门核心系统（建宗/宗门任务等）既有功能",
+      "万道争锋/运筹帷幄自身玩法细节（仅测仙盟单位结构兼容）",
+      "客服/运营后台"
+    ]
+  },
+  "assumptions": [
+    {
+      "content": "所有数值（时段、次数、积分、上限、奖励）一律以当前 json_etc 配置为准，需求文档数值仅作参考",
+      "id": "ASM-001"
+    },
+    {
+      "content": "与灵脉镇守怪对战不论胜负均获得保底进攻积分，且扣光全部进攻生命值（用户已确认）",
+      "id": "ASM-002"
+    },
+    {
+      "content": "星级不足 5 星的剩余宗门同样组成仙盟参赛（用户已确认）",
+      "id": "ASM-003"
+    },
+    {
+      "content": "排名 tiebreaker 按代码口径：final_rank > 胜场降序 > 失败积分 fail_point 升序 > 星级 > 报名战力 > 时间 > rid（用户已确认）",
+      "id": "ASM-004"
+    },
+    {
+      "content": "结盟开关按「允许/不允许」两种配置态设计用例，不绑定具体字段名",
+      "id": "ASM-005"
+    },
+    {
+      "content": "灵脉 name 为 i18n 占位 key、icon 待配，按占位正常显示即算通过",
+      "id": "ASM-006"
+    },
+    {
+      "content": "每档 8 单位 + 四轮瑞士轮为上线口径",
+      "id": "ASM-007"
+    },
+    {
+      "content": "未加入宗门玩家的联赛入口表现：弹「需加入宗门」类提示且不进入主界面；执行时以实际文案截图留档",
+      "id": "ASM-008"
+    },
+    {
+      "content": "【推定，待 UQ-01 确认】报名结束前宗门脱离仙盟：若原报名人数达标则保留参赛名单转为宗门单位，不达标则移除（PDF 无明文；SGN-005 为探索性验证，不做通过/失败判定）",
+      "id": "ASM-009"
+    },
+    {
+      "content": "【推定，待 UQ-02 确认】赛季切换时主脉气运清空、主/支脉蕴养进度重置（参照宗门物资随赛季清空口径推定；MAIN-007 为探索性验证，不做通过/失败判定）",
+      "id": "ASM-010"
+    }
+  ],
+  "unresolved_questions": [
+    {
+      "blocking": true,
+      "id": "UQ-01",
+      "impact": "CASE-TDZH-SGN-005（P0 报名资格）；ASM-009",
+      "question": "报名结束前宗门从仙盟脱离后，参赛名单如何处理？（A：原报名人数达标则保留名单转为宗门单位，不达标移除——当前推定；B：一律移除需重新报名；C：其他口径）"
+    },
+    {
+      "blocking": true,
+      "id": "UQ-02",
+      "impact": "CASE-TDZH-MAIN-007（P0 蕴养数据）；ASM-010",
+      "question": "赛季切换时主脉气运、主脉蕴养进度、支脉蕴养进度、week_gain 各自是否清空重置？（当前按宗门物资随赛季清空口径推定全部重置）"
+    },
+    {
+      "blocking": false,
+      "id": "UQ-03",
+      "impact": "CASE-TDZH-UN-006（自动结盟异常降级）",
+      "question": "自动结盟执行抛异常时的降级行为？（A：未结盟宗门以宗门单位继续，流程不阻塞——当前推定；B：中断报名流程；C：重试机制）需开发确认 auto_make_union 异常路径"
+    },
+    {
+      "blocking": false,
+      "id": "UQ-04",
+      "impact": "CASE-TDZH-BTL-004（第四轮末组轮空）",
+      "question": "第四轮末组仅剩 1 单位轮空时，最终名次如何处理？（A：保持第三轮位次不上升——当前断言；B：上升补位）需开发核对 gen_turn_match_by_area 实际口径"
+    },
+    {
+      "blocking": false,
+      "id": "UQ-05",
+      "impact": "CASE-TDZH-SGN-003（仙盟解锁边界）",
+      "question": "服务器解锁时间恰好等于报名期起点时，是否判定为已解锁？（代码 unlock_time≤sign_time 含等号，推断应判已解锁，待确认）"
+    }
+  ],
+  "approved_by": null,
+  "approved_at": null,
+  "released_by": null,
+  "released_at": null,
+  "created_at": "2026-08-30T15:21:41.354536+00:00",
+  "updated_at": "2026-08-31T02:20:58.366804+00:00",
+  "package_id": null,
+  "package_name": "仙盟联赛一期-天道争衡",
+  "package_strict": true
+}

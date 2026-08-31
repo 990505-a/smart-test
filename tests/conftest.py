@@ -1,9 +1,17 @@
 """Shared pytest fixtures for the smart-test-platform test suite."""
 import base64
 import io
+import sys
+from pathlib import Path
 
 import pytest
 from reportlab.pdfgen import canvas
+
+# Production (LangGraph agent server) imports the app package both as "app"
+# and "src.app"; mirror that here so lazy imports inside modules resolve.
+_SRC_DIR = Path(__file__).resolve().parent.parent / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 
 @pytest.fixture

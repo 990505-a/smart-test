@@ -1,15 +1,13 @@
 """Project model definition.
 
-Stores test project information. Adapted from classroom reference:
-- Removed User FK (D-04), replaced with plain UUID using DEFAULT_USER_ID
-- Removed Team, APITest, WebTest, WebFunction, WebSubFunction relationships
-- Kept Project -> Folders, TestCases, Tags, TestRuns, APIEndpoints relationships
+Stores test project information. 2026-08 用例 MD 重构后仅作为附件等
+资源的归属锚点；测试用例本体存于 workspace/default/cases/*.md。
 """
 
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, Text, Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, Text, Uuid
+from sqlalchemy.orm import Mapped, mapped_column
 
 from src.app.db.database import Base
 from src.app.db.models.base import TimestampMixin, UUIDMixin
@@ -45,43 +43,6 @@ class Project(Base, UUIDMixin, TimestampMixin):
         default=lambda: DEFAULT_USER_ID,
         nullable=False,
         comment="Creator ID",
-    )
-
-    # Relationships (string forward references to avoid circular imports)
-    folders: Mapped[list["Folder"]] = relationship(
-        "Folder",
-        back_populates="project",
-        cascade="all, delete-orphan",
-    )
-    test_cases: Mapped[list["TestCase"]] = relationship(
-        "TestCase",
-        back_populates="project",
-        cascade="all, delete-orphan",
-    )
-    tags: Mapped[list["Tag"]] = relationship(
-        "Tag",
-        back_populates="project",
-        cascade="all, delete-orphan",
-    )
-    test_runs: Mapped[list["TestRun"]] = relationship(
-        "TestRun",
-        back_populates="project",
-        cascade="all, delete-orphan",
-    )
-    api_endpoints: Mapped[list["APIEndpoint"]] = relationship(
-        "APIEndpoint",
-        back_populates="project",
-        cascade="all, delete-orphan",
-    )
-    web_functions: Mapped[list["WebFunction"]] = relationship(
-        "WebFunction",
-        back_populates="project",
-        cascade="all, delete-orphan",
-    )
-    web_tests: Mapped[list["WebTest"]] = relationship(
-        "WebTest",
-        back_populates="project",
-        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:

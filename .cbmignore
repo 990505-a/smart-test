@@ -1,0 +1,7 @@
+# BEGIN smart-test-platform (managed — 修改文件类型配置会重写此块)
+*
+!*/
+!*.gs
+!*.lua
+!*.cs
+# END smart-test-platform (managed)

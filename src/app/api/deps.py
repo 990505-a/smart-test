@@ -37,46 +37,6 @@ async def get_project_service(db: DbSessionDep) -> "ProjectService":
 ProjectServiceDep = Annotated["ProjectService", Depends(get_project_service)]
 
 
-# Folder service
-async def get_folder_service(db: DbSessionDep) -> "FolderService":
-    from src.app.db.services.folder_service import FolderService
-
-    return FolderService(db)
-
-
-FolderServiceDep = Annotated["FolderService", Depends(get_folder_service)]
-
-
-# Test case service
-async def get_test_case_service(db: DbSessionDep) -> "TestCaseService":
-    from src.app.db.services.test_case_service import TestCaseService
-
-    return TestCaseService(db)
-
-
-TestCaseServiceDep = Annotated["TestCaseService", Depends(get_test_case_service)]
-
-
-# Test run service
-async def get_test_run_service(db: DbSessionDep) -> "TestRunService":
-    from src.app.db.services.test_run_service import TestRunService
-
-    return TestRunService(db)
-
-
-TestRunServiceDep = Annotated["TestRunService", Depends(get_test_run_service)]
-
-
-# Test result service
-async def get_test_result_service(db: DbSessionDep) -> "TestResultService":
-    from src.app.db.services.test_result_service import TestResultService
-
-    return TestResultService(db)
-
-
-TestResultServiceDep = Annotated["TestResultService", Depends(get_test_result_service)]
-
-
 # Attachment service
 async def get_attachment_service(db: DbSessionDep) -> "AttachmentService":
     from src.app.db.services.attachment_service import AttachmentService
@@ -95,26 +55,6 @@ async def get_workspace_service(db: DbSessionDep) -> "WorkspaceService":
 
 
 WorkspaceServiceDep = Annotated["WorkspaceService", Depends(get_workspace_service)]
-
-
-# Web function service
-async def get_web_function_service(db: DbSessionDep) -> "WebFunctionService":
-    from src.app.db.services.web_function_service import WebFunctionService
-
-    return WebFunctionService(db)
-
-
-WebFunctionServiceDep = Annotated["WebFunctionService", Depends(get_web_function_service)]
-
-
-# Web test service
-async def get_web_test_service(db: DbSessionDep) -> "WebTestService":
-    from src.app.db.services.web_test_service import WebTestService
-
-    return WebTestService(db)
-
-
-WebTestServiceDep = Annotated["WebTestService", Depends(get_web_test_service)]
 
 
 # Configuration service

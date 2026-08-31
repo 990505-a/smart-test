@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LangGraph API Server for Smart Test Platform - Port 2026
+LangGraph API Server for Smart Test Platform - Port 5011
 
 Starts the LangGraph API server with multi-agent routing configured
 via graph.json. Three agent stubs (testcase/web/api) are registered
@@ -28,7 +28,21 @@ def setup_environment():
             config = json.load(f)
             graphs = config.get("graphs", {})
 
-    # Set environment variables
+    # .env must load BEFORE the defaults below so an explicit
+    # N_JOBS_PER_WORKER in .env can override the built-in default
+    # (load_dotenv never clobbers already-set process env vars).
+    env_file = Path(__file__).parent / ".env"
+    if env_file.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(env_file)
+            print("Loaded environment from .env")
+        except ImportError:
+            print("python-dotenv not installed, skipping .env file")
+
+    # N_JOBS_PER_WORKER = server-wide concurrent run slots (inmem queue).
+    # 1 serializes ALL conversations (window B waits for window A's reply);
+    # default 4 lets several chats/subagent batches run in parallel.
     os.environ.update({
         "DATABASE_URI": ":memory:",
         "REDIS_URI": "fake",
@@ -39,24 +53,14 @@ def setup_environment():
         "LANGSMITH_LANGGRAPH_API_VARIANT": "local_dev",
         "LANGGRAPH_DISABLE_FILE_PERSISTENCE": "true",
         "LANGGRAPH_ALLOW_BLOCKING": "true",
-        "LANGGRAPH_API_URL": "http://localhost:2026",
+        "LANGGRAPH_API_URL": "http://localhost:5011",
         "LANGSERVE_GRAPHS": json.dumps(graphs) if graphs else "{}",
-        "N_JOBS_PER_WORKER": "1",
+        "N_JOBS_PER_WORKER": os.environ.get("N_JOBS_PER_WORKER", "4"),
     })
-
-    # Load .env file if exists
-    env_file = Path(__file__).parent / ".env"
-    if env_file.exists():
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(env_file)
-            print("Loaded environment from .env")
-        except ImportError:
-            print("python-dotenv not installed, skipping .env file")
 
 
 def main():
-    """Start the LangGraph API server on port 2026."""
+    """Start the LangGraph API server on port 5011."""
     print("Starting Smart Test Platform API Server...")
 
     # Setup environment
@@ -64,19 +68,21 @@ def main():
 
     # Print server information
     print("\n" + "=" * 60)
-    print("Server URL: http://localhost:2026")
-    print("API Documentation: http://localhost:2026/docs")
-    print("Studio UI: http://localhost:2026/ui")
-    print("Health Check: http://localhost:2026/ok")
+    print("Server URL: http://localhost:5011")
+    print("API Documentation: http://localhost:5011/docs")
+    print("Studio UI: http://localhost:5011/ui")
+    print("Health Check: http://localhost:5011/ok")
     print("=" * 60)
 
     try:
         import uvicorn
 
+        log_file_path = str(Path(__file__).parent / "langgraph_server.log")
+
         uvicorn.run(
             "langgraph_api.server:app",
             host="0.0.0.0",
-            port=2026,
+            port=5011,
             reload=False,
             access_log=False,
             log_config={
@@ -92,11 +98,17 @@ def main():
                         "formatter": "default",
                         "class": "logging.StreamHandler",
                         "stream": "ext://sys.stdout",
+                    },
+                    "file": {
+                        "formatter": "default",
+                        "class": "logging.FileHandler",
+                        "filename": log_file_path,
+                        "encoding": "utf-8",
                     }
                 },
                 "root": {
                     "level": "INFO",
-                    "handlers": ["default"],
+                    "handlers": ["default", "file"],
                 },
                 "loggers": {
                     "uvicorn": {"level": "INFO"},

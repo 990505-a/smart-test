@@ -24,6 +24,20 @@ node_modules/
 # Track skill source files and contracts in default workspace
 workspace/default/web/web-output/
 workspace/default/testcase/
+workspace/default/dsh/
 
 # RAG storage
 rag_storage/
+
+# Runtime logs
+*.log
+logs/
+dsh/logs/
+
+# SQLite runtime data (live db + local backups)
+*.db
+
+# Local tool state
+.pytest_cache/
+.langgraph_api/
+.zcode/

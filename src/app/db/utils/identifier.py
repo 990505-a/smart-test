@@ -45,9 +45,22 @@ async def generate_identifier(prefix: str, lock_key: str) -> str:
 
 
 def generate_identifier_simple(prefix: str) -> str:
-    """Generate simple identifier without database dependency.
+    """Generate identifier with high uniqueness guarantee.
 
-    For testing only. NOT concurrency-safe.
+    Uses microsecond-precision timestamp combined with a random suffix to produce
+    identifiers that are unique with very high probability. Suitable for batch
+    inserts where calling the async database-backed generate_identifier per row
+    is impractical.
+
+    Format: {prefix}-{SSSSSSSuuuuRRRRRR} where uuuu = microseconds (4 hex),
+    RRRRRR = random 6 hex digits.  Total ~80 billion values per second makes
+    collisions extremely unlikely even with tight loops or concurrent workers.
     """
     import random
-    return f"{prefix}-{random.randint(1000, 9999)}"
+    import time
+
+    now = time.time()
+    sec = int(now) % 10000000           # 7 seconds digits (enough for ~115 days)
+    usec = int((now % 1) * 65536)       # 4 hex digits of sub-second precision
+    rand = random.randint(0, 0xFFFFFF)  # 6 hex digits of randomness
+    return f"{prefix}-{sec:07d}{usec:04x}{rand:06x}"

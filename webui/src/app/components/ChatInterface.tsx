@@ -1,21 +1,26 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect, useMemo, Fragment, FormEvent } from "react";
+import { Virtuoso } from "react-virtuoso";
 import { Button } from "@/components/ui/button";
-import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderGit2, Hash, Settings, BookOpen, ChevronUp } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderGit2, Settings, ChevronUp, FlaskConical, Brain, ShieldAlert } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useQueryState } from "nuqs";
+import { toast } from "sonner";
+import { apiClient } from "@/lib/api-client";
 
-/** Extract task IDs like M72-177558 from text */
-function extractTaskIds(text: string): string[] {
-  const matches = text.match(/\b[A-Za-z][A-Za-z0-9]*-\d{3,8}\b/g);
-  if (!matches) return [];
-  return [...new Set(matches)];
-}
 import { useFileUpload } from "@/app/hooks/useFileUpload";
 import { ContentBlocksPreview } from "@/app/components/ContentBlocksPreview";
+import { UploadProgressList } from "@/app/components/UploadProgress";
 import {
   Dialog,
   DialogContent,
@@ -25,13 +30,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type { ToolCall, TodoItem } from "@/app/types/types";
+import type { ToolCall, TodoItem, SubAgent } from "@/app/types/types";
 import type { Message } from "@langchain/langgraph-sdk";
-import { useWikis, useCreateWiki, useDeleteWiki } from "@/lib/api/useWikis";
+import { SubAgentPanel } from "@/app/components/SubAgentPanel";
 
 interface ChatInterfaceProps {
   assistantId: string;
 }
+
+/** Stable empty tool-call array shared by all human messages (memo safety). */
+const EMPTY_TOOLCALLS: ToolCall[] = [];
 
 const getStatusIcon = (status: TodoItem["status"], className?: string) => {
   switch (status) {
@@ -50,92 +58,87 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
   const [repoList, setRepoList] = useState<string[]>([]);
   const [selectedRepo, setSelectedRepo] = useState("");
-  const [taskId, setTaskId] = useState("");
   const [repoDialogOpen, setRepoDialogOpen] = useState(false);
-  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [newRepoPath, setNewRepoPath] = useState("");
 
   // Scroll container ref for auto-scroll
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
 
-  // Wiki selector state
-  const WIKI_STORAGE_KEY = "smart-test-platform-wiki";
-  const [selectedWiki, setSelectedWiki] = useState("");
-  const [wikiDialogOpen, setWikiDialogOpen] = useState(false);
-  const [newWikiName, setNewWikiName] = useState("");
-  const [newWikiPath, setNewWikiPath] = useState("");
-  const { data: wikiData } = useWikis();
-  const { trigger: createWiki } = useCreateWiki();
-  const { trigger: deleteWiki } = useDeleteWiki();
-  const wikiList = wikiData?.data ?? [];
-
-  // Load selected wiki from localStorage
+  // Read threadId from URL — 线程懒创建：首条消息/首次文件上传时才有 id
+  const [currentThreadId] = useQueryState("threadId");
+  // Reasoning effort chip state (?effort=off|low|medium|high); defaults to high
+  const [reasoningEffort, setReasoningEffort] = useQueryState("effort", {
+    defaultValue: "high",
+  });
+  // execute 审批档位（?permission=workspace_write|full_access）。
+  // read_only 已移除：用例工作流必须落盘，只读档等于关闭流程；旧链接回落工作区档。
+  const [permissionMode, setPermissionMode] = useQueryState("permission", {
+    defaultValue: "workspace_write",
+  });
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(WIKI_STORAGE_KEY);
-      if (saved) setSelectedWiki(saved);
-    } catch {}
-  }, []);
+    if (permissionMode === "read_only") setPermissionMode("workspace_write");
+  }, [permissionMode, setPermissionMode]);
+  // 切到完全访问需要二次确认（dsh: RiskConfirmation）
+  const [fullAccessConfirmOpen, setFullAccessConfirmOpen] = useState(false);
+
+  // 需在 useFileUpload 之前解构：ensureThreadId 传给上传 hook 按需建线程
+  const {
+    messages,
+    isLoading,
+    sendMessage,
+    stopStream,
+    interrupt,
+    resumeInterrupt,
+    ensureThreadId,
+    todos,
+    files,
+    ui,
+    isLoadingHistory,
+    hasOlderMessages,
+    loadOlderMessages,
+    historyError,
+    threadId,
+    getSubAgentFeed,
+    isSubAgentTaskClosed,
+    subagentVersion,
+  } = useChatContext();
 
   const {
     contentBlocks,
+    uploads,
+    isUploading,
     handleFileUpload,
     dropRef,
     removeContentBlock,
     clearContentBlocks,
     isDragging,
     handlePaste,
-  } = useFileUpload();
+  } = useFileUpload(undefined, currentThreadId ?? undefined, ensureThreadId);
 
   const REPO_STORAGE_KEY = "smart-test-platform-repos";
-  const TASK_MAP_STORAGE_KEY = "smart-test-platform-task-map";
 
-  // Read threadId from URL to persist taskId per thread
-  const [currentThreadId] = useQueryState("threadId");
-
-  // Load repos from localStorage (repo is global, task is per-conversation)
+  // Load repos: localStorage 手动添加的 + 平台「代码图谱」页保存的受管仓库,合并去重
   useEffect(() => {
+    let local: string[] = [];
     try {
       const saved = localStorage.getItem(REPO_STORAGE_KEY);
-      if (saved) {
-        const repos: string[] = JSON.parse(saved);
-        setRepoList(repos);
-        if (repos.length > 0) setSelectedRepo(repos[0]);
-      }
+      if (saved) local = JSON.parse(saved);
     } catch {}
-  }, []);
-
-  // Load/clear taskId when switching threads
-  useEffect(() => {
-    if (!currentThreadId) {
-      // No thread (new chat) — clear task
-      setTaskId("");
-      return;
-    }
-    // Existing thread — restore its task from localStorage (if saved)
-    try {
-      const mapRaw = localStorage.getItem(TASK_MAP_STORAGE_KEY);
-      const map: Record<string, string> = mapRaw ? JSON.parse(mapRaw) : {};
-      if (map[currentThreadId] !== undefined) {
-        setTaskId(map[currentThreadId]);
-      }
-      // If not saved yet (new thread after first message), don't overwrite
-    } catch {}
-  }, [currentThreadId]);
-
-  // Save taskId for current thread whenever it changes (debounced via dialog close)
-  const persistTaskForThread = useCallback((threadId: string | null, task: string) => {
-    if (!threadId) return;
-    try {
-      const mapRaw = localStorage.getItem(TASK_MAP_STORAGE_KEY);
-      const map: Record<string, string> = mapRaw ? JSON.parse(mapRaw) : {};
-      if (task) {
-        map[threadId] = task;
-      } else {
-        delete map[threadId];
-      }
-      localStorage.setItem(TASK_MAP_STORAGE_KEY, JSON.stringify(map));
-    } catch {}
+    apiClient
+      .get<{ repos: { repo_path: string }[] }>("/codebase/repos")
+      .then((res) => {
+        const platform: string[] = (res.data?.repos ?? []).map(
+          (r) => r.repo_path,
+        );
+        const merged = [...new Set([...local, ...platform])];
+        setRepoList(merged);
+        setSelectedRepo((prev) => prev || merged[0] || "");
+      })
+      .catch(() => {
+        // 平台接口不可达时退回 localStorage
+        setRepoList(local);
+        if (local.length > 0) setSelectedRepo(local[0]);
+      });
   }, []);
 
   // Save repos to localStorage
@@ -162,28 +165,19 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     }
   }, [repoList, selectedRepo, saveRepoList]);
 
-  // Close task dialog and persist for current thread
-  const handleCloseTaskDialog = useCallback(() => {
-    persistTaskForThread(currentThreadId, taskId);
-    setTaskDialogOpen(false);
-  }, [currentThreadId, taskId, persistTaskForThread]);
+  // 子智能体实时操作面板（右侧抽屉）
+  const [activitySubAgent, setActivitySubAgent] = useState<SubAgent | null>(null);
+  const handleSubAgentActivity = useCallback((sa: SubAgent) => {
+    setActivitySubAgent(sa);
+  }, []);
 
-  const {
-    messages,
-    isLoading,
-    sendMessage,
-    stopStream,
-    todos,
-    files,
-    ui,
-    isLoadingHistory,
-    hasOlderMessages,
-    loadOlderMessages,
-    historyError,
-    threadId,
-  } = useChatContext();
+  useEffect(() => {
+    setActivitySubAgent(null);
+  }, [currentThreadId, assistantId]);
 
   const submitDisabled = isLoading || !assistantId;
+  // 审批等待期间不允许并发发消息（dsh：审批接管输入区）
+  const approvalPending = !!interrupt;
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -194,29 +188,32 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
       if (
         (!messageText && contentBlocks.length === 0) ||
         isLoading ||
-        submitDisabled
+        submitDisabled ||
+        approvalPending
       )
         return;
-      // Inject code analysis context into message so agent can see it
-      const ids = taskId ? extractTaskIds(taskId) : [];
-      const wikiContext = selectedWiki
-        ? `\n[Wiki 知识库] 当前查询目标: ${selectedWiki}`
-        : "";
-      const contextPrefix = (selectedRepo || ids.length > 0 || selectedWiki)
-        ? `[代码分析上下文 - 可在任何阶段使用此信息辅助分析]${selectedRepo ? ` 仓库路径: ${selectedRepo}` : ""}${ids.length > 0 ? ` 任务单号: ${ids.join(", ")}` : ""}${wikiContext}\n\n`
-        : "";
-      sendMessage(contextPrefix + messageText, contentBlocks, {
-        repoPath: selectedRepo || undefined,
-        taskId: taskId || undefined,
-      });
-      // Persist taskId so it survives thread creation
-      if (taskId && currentThreadId) {
-        persistTaskForThread(currentThreadId, taskId);
+      // Files still converting/uploading — sending now would drop them.
+      if (isUploading) {
+        toast.error("文件还在上传中，请等待上传完成后再发送");
+        return;
       }
+      // 每次对话必须挂载代码仓库：未选择时阻断发送并引导选择
+      if (!selectedRepo) {
+        toast.error("请先选择要分析的代码仓库（会话将挂载该仓库供智能体检索）");
+        setRepoDialogOpen(true);
+        return;
+      }
+      // Inject code analysis context into message so agent can see it
+      const contextPrefix = `[代码分析上下文 - 可在任何阶段使用此信息辅助分析] 仓库路径: ${selectedRepo}\n\n`;
+      // 用户主动发消息 → 强制恢复底部跟随
+      isNearBottomRef.current = true;
+      sendMessage(contextPrefix + messageText, contentBlocks, {
+        repoPath: selectedRepo,
+      });
       setInput("");
       clearContentBlocks();
     },
-    [input, contentBlocks, isLoading, sendMessage, submitDisabled, clearContentBlocks],
+    [input, contentBlocks, isLoading, isUploading, approvalPending, sendMessage, submitDisabled, clearContentBlocks, selectedRepo],
   );
 
   const handleKeyDown = useCallback(
@@ -265,17 +262,19 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
           const toolUseBlocks = (message.content as Array<{ type?: string }>).filter(
             (block) => block.type === "tool_use",
           );
-          toolCallsInMessage.push(...(toolUseBlocks as any[]));
+          toolCallsInMessage.push(...(toolUseBlocks as typeof toolCallsInMessage));
         }
 
         const toolCallsWithStatus = toolCallsInMessage.map(
-          (tc): ToolCall => {
+          (tc, i): ToolCall => {
             const name =
               tc.function?.name || tc.name || tc.type || "unknown";
             const args =
               tc.function?.arguments || tc.args || tc.input || {};
             return {
-              id: tc.id || `tool-${Math.random()}`,
+              // Deterministic fallback id: random ids remount tool cards on
+              // every recompute and break React reconciliation.
+              id: tc.id || `tool-${name}-${i}`,
               name,
               args: typeof args === "object" && args !== null ? args as Record<string, unknown> : {},
               status: "pending" as const,
@@ -285,7 +284,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
 
         messageMap.set(message.id!, { message, toolCalls: toolCallsWithStatus });
       } else if (message.type === "tool") {
-        const toolCallId = (message as any).tool_call_id;
+        // 历史消息从 SQLite 加载时 tool_call_id 曾并入 additional_kwargs 返回，两处都读
+        const toolMsg = message as Message & { tool_call_id?: string };
+        const toolCallId =
+          toolMsg.tool_call_id ??
+          (message.additional_kwargs as { tool_call_id?: string } | undefined)
+            ?.tool_call_id;
         if (!toolCallId) return;
         for (const [, data] of Array.from(messageMap.entries())) {
           const idx = data.toolCalls.findIndex((tc) => tc.id === toolCallId);
@@ -295,8 +299,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
               ? message.content
               : Array.isArray(message.content)
                 ? message.content
-                    .map((b: any) =>
-                      typeof b === "string" ? b : b.text ?? "",
+                    .map((b) =>
+                      typeof b === "string" ? b : (b as { text?: string }).text ?? "",
                     )
                     .join("")
                 : "";
@@ -308,12 +312,51 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
           break;
         }
       } else if (message.type === "human") {
-        messageMap.set(message.id!, { message, toolCalls: [] });
+        // Shared constant: a fresh [] literal per message would defeat
+        // React.memo on ChatMessage for every historical message.
+        messageMap.set(message.id!, { message, toolCalls: EMPTY_TOOLCALLS });
       }
     });
 
+    // 流已结束（或纯历史查看）时，仍未等到结果的工具调用按已完成渲染：
+    // 旧数据缺少 tool_call_id 时结果永远匹配不上，子智能体会一直转「执行中」
+    if (!isLoading) {
+      for (const [, data] of Array.from(messageMap.entries())) {
+        // 跳过空数组：human 消息共享 EMPTY_TOOLCALLS，重新 map 会破坏 memo
+        if (data.toolCalls.length === 0) continue;
+        data.toolCalls = data.toolCalls.map((tc) =>
+          tc.status === "pending" ? { ...tc, status: "completed" as const } : tc,
+        );
+      }
+    }
+
     return Array.from(messageMap.values());
-  }, [messages]);
+  }, [messages, isLoading, subagentVersion]);
+
+  // 面板显示的子智能体实时化：点击传入的是当时的快照（status/output 停在
+  // 点击那一刻），这里从当前消息流重建，状态与最终输出随流更新
+  const liveSubAgent = useMemo(() => {
+    if (!activitySubAgent) return null;
+    for (const { toolCalls } of processedMessages) {
+      const tc = toolCalls.find((t) => t.id === activitySubAgent.id && t.name === "task");
+      if (tc) {
+        return {
+          id: tc.id,
+          name: tc.name,
+          subAgentName: String(tc.args?.subagent_type ?? ""),
+          input: tc.args,
+          output: tc.result ? { result: tc.result } : undefined,
+          status:
+            tc.status === "completed" || isSubAgentTaskClosed(tc.id)
+              ? ("completed" as const)
+              : tc.status === "error"
+                ? ("error" as const)
+                : ("active" as const),
+        };
+      }
+    }
+    return activitySubAgent;
+  }, [activitySubAgent, processedMessages, isSubAgentTaskClosed, subagentVersion]);
 
   // Grouped todos for display
   const groupedTodos = useMemo(() => ({
@@ -341,62 +384,127 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     return map;
   }, [ui]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages — ONLY when the user is already
+  // near the bottom. Streaming in background (subagent/tool results) must
+  // never yank the viewport while the user is reading older messages.
   const lastMessageId = messages?.at(-1)?.id;
+  const isNearBottomRef = useRef(true);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
+    // 新会话从底部开始跟随（Virtuoso initialTopMostItemIndex 已定位到底部）
+    isNearBottomRef.current = true;
     if (!el) return;
+    const onScroll = () => {
+      isNearBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+    // Re-attach when the Virtuoso scroller mounts/unmounts (list empty ↔ non-empty)
+  }, [processedMessages.length > 0, currentThreadId]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || !isNearBottomRef.current) return;
     const frameId = window.requestAnimationFrame(() => {
       el.scrollTo({
         top: el.scrollHeight,
-        behavior: isLoading ? "auto" : "smooth",
+        behavior: "auto",
       });
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [lastMessageId, messages?.length, isLoading]);
+  }, [lastMessageId, messages?.length]);
+
+  // Virtualization: when older pages are prepended (loading history), tell
+  // Virtuoso via firstItemIndex so it keeps the viewport anchored instead of
+  // jumping. Detected by the oldest message id changing with a length gain.
+  const [firstItemIndex, setFirstItemIndex] = useState(1_000_000);
+  const prevListRef = useRef<{ oldest?: string; len: number }>({ len: 0 });
+  useEffect(() => {
+    const oldest = processedMessages[0]?.message.id;
+    const prev = prevListRef.current;
+    if (
+      prev.oldest &&
+      oldest &&
+      oldest !== prev.oldest &&
+      processedMessages.length > prev.len
+    ) {
+      setFirstItemIndex((v) => Math.max(1, v - (processedMessages.length - prev.len)));
+    }
+    prevListRef.current = { oldest, len: processedMessages.length };
+  }, [processedMessages]);
+
+  const renderItem = useCallback(
+    (index: number, data: { message: Message; toolCalls: ToolCall[] }) => {
+      const isLastMessage = index === processedMessages.length - 1;
+      const messageUi = uiMap.get(data.message.id ?? "");
+      // min-h: an empty streaming placeholder (no content/tool_calls yet)
+      // otherwise measures 0px, which react-virtuoso warns about.
+      return (
+        <div className="mx-auto min-h-[1px] w-full max-w-[1024px] px-6">
+          <ChatMessage
+            message={data.message}
+            toolCalls={data.toolCalls}
+            isStreaming={isLastMessage && isLoading}
+            ui={messageUi}
+            stream={undefined}
+            graphId={isLastMessage ? assistantId : undefined}
+            onSubAgentActivity={handleSubAgentActivity}
+            isSubAgentClosed={isSubAgentTaskClosed}
+          />
+        </div>
+      );
+    },
+    [processedMessages.length, uiMap, isLoading, assistantId, handleSubAgentActivity, isSubAgentTaskClosed],
+  );
+
+  const ListHeader = useMemo(
+    () =>
+      function VirtuosoListHeader() {
+        return hasOlderMessages ? (
+          <div className="mb-4 flex justify-center pt-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadOlderMessages}
+              disabled={isLoadingHistory}
+              className="text-xs text-muted-foreground"
+            >
+              {isLoadingHistory ? "加载中..." : "加载更早的消息"}
+              {!isLoadingHistory && <ChevronUp size={14} className="ml-1" />}
+            </Button>
+          </div>
+        ) : (
+          <div className="pt-4" />
+        );
+      },
+    [hasOlderMessages, loadOlderMessages, isLoadingHistory],
+  );
+
+  const virtuosoComponents = useMemo(() => ({ Header: ListHeader }), [ListHeader]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Message list area */}
+    // 行布局：主列（消息+输入）+ 右侧子智能体面板并排，互不遮挡；
+    // 面板未打开时主列占满
+    <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Message list area (virtualized: long threads render only the
+          visible window instead of keeping every message in the DOM) */}
       {processedMessages.length > 0 ? (
-        <div
-          ref={scrollContainerRef}
+        <Virtuoso
+          data={processedMessages}
+          scrollerRef={(ref) => {
+            scrollContainerRef.current =
+              ref instanceof HTMLElement ? ref : null;
+          }}
+          computeItemKey={(_, item) => item.message.id ?? `item-${_}`}
+          firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={Math.max(0, processedMessages.length - 1)}
+          itemContent={renderItem}
+          components={virtuosoComponents}
           className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
-        >
-          <div className="mx-auto w-full max-w-[1024px] px-6 pb-6 pt-4">
-            {/* Load older messages button */}
-            {hasOlderMessages && (
-              <div className="mb-4 flex justify-center">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={loadOlderMessages}
-                  disabled={isLoadingHistory}
-                  className="text-xs text-muted-foreground"
-                >
-                  {isLoadingHistory ? "加载中..." : "加载更早的消息"}
-                  {!isLoadingHistory && <ChevronUp size={14} className="ml-1" />}
-                </Button>
-              </div>
-            )}
-            {processedMessages.map((data, index) => {
-              const isLastMessage = index === processedMessages.length - 1;
-              const messageUi = uiMap.get(data.message.id ?? "");
-              return (
-                <ChatMessage
-                  key={data.message.id ?? `msg-${index}`}
-                  message={data.message}
-                  toolCalls={data.toolCalls}
-                  isStreaming={isLastMessage && isLoading}
-                  ui={messageUi}
-                  stream={undefined}
-                  graphId={isLastMessage ? assistantId : undefined}
-                />
-              );
-            })}
-          </div>
-        </div>
+        />
       ) : historyError && threadId ? (
         <div className="flex-1 flex flex-col items-center justify-center p-8">
           <p className="text-lg font-medium text-destructive">
@@ -407,12 +515,15 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
           </p>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
-          <p className="text-lg font-medium text-muted-foreground">
-            智能测试平台
+        <div className="flex flex-1 flex-col items-center justify-center p-8">
+          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-[14px] bg-primary text-primary-foreground">
+            <FlaskConical className="h-5 w-5" />
+          </div>
+          <p className="text-lg font-medium leading-8">
+            开始你的测试任务
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            输入消息开始对话
+          <p className="mt-1.5 max-w-md text-center text-[13px] leading-6 text-muted-foreground">
+            上传需求文档生成测试用例、分析代码仓库，或直接描述你的测试问题
           </p>
         </div>
       )}
@@ -422,9 +533,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
         <div
           ref={dropRef}
           className={cn(
-            "mx-4 mb-6 flex flex-shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background",
-            "mx-auto w-[calc(100%-32px)] max-w-[1024px] transition-colors duration-200 ease-in-out",
-            isDragging && "border-primary border-2 border-dotted",
+            "mx-4 mb-6 flex flex-shrink-0 flex-col overflow-hidden rounded-[22px] border border-border bg-background",
+            "mx-auto w-[calc(100%-32px)] max-w-[1024px] transition-colors duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+            "surface-float",
+            isDragging && "border-2 border-dotted border-brand",
           )}
         >
           {/* Task progress + files bar */}
@@ -532,6 +644,41 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
           )}
 
           <form onSubmit={handleSubmit} className="flex flex-col">
+            {/* 审批卡片：越权操作等待用户决策（dsh 式接管输入区） */}
+            {interrupt && (
+              <div className="mx-3 mt-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-amber-600">
+                  <ShieldAlert className="h-4 w-4 shrink-0" />
+                  <span>
+                    {interrupt.toolName === "execute"
+                      ? "命令执行需要审批"
+                      : "文件写入需要审批（只读模式）"}
+                  </span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    （{interrupt.toolName}）
+                  </span>
+                </div>
+                <pre className="mt-2 max-h-32 overflow-auto rounded bg-muted px-3 py-2 text-xs whitespace-pre-wrap break-all">
+                  {interrupt.command ||
+                    String(interrupt.args?.file_path ?? interrupt.args?.path ?? "") ||
+                    JSON.stringify(interrupt.args, null, 2)}
+                </pre>
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => resumeInterrupt("reject")}
+                  >
+                    拒绝
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => resumeInterrupt("approve")}>
+                    允许一次
+                  </Button>
+                </div>
+              </div>
+            )}
+            <UploadProgressList uploads={uploads} />
             <ContentBlocksPreview
               blocks={contentBlocks}
               onRemove={removeContentBlock}
@@ -586,75 +733,121 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
                       <Settings size={12} />
                     </button>
                   </div>
-                  {/* Task ID button */}
-                  <button
-                    type="button"
-                    onClick={() => setTaskDialogOpen(true)}
-                    className={cn(
-                      "flex h-7 items-center gap-1 rounded border px-2 text-xs",
-                      taskId
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                    )}
-                  >
-                    <Hash size={12} />
-                    {taskId ? `任务 (${extractTaskIds(taskId).length}个)` : "任务单号"}
-                  </button>
-                  {/* Wiki selector */}
+                  {/* Reasoning effort chip (per conversation, ?effort=) */}
                   <div className="flex items-center gap-1">
-                    <BookOpen size={14} className="text-muted-foreground" />
-                    <select
-                      value={selectedWiki}
-                      onChange={(e) => {
-                        setSelectedWiki(e.target.value);
-                        localStorage.setItem(WIKI_STORAGE_KEY, e.target.value);
+                    <Brain size={14} className="text-muted-foreground" />
+                    <Select
+                      value={reasoningEffort === "" ? null : reasoningEffort}
+                      onValueChange={(v) => setReasoningEffort(v ?? "")}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
+                        title="思考强度（需要模型支持 reasoning_effort）"
+                      >
+                        <SelectValue placeholder="思考：关" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">思考：关</SelectItem>
+                        <SelectItem value="low">思考：低</SelectItem>
+                        <SelectItem value="medium">思考：中</SelectItem>
+                        <SelectItem value="high">思考：高</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {/* 权限档位（per conversation, ?permission=）—— 工作区/完全访问 */}
+                  <div className="flex items-center gap-1 border-l border-border pl-4">
+                    <ShieldAlert
+                      size={14}
+                      className={cn(
+                        "text-muted-foreground",
+                        permissionMode === "full_access" && "text-destructive",
+                      )}
+                    />
+                    <Select
+                      value={permissionMode}
+                      onValueChange={(v) => {
+                        if (v === "full_access" && permissionMode !== "full_access") {
+                          setFullAccessConfirmOpen(true);
+                          return;
+                        }
+                        setPermissionMode(v ?? "workspace_write");
                       }}
-                      className="h-7 max-w-40 rounded border border-border bg-transparent px-1.5 text-xs text-foreground outline-none focus:border-primary"
                     >
-                      <option value="">全部知识库</option>
-                      {wikiList.map((w) => (
-                        <option key={w.name} value={w.name}>{w.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setWikiDialogOpen(true)}
-                      className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                      title="管理知识库"
-                    >
-                      <Settings size={12} />
-                    </button>
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
+                        title="权限档位：工作区=文件限工作区、只读命令白名单自动放行、其余命令审批；完全访问=全部放行"
+                      >
+                        <SelectValue placeholder="工作区" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="workspace_write">工作区</SelectItem>
+                        <SelectItem value="full_access">完全访问</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <Button
-                  type={isLoading ? "button" : "submit"}
-                  variant={isLoading ? "destructive" : "default"}
-                  onClick={isLoading ? stopStream : handleSubmit}
-                  disabled={
-                    !isLoading &&
-                    (submitDisabled ||
-                      (!input.trim() && contentBlocks.length === 0))
-                  }
-                >
-                  {isLoading ? (
-                    <>
-                      <Square size={14} />
-                      <span>停止</span>
-                    </>
-                  ) : (
-                    <>
-                      <ArrowUp size={18} />
-                      <span>发送</span>
-                    </>
-                  )}
-                </Button>
+                {isLoading ? (
+                  <Button
+                    type="button"
+                    onClick={stopStream}
+                    className="h-9 w-9 rounded-full bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90"
+                    title="停止生成"
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    onClick={handleSubmit}
+                    disabled={
+                      submitDisabled ||
+                      approvalPending ||
+                      isUploading ||
+                      (!input.trim() && contentBlocks.length === 0)
+                    }
+                    className="h-9 w-9 rounded-full bg-brand p-0 text-white hover:bg-brand-600 disabled:opacity-40"
+                    title={approvalPending ? "等待命令审批" : isUploading ? "文件上传中…" : "发送"}
+                  >
+                    <ArrowUp className="h-4.5 w-4.5" />
+                  </Button>
+                )}
               </div>
             </div>
           </form>
         </div>
       </div>
+
+      {/* Full Access Risk Confirmation (dsh: RiskConfirmation) */}
+      <Dialog open={fullAccessConfirmOpen} onOpenChange={setFullAccessConfirmOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>开启完全访问？</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            完全访问模式下，智能体执行任何命令（含白名单外的 shell 命令）都不再需要你的确认。
+            仅在自己完全信任当前任务时使用。
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setFullAccessConfirmOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setPermissionMode("full_access");
+                setFullAccessConfirmOpen(false);
+              }}
+            >
+              确认开启
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Repo Dialog */}
       <Dialog open={repoDialogOpen} onOpenChange={setRepoDialogOpen}>
@@ -694,92 +887,18 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
           </div>
         </DialogContent>
       </Dialog>
+      </div>{/* 主列结束 */}
 
-      {/* Task ID Dialog */}
-      <Dialog open={taskDialogOpen} onOpenChange={(open) => { if (!open) handleCloseTaskDialog(); }}>
-        <DialogContent className="sm:max-w-[450px]">
-          <DialogHeader>
-            <DialogTitle>任务单号</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-2 py-2">
-            <textarea
-              value={taskId}
-              onChange={(e) => setTaskId(e.target.value)}
-              placeholder={"输入任务单号，多个用逗号或换行分隔\n例如：\nM72-172556\nM72-172557\nM72-172558"}
-              className="min-h-[120px] resize-none rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
-            />
-          </div>
-          <DialogFooter>
-            <Button size="sm" onClick={handleCloseTaskDialog}>确定</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Wiki Management Dialog */}
-      <Dialog open={wikiDialogOpen} onOpenChange={setWikiDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>管理 Wiki 知识库</DialogTitle>
-            <DialogDescription>
-              添加或删除 wiki-mcp 知识库目录，修改后自动同步到配置文件。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3 py-2">
-            {wikiList.length > 0 && (
-              <div className="space-y-1.5">
-                {wikiList.map((wiki) => (
-                  <div key={wiki.name} className="flex items-center justify-between rounded border border-border px-3 py-1.5">
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs font-medium">{wiki.name}</span>
-                      <span className="ml-2 truncate text-xs text-muted-foreground font-mono">{wiki.path}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await deleteWiki(wiki.name);
-                        if (selectedWiki === wiki.name) {
-                          setSelectedWiki("");
-                          localStorage.setItem(WIKI_STORAGE_KEY, "");
-                        }
-                      }}
-                      className="ml-2 text-xs text-muted-foreground hover:text-destructive"
-                    >
-                      删除
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="名称，如 test-knowledge"
-                value={newWikiName}
-                onChange={(e) => setNewWikiName(e.target.value)}
-                className="text-xs"
-                style={{ flex: 1 }}
-              />
-              <Input
-                placeholder="路径，如 C:/llm_test2/test"
-                value={newWikiPath}
-                onChange={(e) => setNewWikiPath(e.target.value)}
-                className="text-xs"
-                style={{ flex: 2 }}
-              />
-              <Button
-                size="sm"
-                disabled={!newWikiName.trim() || !newWikiPath.trim()}
-                onClick={async () => {
-                  await createWiki({ name: newWikiName.trim(), path: newWikiPath.trim() });
-                  setNewWikiName("");
-                  setNewWikiPath("");
-                }}
-              >
-                添加
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* 子智能体实时操作面板：与主列并排（大屏）/覆盖（小屏）。
+          feed 拷贝成新数组——store 原地变更同一引用，React.memo 会认为
+          props 没变而跳过重渲染，面板就永远停在打开那一刻（「正在启动…」） */}
+      <SubAgentPanel
+        subAgent={liveSubAgent}
+        feed={
+          liveSubAgent ? [...getSubAgentFeed(liveSubAgent.id)] : []
+        }
+        onClose={() => setActivitySubAgent(null)}
+      />
     </div>
   );
 });

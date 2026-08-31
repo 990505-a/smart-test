@@ -1,0 +1,38 @@
+# smart-test-platform → dsh 宿主补丁
+#
+# 用法（在任意目录）::
+#
+#     npx @deepseek-ai/dsh web --patch E:/test_agent/smart-test-platform/dsh/cordis.patch.yml
+#
+# 作用：把平台 MCP 工具（用例入库 / 飞书导出 / 代码图谱 / 记忆 / Unity /
+# 视觉分析 + RAG 知识库）挂载到 dsh 全局工具层。
+# 提示词与技能不在本文件 —— 见 dsh/agent-presets/smart-test/（复制到
+# %USERPROFILE%/.dsh/.agent-presets/ 后在 Web 设置里选择该 preset）。
+#
+# 注意：patch 会整体替换目标行的 config，本文件只做新增（insert），
+# 不触碰 dsh 原有行。
+
+- insert:
+    # ── 平台工具桥（17 个工具，逻辑复用平台 services 层）─────────────────
+    - id: mcp-smart-test
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: smart-test
+        transport: stdio
+        command: 'E:/test_agent/smart-test-platform/.venv/Scripts/python.exe'
+        args: ['-m', 'src.app.mcp_servers.agent_tools_server']
+        cwd: 'E:/test_agent/smart-test-platform'
+        toolCallTimeoutMs: 600000
+        # 服务端自身读 .env（飞书/视觉模型等配置），不依赖宿主环境变量；
+        # 服务起不来时 fail-open：工具调用时报错，不阻塞 dsh 启动。
+
+    # ── RAG 知识库（LightRAG 桥，需平台启动器已拉起 :5014 服务）─────────
+    - id: mcp-rag
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: rag
+        transport: stdio
+        command: 'E:/test_agent/smart-test-platform/.venv/Scripts/python.exe'
+        args: ['-m', 'src.app.mcp_servers.rag_server']
+        cwd: 'E:/test_agent/smart-test-platform'
+        toolCallTimeoutMs: 60000

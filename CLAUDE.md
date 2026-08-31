@@ -176,3 +176,99 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+---
+
+# 2026-08 大改造（游戏测试全生命周期平台）
+
+在原有 用例生成 / Web 自动化 / API 自动化 三智能体基础上，新增以下模块（详见 `.planning/TRANSFORMATION.md`）：
+
+## 新模块
+
+| 模块 | 后端 | 前端页面 |
+|---|---|---|
+| 用户模块 | `db/models/user.py` + `api/v2/auth.py`（PBKDF2 + Bearer Token，默认 admin/admin123） | `/login` |
+| 设置模块 | `api/v2/settings.py` + `services/settings_service.py`（DB KV + .env 同步） | `/settings` |
+| 用例生成→飞书 | `services/feishu_service.py`（lark-cli：mindnotes 思维导图 + docs 拉取）；testcase agent 新工具 `export_project_mindmap`（按 project_name 读 MD 文档导图） | — |
+| 用例存储 | **2026-08-28 MD 重构**：一个项目 = `workspace/default/cases/{项目名}.md`（唯一事实源），`services/case_docs_service.py` 解析（标题层级=导图节点层级，[P0-P3] 优先级，「前置：」+ `- 操作 ⇒ 预期` 缩进步骤）；智能体工具收敛为 save/read/list_case_document*；API `/api/v2/case-docs`；旧 test_cases/test_steps/case_groups/tags/case_review* 五张表与数据已删除 | `/cases`（MD 查看/编辑器 + 标注工具栏 + 飞书导图按钮） |
+| 用例标注 | 用户直接在 MD 源文件上标注：标题尾部 ✅/❌/⚠️ + `>` 引用批注；漏测用例直接补进文档。无打分表、无 API——下游全是 LLM 读原文 | `/cases` 编辑模式 |
+| 自进化 | `services/evolution_service.py` + `services/scheduler.py`（APScheduler 每日 02:00 Asia/Shanghai）：扫描 cases 目录 → 内容 hash 与 `.evolution_state.json` 比对增量 → 有标注的文档原文喂 LLM 反思（含漏测教训）→ 记 evolution_runs；不改技能文件 | `/evolution` |
+| 技能库 | `api/v2/skills.py`：上传 SKILL.md / zip 技能包、浏览、删除（技能库由用户手动维护，蒸馏功能已移除） | `/skills` |
+| MCP | `mcp_servers/rag_server.py`（FastMCP stdio，按需拉起）；codebase-memory 由 `mcp_client.py` stdio 直连 exe | `/mcp` |
+| RAG | `services/lightrag_service.py`（LightRAG Server HTTP API；本体由启动器常驻 :9621，LLM=DeepSeek，Embedding=硅基流动 bge-m3） | `/rag` |
+| 代码图谱 | `services/codebase_service.py`（**平台侧全走 `exe cli <tool> <json>` 一锤子模式**，stdout 纯 JSON；stdio MCP 会话在 index 长调用上偶发挂起弃用于平台路径，仅 Agent `search_codebase` 工具继续走 `cbm_call`+垫片）；仓库管理/索引编排/定时增量/图数据代理；exe 为 **GS/Lua 定制版** `C:/codebase/cbm-gs.exe`（备份于 `C:/codebase/*.bak-20260826` + git bundle；官方 v0.10.8 无 GS，勿回切）；HTTP 图服务用官方版 `build/c` exe（GS 版构建未内嵌 UI 资源，`--ui=true` 起不来；两 exe 共享索引存储） | `/codebase` |
+| 接口自动化 | `services/api_auto_service.py`（飞书文档→LLM 生成 pytest→执行→AI 自修复，最多 API_AUTO_MAX_REPAIR 次） | `/api-auto` |
+| UI 自动化 | `skills/unity-ui-test/`（vendor 自 unity-auto-test-skill）+ `agents/unity/`（graph: unity_agent）+ `services/unity_service.py` | `/ui-auto` + 聊天页「UI自动化」tab |
+| 代码分析智能体 | `agents/code_analyst/`（graph: code_analyst_agent）：双轨检索=图谱工具（graph_search/trace_symbol/read_symbol，经 cbm_call）+ `/repo/` 原生 grep/read_file；与用例智能体的区别——不生成用例，专注功能定位/调用链/影响面/实现解读，图谱缺失时自动降级文件工具。testcase 的 `search_codebase` 工具共用同一会话 | 聊天页「代码分析」tab |
+
+## 新路由（/api/v2）
+
+`auth` `settings` `feishu` `evolution` `skills` `api-auto` `ui-auto` `rag` `codebase`（原 `reviews` 路由已随评审沉淀合并进 test-cases 移除）
+新模块路由强制 Bearer 登录；旧路由保持可选认证兼容。
+
+## 运行前提
+
+- 飞书：本机 `lark-cli` 已登录（`lark-cli auth login`）；设置页填 FEISHU_MINDNOTE_ID
+- RAG：启动器(:9000)启动 lightrag 本体（:9621）；需 `LIGHTRAG_EMBEDDING_API_KEY`（默认硅基流动 bge-m3，OpenAI 兼容）；LLM 复用 DEEPSEEK_API_KEY；知识库管理在 `/rag` 页，图谱可视化 `:9621/webui`
+- 代码图谱：独立平台模块（不接智能体）。`/codebase` 页三 Tab：仓库管理（多仓库 + 文件类型 include/exclude，规则写入仓库根 `.cbmignore` 代管块，卡片可查看实际内容）/ 图谱可视化（**Sigma.js WebGL** + graphology + 客户端 ForceAtlas2 布局；不用 exe 预计算坐标——那是 3D 布局投影到 2D 无结构，且前 N 节点多为同色 File/Module。节点按 label 配色、度数定大小、默认隐藏结构节点）/ 定时任务（APScheduler IntervalTrigger 每 N 小时，只增量已建库仓库）。索引进度：CLI stderr 逐行回调 → runs API progress 字段 → 前端阶段+最新日志行。exe：管理走 `cli <tool> <json>` 一锤子模式；HTTP 图数据服务 `--ui=true :9749` 由 `ensure_graph_daemon()` 探活+自动拉起。表 `codebase_repos`/`codebase_index_runs`
+- UI 自动化：Unity Editor 打开 m72 项目，Tools > LuaTestTool 启动 Server（:16666），进入 Play Mode
+- 自进化：FastAPI 进程内调度器，每日 02:00 消费新标注；也可 /evolution 页手动触发
+- 启动器(:9000)管理 4 个服务：LangGraph(:2026) / FastAPI(:8001) / WebUI(:3000) / LightRAG(:9621，autostart=False)。MCP（rag/codebase-memory）全部 stdio 按需拉起，不进启动器
+
+## 数据库
+
+现存表 users/auth_tokens/evolution_runs/api_doc_imports/api_scripts/api_script_runs/
+ui_scripts/ui_script_runs/settings_kv/workspaces/projects/attachments/configurations/
+memories/thread_infos/thread_messages/identifier_seq/codebase_repos/codebase_index_runs，启动自动 create_all。
+（2026-08-28 用例 MD 重构：test_cases/test_steps/case_groups/tags/test_case_tags/
+case_reviews/case_review_batches 及 api/web 自动化等 30 张遗留表连同数据已 DROP，
+备份于 smart_test_platform.backup_*.db；projects 表仅为附件归属锚点保留）
+
+## 2026-08-26 去 git / 去 wiki-mcp 改造
+
+聊天链路彻底移除 git 与 wiki-mcp，改为**按会话挂载目录直接检索**：
+- 前端每次对话强制选择仓库（`ChatInterface` 发送前拦截），`configurable.repo_path` 随 run 传入
+- `agents/testcase/repo_backend.py` `RepoProxyBackend` 挂为 CompositeBackend 的 `/repo/` **只读**路由，
+  agent 用自带 `grep/glob/ls/read_file` 直接查仓库（grep 为字面量匹配，ripgrep 优先自动降级纯 Python）
+- `agents/testcase/tools/codebase_tools.py` 提供 `search_codebase` 图谱检索工具（项目名由 repo_path 推导：`E:/a/b`→`E-a-b`，未建库时降级提示）
+- 已删除：`git_tools.py`（6 个 git 工具）、`mcp_servers/git_server.py`、`services/git_service.py`、
+  `services/code_analysis_service.py`、`api/v2/code_analysis.py`、`db/models/code_analysis.py`、
+  wiki-mcp 全链路（agent wiki 工具加载、`api/v2/wikis.py`、config wiki_* 设置、前端 Wiki 选择器与 `useWikis.ts`）
+- SYSTEM_PROMPT：「代码变更分析」章节重写为「代码检索（挂载仓库 /repo/）」；Wiki 章节删除
+- codebase-memory exe 于 2026-08-26 曾升级官方 v0.10.8（丢失 GS 解析），2026-08-31 已切回
+  GS/Lua 定制版（`C:/codebase/cbm-gs.exe`，源自 `feat/gs-structured-ast` 分支备份，索引格式与新版互通）
+
+## 2026-08-28 用例存储 MD 化（去关系库）
+
+- **LangGraph 并发**：`start_server.py` 的 `N_JOBS_PER_WORKER` 由写死 1（全局串行，
+  多窗口聊天排队）改为默认 4、可在 .env 覆盖；重启 LangGraph 生效
+  （内存态会话状态丢失属正常，历史消息在 SQLite）
+
+用例全生命周期收敛到一份 Markdown 文件（`workspace/default/cases/{项目名}.md`），
+关系库用例链路整体移除：
+
+- **格式契约**：`#` 根标题 → `##`+ 分组树 → 用例标题 `[P0-P3]` → `前置：` 行 →
+  `- 操作 ⇒ 预期` 缩进步骤（2 空格一级，叶子可带 √/X）；**禁止 TC-xxx 编号**。
+  解析器 `services/case_docs_service.py`（两遍式：标题树 → 分组/用例归类；
+  顶层裸用例兜底进「未分组」）
+- **人工标注**：标题尾 ✅/❌/⚠️ + `>` 批注行；漏测用例直接补进文档。
+  导出/解析时标注自动剥离，不进飞书导图
+- **智能体**：save/read/list_case_document + get_beijing_timestamp + export_project_mindmap
+  （签名从 project_id 改 project_name）；系统提示词与 testcase-workflow 技能改 MD 契约；
+  MCP agent_tools_server 同步。SAVE_RESULT 卡片字段 project_name/case_count
+- **飞书**：`feishu_service.load_doc_tree(project_name)` 读 MD → 分层写入导图。
+  导图连线样式（直线/曲线）是飞书文档自身设置、API 改不了：配置
+  `FEISHU_TEMPLATE_MINDNOTE_ID`（一张调好样式、只留根节点的干净模板导图）后
+  走「drive +copy 复制模板 → 改根标题 → 逐层写树」，副本与追加节点继承样式；
+  留空回退 OPML 导入（默认曲线）。实测约束：同批节点 parent 必须已存在
+  （3411001）、单批 ≤50 节点（99992402）——`build_tree_levels` 分层 +
+  `_create_nodes_by_level` 分块；lark-cli `--data @file` 只收 cwd 相对路径
+  （草稿一律落 `workspace/.feishu_tmp`）
+- **自进化**：扫 cases 目录 + sha256 与 `.evolution_state.json` 增量去重 →
+  标注文档原文（截 60k 字符）逐份喂 LLM 反思（好模式/反模式/漏测教训）→ evolution_runs
+- **已删**：test_cases 等 7 张用例相关表 + 23 张更早期遗留表（数据全删，备份
+  smart_test_platform.backup_*.db）；verdict 列/API、/organize 端点、
+  save_cases_tree 等 6 个 DB 工具、3 个启动迁移函数、前端打分组件群（约 1400 行）
+- **前端 /cases**：重写为「文档列表 + MD 预览/编辑器」，编辑模式带 ✅/❌/⚠️/批注
+  插入工具栏与飞书导图按钮；hooks `useCaseDocs.ts` 替代 useTestCases/useProjects。
+  预览排版依赖 `@tailwindcss/typography`（globals.css `@plugin` 注册，2026-08-28 新装）

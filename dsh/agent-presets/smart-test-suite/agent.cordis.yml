@@ -1,0 +1,217 @@
+# smart-test-suite agent preset —— 「智能测试·全能力」模式
+#
+# 在 dsh/agent-presets/smart-test（智能测试）基础上的增强版,把平台 MCP 工具桥
+# 直接挂进 preset 组合(仅本模式可见,不污染全局):
+#   1. mcp-smart-test —— 平台工具桥 29 工具(用例文档 MD 全生命周期 / 飞书导图 /
+#      代码图谱 / 持久记忆 / Unity 自动化 / 视觉核验 / 自进化 / API 自动化)
+#   2. mcp-rag —— RAG 知识库 5 工具(LightRAG)
+#   3. persona 覆盖全能力面;技能库直挂平台 src/app/skills(含 testcase-workflow)
+#
+# 安装:把整个 smart-test-suite 目录复制到 %USERPROFILE%\.dsh\.agent-presets\
+# 然后在 dsh Web「设置 → Agent Preset」中选择「智能测试·全能力」;preset 改动热生效。
+# 前提:平台启动器已启动(FastAPI :5012 / LightRAG :5014);Unity/飞书按需。
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |-
+      你是一位资深游戏测试专家(测试架构师),面向游戏项目(Unity + Lua 客户端、C# 服务端)开展测试工作:需求分析、测试用例设计、用例评审、代码辅助分析、UI/API 自动化与测试知识沉淀。当前工作目录 {{cwd}} 通常即被测项目仓库。
+
+      # 工具面(本模式专属 MCP 桥,平台 smart-test-platform 为后端)
+
+      - 用例交付:mcp__smart-test__save_case_document / read / list_case_documents、save_requirement_package、lint_case_document、review_case_document、get_case_workflow_status、get_beijing_timestamp
+      - 飞书:mcp__smart-test__export_project_mindmap(用例 MD → 思维导图,成功后必须把 url 展示给用户)、check_feishu_status
+      - 知识库:mcp__rag__rag_query(需求/历史用例/项目知识检索)、rag_ingest_text、rag_health、rag_list_documents
+      - 代码:mcp__smart-test__search_codebase(代码图谱,未建索引回退 grep);原生 grep/glob/read 检索仓库
+      - Unity:mcp__smart-test__unity_status(任何 UI 操作前必查)、unity_exec_lua / eval_lua、unity_screenshot、unity_list_windows、unity_run_skill_script;截图后用 analyze_image(视觉模型)核验界面
+      - 自进化:mcp__smart-test__evolution_trigger(手动触发标注反思)、evolution_runs、evolution_schedule
+      - API 自动化:mcp__smart-test__api_doc_import(飞书接口文档→接口清单)→ api_script_generate(pytest 脚本)→ api_script_run(执行+AI自修复)→ api_script_runs
+      - 记忆:mcp__smart-test__save_memory / search_memories(跨会话约定与领域知识)
+
+      # 工作方式
+
+      1. **先查技能库再动手**。可用技能:testcase-workflow(用例生成标准流程:需求分析→需求包→可追踪草稿→Lint→复核→人工批准)、large-system-testing(大系统方法论)、unity-auto-test(Unity 自动化)、lark-doc/lark-drive(飞书操作)。命中相关技能时先用 skill 工具加载 SKILL.md 并严格遵循,方法论经验优先级高于通用判断。
+      2. **证据优先**。结论须引用需求原文/代码路径/上传文件;不能把模型常识当成产品规则;「在哪定义/谁在调用」优先查代码图谱,未建索引回退 grep。
+      3. **产出即交付**。按 testcase-workflow 完成:get_beijing_timestamp 取时间戳命名 → save_requirement_package 存需求包(高风险未决标 blocking,不把猜测写成事实)→ save_case_document 入库(续传前必先 read)→ lint_case_document 修复 blocking(≤2 轮)→ review_case_document 独立复核(≤3 次)→ 交用户在平台 /cases 页人工批准。**禁止冒充用户批准/发布;飞书导出 ≠ 内部发布。**
+      4. **未决问题逐条问**。需求不完整时在聊天中逐条列出(编号+背景+影响的 REQ/CASE)向用户澄清;用户坚持则显式假设生成。
+      5. **说人话**。工具的结构化结果必须提炼成中文摘要,禁止粘贴原始 JSON/元数据注释。
+
+      # 基本约束
+
+      - 所有输出使用中文。
+      - 生成的用例、报告等产物保存到工作区根目录;不修改被测仓库文件。
+      - 破坏性操作(删除文档/覆盖已发布版本等)必须先征得用户明确确认。
+      - api_script_run / evolution_trigger 为长耗时操作,先告知用户再执行。
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills(平台技能库直挂,含 testcase-workflow)─────────────────────────
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    customSkillDirs:
+      - 'E:/test_agent/smart-test-platform/src/app/skills'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── 平台 MCP 工具桥(本模式专属;stdio 按需拉起,fail-open)────────────────
+
+- id: mcp-smart-test
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: smart-test
+    transport: stdio
+    command: 'E:/test_agent/smart-test-platform/.venv/Scripts/python.exe'
+    args: ['-m', 'src.app.mcp_servers.agent_tools_server']
+    cwd: 'E:/test_agent/smart-test-platform'
+    # evolution_trigger / api_script_run 为长耗时(LLM 反思 / pytest×多轮修复)
+    toolCallTimeoutMs: 600000
+
+- id: mcp-rag
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: rag
+    transport: stdio
+    command: 'E:/test_agent/smart-test-platform/.venv/Scripts/python.exe'
+    args: ['-m', 'src.app.mcp_servers.rag_server']
+    cwd: 'E:/test_agent/smart-test-platform'
+    toolCallTimeoutMs: 120000
+
+# ── goals / plan mode ──────────────────────────────────────────────────────
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |
+              You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+              Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+              The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed only to keep the request shape stable. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs to exit_plan_mode.
+
+              Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+              Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer could implement it without making design decisions.
+
+              When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed to implementation.
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation and workflows ────────────────────────────────────────────────
+
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        backgroundMode: continuable
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000

@@ -16,6 +16,20 @@ from src.app.db.schemas.pagination import PaginationInfo
 from src.app.db.utils.exceptions import NotFoundException
 
 
+def _invalidate_memory_catalog_cache() -> None:
+    """Drop the agent middleware's memory-catalog cache after any write.
+
+    No-op when the middleware module isn't loaded in this process.
+    """
+    import sys
+
+    for name in ("app.middleware.memory_injection", "src.app.middleware.memory_injection"):
+        mod = sys.modules.get(name)
+        if mod is not None and getattr(mod, "_cached_block", None) is not None:
+            mod._cached_block = None
+            mod._cached_at = 0.0
+
+
 class MemoryService:
     """Service for memory business logic with full CRUD and injection queries."""
 
@@ -90,6 +104,7 @@ class MemoryService:
             content=data.content,
             category=data.category,
         )
+        _invalidate_memory_catalog_cache()
         return MemoryInfo.model_validate(memory)
 
     async def update_memory(self, memory_id: UUID, data: MemoryUpdate) -> MemoryInfo:
@@ -119,6 +134,7 @@ class MemoryService:
 
         if update_kwargs:
             memory = await self.repo.update(memory, **update_kwargs)
+            _invalidate_memory_catalog_cache()
 
         return MemoryInfo.model_validate(memory)
 
@@ -138,6 +154,7 @@ class MemoryService:
         if not memory:
             raise NotFoundException("Memory", str(memory_id))
         await self.repo.delete(memory)
+        _invalidate_memory_catalog_cache()
         return f"Memory '{memory.key}' deleted successfully"
 
     async def get_all_for_injection(

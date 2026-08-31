@@ -1,11 +1,10 @@
-import { Inter } from "next/font/google";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { ThemeProvider } from "@/providers/ThemeProvider";
 import { SWRProvider } from "@/providers/SWRProvider";
+import { AuthProvider } from "@/providers/AuthProvider";
+import { AppShell } from "@/app/components/AppShell";
 import { Toaster } from "sonner";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export default function RootLayout({
   children,
@@ -14,12 +13,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body className={inter.className} suppressHydrationWarning>
+      <body className="font-sans" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <SWRProvider>
-            <NuqsAdapter>{children}</NuqsAdapter>
+            <AuthProvider>
+              <NuqsAdapter>
+                <AppShell>{children}</AppShell>
+              </NuqsAdapter>
+            </AuthProvider>
           </SWRProvider>
-          <Toaster />
+          <Toaster position="top-center" />
         </ThemeProvider>
       </body>
     </html>

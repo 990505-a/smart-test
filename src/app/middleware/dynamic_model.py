@@ -1,7 +1,7 @@
 """Dynamic model selection middleware (DynamicModelSelection).
 
 Per D-01, D-02, D-04: Detects image content in messages and overrides the
-LLM model to GPT-4o for vision-capable inference.
+LLM model to a vision-capable model.
 
 Detection logic (D-02):
 1. Scan all HumanMessages in request.messages.
@@ -10,7 +10,10 @@ Detection logic (D-02):
 
 Model override (D-01):
 - When image content is detected, call request.override(model=self._vision_model)
-  to switch the LLM from the default text model to GPT-4o.
+  to switch the LLM from the default text model to the vision model.
+- The vision model normally comes prebuilt from model_factory.build_vision_model()
+  (explicit vision settings, falling back to the text model). The legacy
+  api_key/vision_model kwargs kept for tests and standalone use.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from typing import Any, Awaitable, Callable
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ResponseT
 from langchain.chat_models import init_chat_model
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langgraph.typing import ContextT
 
@@ -28,25 +32,40 @@ class DynamicModelSelection(AgentMiddleware):
     """Middleware that detects image content and switches to a vision model.
 
     When image_url content blocks or image/* MIME attachments are found in
-    any HumanMessage, this middleware overrides request.model to a vision-capable
-    model (default: GPT-4o).
+    any HumanMessage, this middleware overrides request.model to a
+    vision-capable model.
     """
 
     def __init__(
         self,
+        model: BaseChatModel | Callable[[], BaseChatModel] | None = None,
         api_key: str = "",
         vision_model: str = "openai:gpt-4o",
     ):
         """Initialize with a vision model for image content.
 
         Args:
-            api_key: OpenAI API key for the vision model.
+            model: Prebuilt vision model or a zero-arg factory (preferred —
+                pass model_factory.build_vision_model so it rebuilds from the
+                latest settings on each image turn, without an agent restart).
+            api_key: OpenAI API key for the legacy default vision model.
             vision_model: Model identifier in init_chat_model format.
         """
+        if model is not None:
+            self._factory: Callable[[], BaseChatModel] = (
+                model if callable(model) else (lambda m=model: m)
+            )
+            return
         kwargs = {"model": vision_model}
         if api_key:
             kwargs["api_key"] = api_key
-        self._vision_model = init_chat_model(**kwargs)
+        built = init_chat_model(**kwargs)
+        self._factory = lambda: built
+
+    @property
+    def _vision_model(self) -> BaseChatModel:
+        """Resolve the vision model per image turn (factory may read fresh settings)."""
+        return self._factory()
 
     async def awrap_model_call(
         self,

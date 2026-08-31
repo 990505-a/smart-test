@@ -40,6 +40,22 @@ def get_space_id() -> str:
         return "default"
 
 
+def get_thread_id() -> str:
+    """Extract thread_id from LangGraph configurable, default to ''.
+
+    Safe to call outside runnable context (returns '').
+
+    Returns:
+        The configured thread_id string, or '' if not set.
+    """
+    try:
+        config = get_config()
+        return config.get("configurable", {}).get("thread_id", "")
+    except RuntimeError:
+        # Outside runnable context (tests, imports, direct calls)
+        return ""
+
+
 def get_workspace_dir(space_id: str | None = None, agent_name: str = "") -> Path:
     """Resolve workspace directory for a given space_id and agent.
 

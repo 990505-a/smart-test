@@ -1,0 +1,1 @@
+{"assistant_id": "testcase_agent", "input": {"messages": [{"role": "user", "content": "只回复两个字：收到"}]}, "config": {"configurable": {"repo_path": "E:/m72-publish/m72", "llm_reasoning_effort": "high"}}, "stream_mode": "values"}

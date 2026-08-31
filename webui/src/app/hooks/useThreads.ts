@@ -1,7 +1,7 @@
 "use client";
 
 import useSWRInfinite from "swr/infinite";
-import { getConfig } from "@/lib/config";
+import { getFastapiUrl } from "@/lib/config";
 
 export interface ThreadItem {
   id: string;
@@ -21,14 +21,11 @@ async function fetcher(url: string) {
 export function useThreads() {
   return useSWRInfinite(
     (pageIndex: number, previousPageData: { threads: ThreadItem[] } | null) => {
-      const config = getConfig();
-      if (!config) return null;
-
       if (previousPageData && previousPageData.threads.length === 0) {
         return null;
       }
 
-      const apiBase = config.fastapiUrl || "http://localhost:8000";
+      const apiBase = getFastapiUrl();
       return `${apiBase}/api/v2/threads?limit=${DEFAULT_PAGE_SIZE}&offset=${pageIndex * DEFAULT_PAGE_SIZE}`;
     },
     async (url: string) => {

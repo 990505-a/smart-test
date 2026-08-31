@@ -1,15 +1,9 @@
-"""Execution services for API test engine.
+"""Platform services package.
 
-Provides OpenAPI spec parsing, Playwright test execution,
-and scenario execution engine services.
+Legacy API-execution services (OpenAPIParser / APITestExecutor /
+ScenarioExecutionEngine) were removed together with the legacy
+Web/API automation modules (2026-08). This package now only hosts
+lightweight service modules imported directly by path, e.g.::
+
+    from src.app.services.auth_service import AuthService
 """
-
-from src.app.services.openapi_parser import OpenAPIParser
-from src.app.services.api_test_executor import APITestExecutor
-from src.app.services.scenario_execution_engine import ScenarioExecutionEngine
-
-__all__ = [
-    "OpenAPIParser",
-    "APITestExecutor",
-    "ScenarioExecutionEngine",
-]

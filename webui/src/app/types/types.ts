@@ -1,4 +1,4 @@
-export type AgentKey = "testcase" | "web" | "api";
+export type AgentKey = "testcase" | "unity" | "codeanalyst";
 
 export interface AgentConfig {
   key: string;
@@ -8,8 +8,8 @@ export interface AgentConfig {
 
 export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
   testcase: { key: "testcase", label: "用例生成", graphKey: "testcase_agent" },
-  web: { key: "web", label: "Web自动化", graphKey: "web_agent" },
-  api: { key: "api", label: "API自动化", graphKey: "api_agent" },
+  unity: { key: "unity", label: "UI自动化", graphKey: "unity_agent" },
+  codeanalyst: { key: "codeanalyst", label: "代码分析", graphKey: "code_analyst_agent" },
 };
 
 export interface ContentBlock {

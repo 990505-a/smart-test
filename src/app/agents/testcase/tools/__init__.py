@@ -1,5 +1,5 @@
-"""TestCase Agent tools - exports moved to database-only persistence.
+"""TestCase Agent tools.
 
-Test cases are saved directly to PostgreSQL via save_test_cases_batch.
-No file export (Excel/CSV/JSON/Markdown) tools are needed.
+2026-08 用例 MD 重构：用例经 save_case_document 落盘为 Markdown 文档
+（workspace/default/cases/），不再入关系库。
 """

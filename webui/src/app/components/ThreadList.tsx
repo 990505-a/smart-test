@@ -9,15 +9,26 @@ import {
   useCallback,
 } from "react";
 import { format } from "date-fns";
-import { Loader2, MessageSquare, X, Trash2 } from "lucide-react";
+import { Loader2, MessageSquare, Trash2 } from "lucide-react";
 import { useQueryState } from "nuqs";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import type { ThreadItem } from "@/app/hooks/useThreads";
 import { useThreads } from "@/app/hooks/useThreads";
-import { getConfig } from "@/lib/config";
+import { getFastapiUrl } from "@/lib/config";
 
 const GROUP_LABELS = {
   today: "今天",
@@ -39,7 +50,7 @@ function formatTime(date: Date, now = new Date()): string {
 function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center">
-      <p className="text-sm text-red-600">加载对话列表失败</p>
+      <p className="text-sm text-destructive">加载对话列表失败</p>
       <p className="mt-1 max-w-[200px] break-words text-xs text-muted-foreground">{message}</p>
       {onRetry && (
         <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
@@ -52,9 +63,9 @@ function ErrorState({ message, onRetry }: { message: string; onRetry?: () => voi
 
 function LoadingState() {
   return (
-    <div className="space-y-2 p-4">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Skeleton key={i} className="h-16 w-full" />
+    <div className="space-y-2 p-3">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <Skeleton key={i} className="h-8 w-full" />
       ))}
     </div>
   );
@@ -63,8 +74,8 @@ function LoadingState() {
 function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center">
-      <MessageSquare className="mb-2 h-12 w-12 text-gray-300" />
-      <p className="text-sm text-muted-foreground">暂无对话</p>
+      <MessageSquare className="mb-2 h-8 w-8 text-muted-foreground/40" />
+      <p className="text-[13px] text-muted-foreground">暂无对话</p>
     </div>
   );
 }
@@ -72,17 +83,17 @@ function EmptyState() {
 interface ThreadListProps {
   onThreadSelect: (id: string) => void;
   onMutateReady?: (mutate: () => void) => void;
-  onClose?: () => void;
 }
 
 export function ThreadList({
   onThreadSelect,
   onMutateReady,
-  onClose,
 }: ThreadListProps) {
   const [currentThreadId] = useQueryState("threadId");
   const [, setCurrentThreadId] = useQueryState("threadId");
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const threads = useThreads();
 
@@ -186,9 +197,11 @@ export function ThreadList({
 
       setDeletingThreadId(threadId);
       try {
-        const config = getConfig();
-        const apiBase = config?.fastapiUrl || "http://localhost:8000";
-        await fetch(`${apiBase}/api/v2/threads/${threadId}`, { method: "DELETE" });
+        const apiBase = getFastapiUrl();
+        const response = await fetch(`${apiBase}/api/v2/threads/${threadId}`, { method: "DELETE" });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
 
         if (currentThreadId === threadId) {
           setCurrentThreadId(null);
@@ -197,7 +210,7 @@ export function ThreadList({
         mutateFn();
       } catch (error) {
         console.error("Failed to delete thread:", error);
-        alert("删除失败，请重试。");
+        toast.error("删除失败，请重试");
       } finally {
         setDeletingThreadId(null);
       }
@@ -205,25 +218,75 @@ export function ThreadList({
     [currentThreadId, setCurrentThreadId, mutateFn],
   );
 
+  const totalThreads = flattened.length;
+
+  /** 全部删除：后端批量清理本地记录 + LangGraph 线程本体（防复活） */
+  const handleDeleteAll = useCallback(async () => {
+    setDeletingAll(true);
+    try {
+      const apiBase = getFastapiUrl();
+      const res = await fetch(`${apiBase}/api/v2/threads`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      toast.success(`已删除 ${data.deleted ?? 0} 条对话`);
+      setDeleteAllOpen(false);
+      // 当前会话也在删除范围内，回到新对话
+      setCurrentThreadId(null);
+      mutateFn();
+    } catch (error) {
+      console.error("Failed to delete all threads:", error);
+      toast.error("全部删除失败，请重试");
+    } finally {
+      setDeletingAll(false);
+    }
+  }, [setCurrentThreadId, mutateFn]);
+
   return (
     <div className="absolute inset-0 flex flex-col">
       {/* Header */}
-      <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border p-4">
-        <h2 className="text-lg font-semibold tracking-tight">对话列表</h2>
-        <div className="flex items-center gap-2">
-          {onClose && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onClose}
-              className="h-8 w-8"
-              aria-label="关闭对话列表侧边栏"
-            >
-              <X className="h-4 w-4" />
-            </Button>
+      <div className="flex h-12 flex-shrink-0 items-center justify-between gap-2 border-b px-4">
+        <h2 className="text-[13px] font-semibold tracking-wide text-muted-foreground">对话</h2>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setDeleteAllOpen(true)}
+          disabled={deletingAll || totalThreads === 0}
+          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+          aria-label="删除全部对话"
+          title="删除全部对话"
+        >
+          {deletingAll ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
           )}
-        </div>
+        </Button>
       </div>
+
+      {/* 全部删除确认 */}
+      <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除全部对话？</AlertDialogTitle>
+            <AlertDialogDescription>
+              将删除全部 {totalThreads} 条对话及其消息记录，此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAll}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletingAll}
+              onClick={(e) => {
+                e.preventDefault(); // 保持弹窗开着直到删除完成
+                handleDeleteAll();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingAll ? "删除中…" : "全部删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ScrollArea className="h-0 flex-1">
         {threads.error && <ErrorState message={threads.error.message} onRetry={() => threads.mutate()} />}
@@ -242,58 +305,69 @@ export function ThreadList({
                 if (groupThreads.length === 0) return null;
 
                 return (
-                  <div key={group} className="mb-4">
-                    <h4 className="m-0 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <div key={group} className="mb-3">
+                    <h4 className="m-0 px-2.5 pb-1 text-[11px] leading-4 text-muted-foreground/80">
                       {GROUP_LABELS[group]}
                     </h4>
-                    <div className="flex flex-col gap-1">
-                      {groupThreads.map((thread) => (
-                        <div key={thread.id} className="group relative">
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteThread(thread.id, e)}
-                            disabled={deletingThreadId === thread.id}
+                    <div className="flex flex-col gap-0.5">
+                      {groupThreads.map((thread) => {
+                        const isActive = currentThreadId === thread.id;
+                        const isDeleting = deletingThreadId === thread.id;
+                        return (
+                          <div
+                            key={thread.id}
                             className={cn(
-                              "absolute left-0 bottom-3 z-10 flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive hover:text-destructive-foreground group-hover:opacity-100",
-                              deletingThreadId === thread.id && "opacity-100",
+                              "group relative flex h-8 items-center gap-1.5 rounded-lg pl-2.5 pr-1.5 transition-colors duration-150",
+                              isActive
+                                ? "bg-accent"
+                                : "hover:bg-accent",
                             )}
-                            title="删除对话"
                           >
-                            {deletingThreadId === thread.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => onThreadSelect(thread.id)}
-                            className={cn(
-                              "grid w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors duration-200",
-                              "hover:bg-accent",
-                              currentThreadId === thread.id
-                                ? "border border-primary bg-accent hover:bg-accent"
-                                : "border border-transparent bg-transparent",
-                            )}
-                            aria-current={currentThreadId === thread.id}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="mb-1 flex items-center justify-between">
-                                <h3 className="truncate text-sm font-semibold">
-                                  {thread.title}
-                                </h3>
-                                <span className="ml-2 flex-shrink-0 text-xs text-muted-foreground">
-                                  {formatTime(thread.updatedAt)}
-                                </span>
-                              </div>
-                              <p className="flex-1 truncate text-sm text-muted-foreground">
-                                {thread.description}
-                              </p>
-                            </div>
-                          </button>
-                        </div>
-                      ))}
+                            <button
+                              type="button"
+                              onClick={() => onThreadSelect(thread.id)}
+                              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                            >
+                              <span
+                                className={cn(
+                                  "truncate text-[13px] leading-8",
+                                  isActive ? "font-medium text-foreground" : "text-foreground/90",
+                                )}
+                              >
+                                {thread.title}
+                              </span>
+                            </button>
+                            {/* Hover swap: timestamp fades out, delete action fades in */}
+                            <span
+                              className={cn(
+                                "flex h-6 w-8 shrink-0 items-center justify-end text-[11px] leading-none text-muted-foreground/80",
+                                "transition-opacity duration-100 group-hover:opacity-0",
+                                isDeleting && "opacity-0",
+                              )}
+                            >
+                              {formatTime(thread.updatedAt)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteThread(thread.id, e)}
+                              disabled={isDeleting}
+                              title="删除对话"
+                              className={cn(
+                                "absolute right-1 flex h-6 w-8 items-center justify-end rounded-md px-1",
+                                "text-muted-foreground opacity-0 transition-opacity duration-100",
+                                "hover:text-destructive group-hover:opacity-100",
+                                isDeleting && "opacity-100",
+                              )}
+                            >
+                              {isDeleting ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -301,17 +375,18 @@ export function ThreadList({
             )}
 
             {!isReachingEnd && (
-              <div className="flex justify-center py-4">
+              <div className="flex justify-center py-3">
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => threads.setSize(threads.size + 1)}
                   disabled={isLoadingMore}
+                  className="text-xs text-muted-foreground"
                 >
                   {isLoadingMore ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      加载中...
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      加载中…
                     </>
                   ) : (
                     "加载更多"

@@ -11,6 +11,19 @@ from src.app.db.database import async_session_factory
 from src.app.db.models.memory import Memory
 
 
+async def _invalidate_memory_cache() -> None:
+    """Invalidate the middleware's memory-catalog cache after a write.
+
+    Imported lazily so this module works in both the agent-server and
+    FastAPI processes regardless of which alias is importable there.
+    """
+    try:
+        from src.app.middleware.memory_injection import invalidate_memory_cache
+    except ImportError:
+        from app.middleware.memory_injection import invalidate_memory_cache
+    invalidate_memory_cache()
+
+
 @tool
 async def save_memory(
     key: str,
@@ -46,6 +59,7 @@ async def save_memory(
                 from sqlalchemy import func
                 existing.updated_at = func.now()
                 await session.commit()
+                await _invalidate_memory_cache()
                 return {
                     "success": True,
                     "memory_id": str(existing.id),
@@ -62,6 +76,7 @@ async def save_memory(
                 )
                 session.add(memory)
                 await session.commit()
+                await _invalidate_memory_cache()
                 return {
                     "success": True,
                     "memory_id": str(memory.id),

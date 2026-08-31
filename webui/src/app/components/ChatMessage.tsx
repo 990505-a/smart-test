@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useMemo, useState, useCallback, useDeferredValue } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentBlock, ToolCall, SubAgent } from "@/app/types/types";
 import { PIPELINE_STAGES } from "@/app/types/types";
 import { cn } from "@/lib/utils";
-import { File, ChevronDown, ChevronUp, Brain } from "lucide-react";
+import { File, ChevronDown, ChevronUp, Brain, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToolResultCard, parseSaveResults, stripSaveResultMarkers } from "@/app/components/ToolResultCard";
 import { ToolCallBox } from "@/app/components/ToolCallBox";
@@ -48,38 +48,88 @@ interface ChatMessageProps {
   ui?: unknown[];
   stream?: unknown;
   graphId?: string;
+  /** 打开子智能体实时操作面板（右侧抽屉） */
+  onSubAgentActivity?: (subAgent: SubAgent) => void;
+  /** task 调用是否已结束（结果已返回或 run 已结束）——执行中状态的收敛通道 */
+  isSubAgentClosed?: (taskCallId: string) => boolean;
 }
 
-/** Collapsible thinking block for DeepSeek R1 reasoning content */
-const ThinkingBlock = React.memo<{ content: string }>(({ content }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+function firstNonEmptyLine(text: string): string {
+  return text.split("\n").find((l) => l.trim()) ?? "";
+}
 
-  return (
-    <div className="mb-2 overflow-hidden rounded-lg border border-border/50 bg-muted/30">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setIsExpanded((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
-      >
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Brain size={14} />
-          <span className="font-medium">思考过程</span>
-        </div>
-        {isExpanded ? (
-          <ChevronUp size={14} className="shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+function lastNonEmptyLine(text: string): string {
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].trim()) return lines[i];
+  }
+  return "";
+}
+
+/**
+ * Collapsible reasoning panel (dsh-style "Think" row): while the model is
+ * still thinking, the header shows a live tail of the latest reasoning line
+ * with a pulsing indicator; once the answer text starts, it settles to a
+ * static "已深度思考" row. Expanded body is plain grey text that follows
+ * the stream.
+ */
+const ThinkingBlock = React.memo<{ content: string; running?: boolean }>(
+  ({ content, running }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const bodyRef = useRef<HTMLDivElement>(null);
+
+    // Keep the expanded body pinned to the newest reasoning while streaming.
+    useEffect(() => {
+      if (running && isExpanded && bodyRef.current) {
+        bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+      }
+    }, [content, running, isExpanded]);
+
+    const summary = useMemo(
+      () => (running ? lastNonEmptyLine(content) : firstNonEmptyLine(content)),
+      [content, running],
+    );
+
+    return (
+      <div className="mb-2 overflow-hidden rounded-lg border border-border/50 bg-muted/30">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsExpanded((prev) => !prev)}
+          className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
+        >
+          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <Brain
+              size={14}
+              className={running ? "motion-safe:animate-pulse shrink-0" : "shrink-0"}
+            />
+            <span className="shrink-0 font-medium">
+              {running ? "正在思考…" : "已深度思考"}
+            </span>
+            {summary && (
+              <span className="min-w-0 truncate opacity-70">· {summary}</span>
+            )}
+          </div>
+          {isExpanded ? (
+            <ChevronUp size={14} className="shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+          )}
+        </Button>
+        {isExpanded && (
+          <div
+            ref={bodyRef}
+            className="max-h-72 overflow-y-auto border-t border-border/50 px-3 py-2"
+          >
+            <p className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+              {content}
+            </p>
+          </div>
         )}
-      </Button>
-      {isExpanded && (
-        <div className="border-t border-border/50 px-3 py-2">
-          <MarkdownContent content={content} className="text-xs text-muted-foreground" />
-        </div>
-      )}
-    </div>
-  );
-});
+      </div>
+    );
+  },
+);
 ThinkingBlock.displayName = "ThinkingBlock";
 
 function extractStringContent(
@@ -107,14 +157,13 @@ function stripInternalContent(text: string): string {
   // Remove [Uploaded N file(s)] header and all ### File content (PDF/MD text)
   // Users don't need to see extracted file text in their message bubble
   result = result.replace(/\n*\[Uploaded \d+ file\(s\)\][\s\S]*$/g, "");
-  // Remove leading whitespace from repo/task lines
+  // Remove leading whitespace from repo lines
   result = result.replace(/^\s*仓库路径:.*$/gm, "");
-  result = result.replace(/^\s*任务单号:.*$/gm, "");
   return result.trim();
 }
 
 export const ChatMessage = React.memo<ChatMessageProps>(
-  ({ message, toolCalls = [], isStreaming = false, ui, stream, graphId }) => {
+  ({ message, toolCalls = [], isStreaming = false, ui, stream, graphId, onSubAgentActivity, isSubAgentClosed }) => {
     const isUser = message.type === "human";
     const isAi = message.type === "ai";
     const isTool = message.type === "tool";
@@ -124,6 +173,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     const hasContent = messageContent && messageContent.trim() !== "";
     const hasToolCalls = toolCalls.length > 0;
     const visibleToolCalls = toolCalls.filter((tc) => tc.name !== "task");
+    // dsh interrupted 语义：用户中途停止，已显示内容即定稿前缀。
+    // 标记由 stopStream 写入 additional_kwargs 并随消息落库，刷新可重建
+    const stoppedByUser = isAi && message.additional_kwargs?.stopped_by_user === true;
 
     // Extract sub-agents from "task" tool calls
     const subAgents = useMemo(() => {
@@ -135,9 +187,14 @@ export const ChatMessage = React.memo<ChatMessageProps>(
           subAgentName: tc.args.subagent_type as string,
           input: tc.args,
           output: tc.result ? { result: tc.result } : undefined,
-          status: tc.status === "completed" ? "completed" : tc.status === "error" ? "error" : "active",
+          status:
+            tc.status === "completed" || isSubAgentClosed?.(tc.id)
+              ? "completed"
+              : tc.status === "error"
+                ? "error"
+                : "active",
         }));
-    }, [toolCalls]);
+    }, [toolCalls, isSubAgentClosed]);
 
     // Map UI components to tool call IDs for GenUI rendering
     const uiMap = useMemo(() => {
@@ -199,8 +256,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
       return stripSaveResultMarkers(messageContent);
     }, [messageContent, saveResults]);
 
-    // Defer heavy streaming rendering to keep UI responsive
-    const deferredContent = useDeferredValue(displayContent);
+    // Streaming renders are already coalesced (50ms flush) and incremental
+    // (only the tail block re-parses), so the extra urgent+deferred double
+    // render from useDeferredValue cost more than it saved.
 
     // Detect pipeline stage markers in AI message content
     const detectedStage = useMemo(() => {
@@ -256,7 +314,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 </div>
               )}
               {hasContent && (
-                <div className="overflow-hidden break-words rounded-xl rounded-br-none border border-border bg-primary/10 px-3 py-2 text-sm leading-relaxed">
+                <div className="overflow-hidden break-words rounded-[22px] rounded-br-md bg-secondary px-4 py-2.5 text-[15px] leading-6">
                   <p className="m-0 whitespace-pre-wrap break-words">
                     {messageContent}
                   </p>
@@ -265,7 +323,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
             </div>
           ) : (
             /* AI message: tool calls + rendered markdown */
-            (hasToolCalls || hasContent) && (
+            (hasToolCalls || hasContent || reasoningContent) && (
               <div className="mt-4 min-w-0 overflow-hidden break-words text-sm leading-relaxed">
                 {/* Pipeline stage indicator */}
                 {detectedStage && (
@@ -286,8 +344,15 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   </div>
                 )}
 
-                {/* Thinking block (DeepSeek R1 reasoning content) */}
-                {isAi && reasoningContent && <ThinkingBlock content={reasoningContent} />}
+                {/* Thinking block (reasoning_content / thinking blocks) —
+                    "running" only while streaming and before answer text
+                    starts arriving, mirroring dsh's Think row lifecycle */}
+                {isAi && reasoningContent && (
+                  <ThinkingBlock
+                    content={reasoningContent}
+                    running={isStreaming && !hasContent}
+                  />
+                )}
 
                 {/* Tool call boxes (skip "task" calls) */}
                 {visibleToolCalls.length > 0 && (
@@ -304,21 +369,12 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   </div>
                 )}
 
-                {/* Sub-agent indicators for "task" tool calls */}
-                {subAgents.length > 0 && (
-                  <div className="mb-2 flex w-fit max-w-full flex-col gap-4">
-                    {subAgents.map((sa) => (
-                      <SubAgentIndicator key={sa.id} subAgent={sa} />
-                    ))}
-                  </div>
-                )}
-
                 {/* Text content */}
                 {hasContent && (
                   isStreaming ? (
                     <>
                       <MarkdownContent
-                        content={deferredContent}
+                        content={displayContent}
                         streaming
                         className="[&_p:last-child]:inline [&_p:not(:last-child)]:inline-block"
                       />
@@ -336,6 +392,29 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                       <MarkdownContent content={displayContent} />
                     </>
                   )
+                )}
+
+                {/* 已停止标记（dsh interrupted）：用户中途停止生成，
+                    已显示的内容就是定稿前缀 */}
+                {stoppedByUser && !isStreaming && (
+                  <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+                    <Square size={9} className="shrink-0 fill-current" />
+                    <span>已停止</span>
+                  </div>
+                )}
+
+                {/* Sub-agent indicators：跟在回答文字之后——文字是宣告、
+                    指示器是动作，先读到宣告再看派发更符合阅读顺序 */}
+                {subAgents.length > 0 && (
+                  <div className="mt-3 flex w-fit max-w-full flex-col gap-2">
+                    {subAgents.map((sa) => (
+                      <SubAgentIndicator
+                        key={sa.id}
+                        subAgent={sa}
+                        onOpenActivity={onSubAgentActivity}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
             )
