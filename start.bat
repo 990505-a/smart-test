@@ -22,6 +22,9 @@ for %%p in (5011 5012 5013) do (
 taskkill /FI "WINDOWTITLE eq LangGraph-5011*" /F /T >nul 2>&1
 taskkill /FI "WINDOWTITLE eq FastAPI-5012*" /F /T >nul 2>&1
 taskkill /FI "WINDOWTITLE eq NextJS-5013*" /F /T >nul 2>&1
+:: Kill stale webui dev processes regardless of port/title
+:: (covers manually started `npm run dev` that may sit on 3000/3001/...)
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like '*smart-test-platform\webui*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 echo   Waiting for ports to release...
 ping -n 4 127.0.0.1 >nul 2>&1
 

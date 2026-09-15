@@ -5,6 +5,10 @@
 - **workspace_write**（默认）：文件写工具自由放行——backend 已把文件操作
   限制在 workspace 目录内；execute 按"命令是否有副作用"细分——纯只读
   探查命令（wc/head/grep/git log 等）白名单自动放行，其余弹审批。
+  lark-cli 只放行搜索/读取类子命令（_lark_segment_safe）：飞书写入类
+  操作（建/改/删/上传）一律弹审批，这是输入框「飞书检索」开关只读
+  语义的命令层兜底；开关本身只控制智能体是否主动去飞书找需求
+  （configurable.feishu_cli == "readonly" 时注入检索指引）。
 - **full_access**：全部自动放行（前端切换到该档需要二次确认，后端不做
   二次校验——与 dsh 的 RiskConfirmation 一样属于 UI 层确认）。
 
@@ -40,8 +44,9 @@ VALID_PERMISSION_MODES = ("workspace_write", "full_access")
 # 三类：
 # 1. 只读探查——wc/head/grep 等，只看现状不改变世界（git 单独按子命令判断，
 #    见 _git_segment_safe，因为真实用法带 -C <path> 全局参数）；
-# 2. lark-cli——飞书 skill 的全部操作走它，登录态（用户自己授权的账号
-#    与 scope）就是权限边界；
+# 2. lark-cli——飞书 skill 的操作走它，但只放行只读子命令（搜索/读取/识别，
+#    见 _lark_segment_safe）：写操作（建/改/删/上传/移动/权限）一律弹审批，
+#    这是「飞书检索开关」只读语义的命令层兜底；
 # 3. 环境版本查询。
 # 注意 "git branch" 不放行：裸 branch 可建/删分支，属于写操作；
 # "find" 不放行：-delete/-exec 是写原语，前缀匹配拦不住，代码定位用 glob 工具。
@@ -66,9 +71,6 @@ SAFE_COMMAND_PREFIXES = (
     "awk ",
     "type ",
     "echo",              # 无害：输出重定向已被副作用检测单独拦截
-    # 平台集成
-    "lark-cli",
-    "lark-cli.exe",
     # 环境查询
     "node --version",
     "python --version",
@@ -80,6 +82,66 @@ SAFE_COMMAND_PREFIXES = (
 _READ_ONLY_GIT_SUBCOMMANDS = frozenset(
     {"status", "log", "diff", "show", "rev-parse", "ls-files", "blame"}
 )
+
+# lark-cli 只读 shortcut（按 lark-drive / lark-doc 技能中的实际命令形态）。
+_LARK_READONLY_SHORTCUTS = frozenset({
+    # docs：读正文 / 解析统计 / 历史查询（+history-revert 是写，不在列）
+    "+fetch", "+script", "+history-list", "+history-revert-status",
+    "+media-preview",
+    # drive：搜文档 / 识别 URL / 权限设置查询 / 版本历史 / 封面规格
+    "+search", "+inspect", "+permission-get-setting", "+version-history",
+    "+cover",
+})
+# lark-cli typed 资源调用的只读方法名（drive file.statistics get 等）。
+_LARK_READONLY_METHODS = frozenset({"get", "list", "search"})
+# 取值型全局 flag：跳过 flag 本身 + 它的值。
+_LARK_VALUE_FLAGS = frozenset({"--as", "--identity", "--config", "--profile"})
+
+
+def _lark_segment_safe(segment: str) -> bool:
+    """lark-cli 命令按子命令判断：只放行搜索/读取类，写操作交审批。
+
+    形态参照 `lark-cli --help` 与 /skills/lark-* 技能：
+    ``lark-cli [全局flag] <domain> [+shortcut|resource method] [flags]``
+    以及裸 API：``lark-cli api GET/POST/... <path>``。
+    解析是前缀启发式：认不出的一律不放行（保守方向，最坏多弹一次审批）。
+    """
+    tokens = segment.split()
+    index = 1  # tokens[0] = lark-cli / lark-cli.exe
+    # 跳过全局 flag；--as user 之类取值型 flag 连值一起跳过
+    while index < len(tokens) and tokens[index].startswith("-"):
+        if tokens[index].lower() in _LARK_VALUE_FLAGS:
+            index += 2
+        else:
+            index += 1
+    if index >= len(tokens):
+        return False  # 裸 lark-cli 无子命令：不放行（正常用法都会带子命令）
+    head = tokens[index].lower()
+    if head in ("help", "schema", "--help", "--version", "-v"):
+        return True
+    if head == "auth":
+        nxt = tokens[index + 1].lower() if index + 1 < len(tokens) else ""
+        return nxt == "status"
+    if head == "api":
+        method = tokens[index + 1].upper() if index + 1 < len(tokens) else ""
+        return method == "GET"
+    if head == "docs":
+        nxt = tokens[index + 1].lower() if index + 1 < len(tokens) else ""
+        return nxt in _LARK_READONLY_SHORTCUTS
+    if head == "drive":
+        nxt = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if nxt.startswith("+"):
+            return nxt.lower() in _LARK_READONLY_SHORTCUTS
+        # typed 调用：drive <resource> <method>，看方法名是否只读
+        method = tokens[index + 2].lower() if index + 2 < len(tokens) else ""
+        return method in _LARK_READONLY_METHODS
+    if head == "mindnotes":
+        sub = [t.lower() for t in tokens[index + 1:index + 3]]
+        return sub == ["nodes", "list"]
+    # minutes / note 是 CLI 自述的纯读取域（会议纪要/转写检索）
+    if head in ("minutes", "note"):
+        return True
+    return False
 
 _CHAIN_SPLIT = re.compile(r"&&|\|\||[;|\n]")
 # 无害的 stderr 丢弃（只读命令常用）：先剥离再查副作用，避免 rg ... 2>/dev/null
@@ -105,9 +167,15 @@ def _git_segment_safe(segment: str) -> bool:
     return False
 
 
+_LARK_BINS = ("lark-cli", "lark-cli.exe")
+
+
 def _segment_safe(segment: str) -> bool:
-    if segment == "git" or segment.startswith("git "):
+    first = segment.split()[0] if segment.split() else ""
+    if first == "git" or first == "git.exe":
         return _git_segment_safe(segment)
+    if first in _LARK_BINS:
+        return _lark_segment_safe(segment)
     return segment.startswith(SAFE_COMMAND_PREFIXES)
 
 

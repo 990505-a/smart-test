@@ -50,7 +50,7 @@ from src.app.agents.testcase.tools.feishu_tools import (
     check_feishu_status,
     export_project_mindmap,
 )
-from app.agents.testcase.context import ThreadContextMiddleware
+from app.agents.testcase.context import ThreadContextMiddleware, FeishuReadonlyMiddleware
 from app.agents.testcase.model_factory import build_chat_model, build_vision_model
 from app.middleware.live_model_reload import LiveModelReloadMiddleware
 from app.middleware.thinking_effort import ThinkingEffortMiddleware
@@ -72,8 +72,9 @@ llm = build_chat_model()
 # CompositeBackend routes:
 #   /skills/ -> skills_backend (src/app/skills/) — SKILL.md progressive disclosure
 #   /repo/   -> RepoProxyBackend — per-run read-only mount of the repo configured
-#               via configurable.repo_path (chat frontend requires a repo per
-#               conversation); lets grep/glob/ls/read_file search the game repo.
+#               via configurable.repo_path (repo is OPTIONAL since 2026-09:
+#               requirement-doc-only conversations simply leave it empty and
+#               /repo/ tools return a friendly "not mounted" message)
 # All other paths -> file_backend (workspace/{space_id}/testcase/).
 # ============================================================================
 from app.agents.testcase.repo_backend import RepoAwareShellBackend, RepoProxyBackend
@@ -206,6 +207,7 @@ agent = create_agent(
     middleware=[
         skills_middleware,          # D-05 outer layer: loads SKILL.md into system prompt
         ThreadContextMiddleware(),  # Injects thread-scoped upload directory into system prompt
+        FeishuReadonlyMiddleware(),  # ?feishu=on → injects lark-cli readonly requirement-search guidance
         LiveModelReloadMiddleware(),  # watches .env: settings-page saves apply on the next turn
         ThinkingEffortMiddleware(),  # per-run reasoning effort (configurable.llm_reasoning_effort); placed above vision switch so images still win
         dynamic_model_middleware,   # D-01/D-04 middle layer: switches model for images

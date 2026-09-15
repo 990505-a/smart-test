@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderGit2, Settings, ChevronUp, FlaskConical, Brain, ShieldAlert } from "lucide-react";
+import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderGit2, Settings, ChevronUp, FlaskConical, Brain, ShieldAlert, BookOpen } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
@@ -80,6 +80,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   }, [permissionMode, setPermissionMode]);
   // 切到完全访问需要二次确认（dsh: RiskConfirmation）
   const [fullAccessConfirmOpen, setFullAccessConfirmOpen] = useState(false);
+  // 飞书需求检索开关（?feishu=on|off，默认 off）→ 后端 configurable.feishu_cli。
+  // 开启后需求澄清/补充阶段智能体可用 lark-cli 只读检索飞书云文档（写操作仍走审批）。
+  const [feishuSearch, setFeishuSearch] = useQueryState("feishu", {
+    defaultValue: "off",
+  });
 
   // 需在 useFileUpload 之前解构：ensureThreadId 传给上传 hook 按需建线程
   const {
@@ -116,6 +121,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   } = useFileUpload(undefined, currentThreadId ?? undefined, ensureThreadId);
 
   const REPO_STORAGE_KEY = "smart-test-platform-repos";
+  // 记住用户显式选择（含「不挂载仓库」），刷新后不回退到自动选第一个
+  const REPO_SELECTED_KEY = "smart-test-platform-selected-repo";
+
+  const rememberRepoChoice = useCallback((repo: string) => {
+    localStorage.setItem(REPO_SELECTED_KEY, repo || "__none__");
+  }, []);
 
   // Load repos: localStorage 手动添加的 + 平台「代码图谱」页保存的受管仓库,合并去重
   useEffect(() => {
@@ -123,6 +134,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     try {
       const saved = localStorage.getItem(REPO_STORAGE_KEY);
       if (saved) local = JSON.parse(saved);
+    } catch {}
+    let savedChoice: string | null = null;
+    try {
+      savedChoice = localStorage.getItem(REPO_SELECTED_KEY);
     } catch {}
     apiClient
       .get<{ repos: { repo_path: string }[] }>("/codebase/repos")
@@ -132,12 +147,22 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
         );
         const merged = [...new Set([...local, ...platform])];
         setRepoList(merged);
-        setSelectedRepo((prev) => prev || merged[0] || "");
+        setSelectedRepo((prev) => {
+          if (prev) return prev;
+          if (savedChoice === "__none__") return "";
+          if (savedChoice && merged.includes(savedChoice)) return savedChoice;
+          return merged[0] || "";
+        });
       })
       .catch(() => {
         // 平台接口不可达时退回 localStorage
         setRepoList(local);
-        if (local.length > 0) setSelectedRepo(local[0]);
+        setSelectedRepo((prev) => {
+          if (prev) return prev;
+          if (savedChoice === "__none__") return "";
+          if (savedChoice && local.includes(savedChoice)) return savedChoice;
+          return local[0] || "";
+        });
       });
   }, []);
 
@@ -153,17 +178,24 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     const newList = [...repoList, path];
     saveRepoList(newList);
     setSelectedRepo(path);
+    rememberRepoChoice(path);
     setNewRepoPath("");
     setRepoDialogOpen(false);
-  }, [newRepoPath, repoList, saveRepoList]);
+  }, [newRepoPath, repoList, saveRepoList, rememberRepoChoice]);
 
   const handleRemoveRepo = useCallback((path: string) => {
     const newList = repoList.filter((r) => r !== path);
     saveRepoList(newList);
     if (selectedRepo === path) {
       setSelectedRepo(newList[0] || "");
+      rememberRepoChoice(newList[0] || "");
     }
-  }, [repoList, selectedRepo, saveRepoList]);
+  }, [repoList, selectedRepo, saveRepoList, rememberRepoChoice]);
+
+  const handleSelectRepo = useCallback((repo: string) => {
+    setSelectedRepo(repo);
+    rememberRepoChoice(repo);
+  }, [rememberRepoChoice]);
 
   // 子智能体实时操作面板（右侧抽屉）
   const [activitySubAgent, setActivitySubAgent] = useState<SubAgent | null>(null);
@@ -197,14 +229,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
         toast.error("文件还在上传中，请等待上传完成后再发送");
         return;
       }
-      // 每次对话必须挂载代码仓库：未选择时阻断发送并引导选择
-      if (!selectedRepo) {
-        toast.error("请先选择要分析的代码仓库（会话将挂载该仓库供智能体检索）");
-        setRepoDialogOpen(true);
-        return;
-      }
+      // 仓库可选：仅有需求文档、不做代码分析的会话可以不挂载仓库。
+      // 未选择时不阻断发送，后端 /repo/ 会返回「未挂载仓库」提示由智能体转告。
       // Inject code analysis context into message so agent can see it
-      const contextPrefix = `[代码分析上下文 - 可在任何阶段使用此信息辅助分析] 仓库路径: ${selectedRepo}\n\n`;
+      const contextPrefix = selectedRepo
+        ? `[代码分析上下文 - 可在任何阶段使用此信息辅助分析] 仓库路径: ${selectedRepo}\n\n`
+        : "";
       // 用户主动发消息 → 强制恢复底部跟随
       isNearBottomRef.current = true;
       sendMessage(contextPrefix + messageText, contentBlocks, {
@@ -693,11 +723,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
               className="flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[14px] text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
               rows={1}
             />
-            <div className="flex justify-between gap-2 p-3">
-              <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <label
                   htmlFor="file-input"
-                  className="flex cursor-pointer items-center gap-2 text-muted-foreground hover:text-foreground"
+                  className="flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap text-muted-foreground hover:text-foreground"
                 >
                   <Plus className="size-5" />
                   <span className="text-sm">上传 PDF 或图片</span>
@@ -710,31 +740,68 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
                   accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/markdown"
                   className="hidden"
                 />
-                <div className="flex items-center gap-2 border-l border-border pl-4">
-                  {/* Repo selector */}
-                  <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-2 border-l border-border pl-4">
+                  {/* Repo selector (可选：仅需求文档的会话可不挂载仓库)。
+                      Radix Select 而非原生 <select>：深色模式下原生下拉是
+                      系统白底+继承浅色文字，选项会白字白底不可见。 */}
+                  <div className="flex shrink-0 items-center gap-1">
                     <FolderGit2 size={14} className="text-muted-foreground" />
-                    <select
-                      value={selectedRepo}
-                      onChange={(e) => setSelectedRepo(e.target.value)}
-                      className="h-7 max-w-48 rounded border border-border bg-transparent px-1.5 text-xs text-foreground outline-none focus:border-primary"
+                    <Select
+                      value={selectedRepo || "__none__"}
+                      onValueChange={(v) => handleSelectRepo(!v || v === "__none__" ? "" : v)}
                     >
-                      <option value="">选择仓库</option>
-                      {repoList.map((r) => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 max-w-48 gap-1 truncate border border-border bg-transparent px-1.5 text-xs text-foreground"
+                        title={selectedRepo || "仅需求文档的会话可不挂载仓库"}
+                      >
+                        <SelectValue placeholder="选择仓库" />
+                      </SelectTrigger>
+                      <SelectContent className="w-80">
+                        <SelectItem value="__none__">不挂载仓库</SelectItem>
+                        {repoList.map((r) => (
+                          <SelectItem key={r} value={r} title={r} className="font-mono text-xs">
+                            <span className="block max-w-full truncate">{r}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <button
                       type="button"
                       onClick={() => setRepoDialogOpen(true)}
-                      className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                       title="管理仓库"
                     >
                       <Settings size={12} />
                     </button>
                   </div>
+                  {/* Feishu readonly search toggle (per conversation, ?feishu=) */}
+                  <div className="flex shrink-0 items-center gap-1">
+                    <BookOpen
+                      size={14}
+                      className={cn(
+                        "text-muted-foreground",
+                        feishuSearch === "on" && "text-brand",
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFeishuSearch((v) => (v === "on" ? "off" : "on"))
+                      }
+                      className={cn(
+                        "h-7 whitespace-nowrap rounded border px-1.5 text-xs transition-colors",
+                        feishuSearch === "on"
+                          ? "border-brand bg-brand/10 text-brand"
+                          : "border-border bg-transparent text-muted-foreground hover:text-foreground",
+                      )}
+                      title="飞书需求检索（只读）：开启后需求澄清/补充阶段智能体可用 lark-cli 搜索并读取飞书云文档；写入类操作仍需审批"
+                    >
+                      飞书检索：{feishuSearch === "on" ? "开" : "关"}
+                    </button>
+                  </div>
                   {/* Reasoning effort chip (per conversation, ?effort=) */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <Brain size={14} className="text-muted-foreground" />
                     <Select
                       value={reasoningEffort === "" ? null : reasoningEffort}
@@ -756,7 +823,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
                     </Select>
                   </div>
                   {/* 权限档位（per conversation, ?permission=）—— 工作区/完全访问 */}
-                  <div className="flex items-center gap-1 border-l border-border pl-4">
+                  <div className="flex shrink-0 items-center gap-1 border-l border-border pl-4">
                     <ShieldAlert
                       size={14}
                       className={cn(

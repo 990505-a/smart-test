@@ -18,15 +18,16 @@ Skill 提供测试方法和领域检查项；流程状态、Lint 门禁和发布
 
 1. 读取上传文件：聊天上传的 PDF/Markdown 通常先保存到 `/uploads/{thread_id}/`，消息只提供路径引用；需要调用 `read_file` 读取完整文本。不要假定文本已经自动嵌入上下文。
 2. 先读取本 Skill 和命中的模块方法论 Skill，再按需检索 `/repo/` 代码和配置。产品规则必须有需求、代码或其他来源证据；无法确认的内容不能当作事实。
-3. 调用 `save_requirement_package(project_name, package)`，至少保存：
+3. **飞书需求检索（仅当系统提示出现「飞书需求检索（会话开关已开启）」时）**：需求澄清/补充阶段，上传文档信息不足、用户提到需求在飞书或需要交叉验证时，按 `/skills/lark-drive` 与 `/skills/lark-doc` 技能用 lark-cli 搜索并读取飞书云文档（`drive +search` 搜、`docs +fetch` 读正文）。**严格只读**：禁止创建、修改、删除、上传、移动、权限变更等一切写操作（写命令会被权限门转人工审批）。开关未开启时不要主动去飞书找需求。飞书证据连同文档链接记入 `source_refs` 与 `source_manifest`。
+4. 调用 `save_requirement_package(project_name, package)`，至少保存：
    - 需求目标、范围与明确排除项；
    - 唯一 `REQ-*`、验收例子、前置条件、输入约束和可观察结果；
    - 风险 `RISK-*`、涉及角色和状态；
    - `source_manifest`（上传文件/代码路径及可用的来源 hash）；
    - `assumptions`、`unresolved_questions` 和每个问题是否 `blocking`；
    - `coverage_plan`（每个 REQ 的正向、负向、边界、异常/恢复、并发等计划）。
-4. 缺少业务事实时优先向用户提澄清问题。高风险未决问题必须标记为 blocking，不能直接批准；用户要求继续时只能生成带显式假设的草稿。每次生成或修复结束时，必须把所有 unresolved_questions 编号后在聊天中逐条向用户提问（说明每条影响的 REQ/CASE），答案通过聊天回复获得——用例页面只读展示问题，不提供作答入口。
-5. 需求包的最小结构示例：
+5. 缺少业务事实时优先向用户提澄清问题。高风险未决问题必须标记为 blocking，不能直接批准；用户要求继续时只能生成带显式假设的草稿。每次生成或修复结束时，必须把所有 unresolved_questions 编号后在聊天中逐条向用户提问（说明每条影响的 REQ/CASE），答案通过聊天回复获得——用例页面只读展示问题，不提供作答入口。
+6. 需求包的最小结构示例：
 
 ```json
 {

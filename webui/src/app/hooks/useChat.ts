@@ -136,6 +136,13 @@ export function useChat({
     "permission",
     parseAsString.withDefault("workspace_write"),
   );
+  // Per-conversation Feishu readonly search toggle ("on"|"off") — forwarded as
+  // configurable.feishu_cli ("readonly"|"off") so the agent only reaches for
+  // lark-cli requirement search when the user opted in.
+  const [feishuSearch] = useQueryState(
+    "feishu",
+    parseAsString.withDefault("off"),
+  );
   const client = useClient();
 
   // Pending execute-approval interrupt (dsh-style): the agent paused on a
@@ -1033,6 +1040,7 @@ export function useChat({
           space_id: workspaceId || "default",
           repo_path: context?.repoPath || "",
           permission_mode: permissionMode,
+          feishu_cli: feishuSearch === "on" ? "readonly" : "off",
           ...(reasoningEffort
             ? { llm_reasoning_effort: reasoningEffort }
             : {}),
@@ -1110,7 +1118,7 @@ export function useChat({
 
       onHistoryRevalidate?.();
     },
-    [threadId, assistantId, client, workspaceId, setThreadId, scheduleHistoryRevalidate, onHistoryRevalidate, paginated, saveMessagesToLocalStore, isViewedThread, scheduleStreamRender, flushStreamRender, bumpLoadingIfViewed, upsertStreamMessage, reasoningEffort, permissionMode, processStreamEvents, finalizeStream, tombstoneRuns, cancelThreadRuns],
+    [threadId, assistantId, client, workspaceId, setThreadId, scheduleHistoryRevalidate, onHistoryRevalidate, paginated, saveMessagesToLocalStore, isViewedThread, scheduleStreamRender, flushStreamRender, bumpLoadingIfViewed, upsertStreamMessage, reasoningEffort, permissionMode, feishuSearch, processStreamEvents, finalizeStream, tombstoneRuns, cancelThreadRuns],
   );
 
   /**

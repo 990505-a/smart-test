@@ -14,7 +14,7 @@ const SUPPORTED_FILE_TYPES = [
   "text/markdown",
 ];
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB（设计文档含大量 UI 截图，常见 20-80MB）
 
 /**
  * Convert a File to a base64 string (strips data:...;base64, prefix).
@@ -104,7 +104,7 @@ export async function fileToContentBlock(
   }
 
   if (file.size > MAX_FILE_SIZE) {
-    toast.error(`File too large: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum size is 20MB.`);
+    toast.error(`File too large: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB.`);
     return Promise.reject(new Error(`File too large: ${file.name}`));
   }
 

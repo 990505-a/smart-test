@@ -20,6 +20,7 @@ e.g. a multimodal chat model).
 
 from __future__ import annotations
 
+import uuid
 from functools import lru_cache
 
 from dotenv import dotenv_values
@@ -36,6 +37,18 @@ except ImportError:  # pragma: no cover — FastAPI-process alias
     from src.app.core.config import settings
 
 VALID_EFFORTS = ("low", "medium", "high")
+
+# OpenCode Go 网关（opencode.ai/zen/go/v1）要求每个请求携带一个稳定的
+# x-opencode-session 头用于路由/缓存分片，缺失时返回 400 MissingSessionID。
+# 进程级 UUID 满足"稳定"要求（进程重启才变化）。
+_GO_SESSION_ID = uuid.uuid4().hex
+
+
+def _go_session_headers(base_url: str | None) -> dict | None:
+    """OpenCode Go 端点需要 x-opencode-session；其他端点不附加多余头。"""
+    if base_url and "opencode.ai" in base_url.lower():
+        return {"x-opencode-session": _GO_SESSION_ID}
+    return None
 
 
 class ReasoningChatOpenAI(ChatOpenAI):
@@ -242,6 +255,7 @@ def build_chat_model(effort: str = "", context_window: int | None = None) -> Bas
             model=model_name,
             base_url=settings.llm_base_url,
             api_key=api_key,
+            default_headers=_go_session_headers(settings.llm_base_url),
         )
         openai_kwargs = {k: v for k, v in kwargs.items() if v is not None}
         llm = ReasoningChatOpenAI(**openai_kwargs)
@@ -302,7 +316,12 @@ def build_vision_model() -> BaseChatModel:
             raise ValueError("视觉模型缺少 API Key（VISION_API_KEY 或文本模型的 Key）")
         # Direct construction (no "openai:" provider prefix — that is an
         # init_chat_model convention, ChatOpenAI would take it literally).
-        kwargs.update(model=vision_model, base_url=base_url, api_key=api_key)
+        kwargs.update(
+            model=vision_model,
+            base_url=base_url,
+            api_key=api_key,
+            default_headers=_go_session_headers(base_url),
+        )
         llm = ReasoningChatOpenAI(**{k: v for k, v in kwargs.items() if v is not None})
     else:
         api_key = (settings.vision_api_key or "").strip()
@@ -340,7 +359,11 @@ def _test_text_model(values: dict, timeout: int) -> BaseChatModel:
     if base_url:
         if not api_key:
             raise ValueError("文本模型缺少 API Key")
-        kwargs.update(base_url=base_url, api_key=api_key)
+        kwargs.update(
+            base_url=base_url,
+            api_key=api_key,
+            default_headers=_go_session_headers(base_url),
+        )
     else:
         kwargs["model"] = f"deepseek:{model_name}"
         if api_key:
@@ -368,7 +391,11 @@ def _test_vision_model(values: dict, timeout: int) -> BaseChatModel | None:
         )
         if not api_key:
             raise ValueError("视觉模型缺少 API Key")
-        kwargs.update(base_url=base_url, api_key=api_key)
+        kwargs.update(
+            base_url=base_url,
+            api_key=api_key,
+            default_headers=_go_session_headers(base_url),
+        )
     else:
         api_key = (values.get("vision_api_key") or "").strip()
         if not api_key:

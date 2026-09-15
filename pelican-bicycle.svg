@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" role="img" aria-labelledby="title desc">
+  <title id="title">Pelican riding a bicycle</title>
+  <desc id="desc">A cheerful pelican pedals a teal bicycle along a sunny seaside path.</desc>
+
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8ed8f3"/>
+      <stop offset="1" stop-color="#d9f5f2"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#53c5d1"/>
+      <stop offset="1" stop-color="#a7e7df"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#215568" flood-opacity=".2"/>
+    </filter>
+  </defs>
+
+  <!-- background -->
+  <rect width="1000" height="700" fill="url(#sky)"/>
+  <circle cx="830" cy="120" r="55" fill="#fff4b0" opacity=".9"/>
+  <path d="M0 355 C160 315 270 370 410 342 S700 320 1000 355 V510 H0Z" fill="url(#water)"/>
+  <path d="M0 398 C145 365 268 413 418 388 S740 368 1000 405" fill="none" stroke="#e8ffff" stroke-width="12" stroke-linecap="round" opacity=".8"/>
+  <path d="M0 455 C190 425 320 472 500 447 S795 432 1000 465 V700 H0Z" fill="#f6d58d"/>
+  <path d="M0 520 C230 480 380 540 595 510 S820 495 1000 525" fill="none" stroke="#e7b96f" stroke-width="9" stroke-linecap="round" opacity=".7"/>
+
+  <!-- birds -->
+  <path d="M125 142 q18 -18 36 0 q18 -18 36 0" fill="none" stroke="#347b8d" stroke-width="6" stroke-linecap="round"/>
+  <path d="M690 205 q15 -15 30 0 q15 -15 30 0" fill="none" stroke="#347b8d" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- bicycle shadow -->
+  <ellipse cx="505" cy="602" rx="280" ry="24" fill="#6f8d89" opacity=".22"/>
+
+  <!-- bicycle -->
+  <g filter="url(#shadow)" stroke="#174d61" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="330" cy="535" r="92" fill="none" stroke-width="12"/>
+    <circle cx="690" cy="535" r="92" fill="none" stroke-width="12"/>
+    <circle cx="330" cy="535" r="10" fill="#f4c24f" stroke-width="6"/>
+    <circle cx="690" cy="535" r="10" fill="#f4c24f" stroke-width="6"/>
+    <path d="M330 535 L445 535 L540 388 L690 535 L445 535 L395 415 L540 388" fill="none" stroke="#20a7a1" stroke-width="14"/>
+    <path d="M395 415 L365 375" fill="none" stroke-width="12"/>
+    <path d="M348 374 h46" fill="none" stroke-width="12"/>
+    <path d="M540 388 l14 -48 h48" fill="none" stroke-width="12"/>
+    <path d="M585 340 q20 -12 42 0" fill="none" stroke-width="8"/>
+    <path d="M445 535 q30 -4 53 20" fill="none" stroke-width="10"/>
+    <circle cx="498" cy="555" r="15" fill="#f4c24f" stroke-width="5"/>
+    <path d="M498 555 l-28 27 M498 555 l34 -22" fill="none" stroke-width="8"/>
+  </g>
+
+  <!-- pelican body -->
+  <g filter="url(#shadow)" stroke="#34536a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <!-- tail feathers -->
+    <path d="M535 330 q80 -20 112 28 l-66 20 z" fill="#e9eef0"/>
+    <path d="M598 345 l44 10 l-49 28" fill="#cfdcdf"/>
+
+    <!-- body -->
+    <ellipse cx="470" cy="310" rx="105" ry="132" fill="#f4f6f3" transform="rotate(-12 470 310)"/>
+    <path d="M411 280 q45 -80 113 -18 q-8 54 -37 93 q-49 4 -76 -75z" fill="#d5e1e2" stroke="none"/>
+    <path d="M435 398 q-13 74 -5 113" fill="none"/>
+    <path d="M493 401 q30 59 52 105" fill="none"/>
+
+    <!-- neck and head -->
+    <path d="M454 227 q-20 -90 43 -117 q66 -28 112 26 q39 46 5 103 q-32 51 -100 37z" fill="#f7f8f5"/>
+    <path d="M485 135 q36 -32 81 -12 q34 15 39 53 q-37 35 -86 13z" fill="#d5e1e2" stroke="none"/>
+    <circle cx="540" cy="146" r="10" fill="#243b52" stroke="none"/>
+    <circle cx="543" cy="143" r="3.5" fill="#fff" stroke="none"/>
+
+    <!-- beak -->
+    <path d="M573 171 q99 8 166 55 q-65 55 -157 44 q-36 -21 -9 -99z" fill="#f2a84c"/>
+    <path d="M576 220 q85 22 163 6 q-53 49 -146 44" fill="#e88743" stroke="none"/>
+    <path d="M573 171 q79 25 151 56" fill="none" stroke="#c66f3b" stroke-width="5"/>
+    <path d="M689 226 q11 3 22 0" fill="none" stroke="#b96436" stroke-width="5"/>
+
+    <!-- wing -->
+    <path d="M430 267 q-83 69 -38 157 q39 42 100 -19 l45 -100 q-42 -58 -107 -38z" fill="#eef2f0"/>
+    <path d="M410 364 q35 21 73 2" fill="none" stroke="#bdcfd2" stroke-width="5"/>
+
+    <!-- feet on pedals -->
+    <path d="M430 486 q-28 28 -8 45 q24 12 51 -10" fill="none" stroke="#e98942" stroke-width="14"/>
+    <path d="M517 490 q-9 38 16 43 q30 1 35 -22" fill="none" stroke="#e98942" stroke-width="14"/>
+    <path d="M408 530 q24 8 53 -9 M528 531 q21 7 40 -14" fill="none" stroke="#d66e38" stroke-width="6"/>
+
+    <!-- wing gripping handlebar -->
+    <path d="M525 283 q48 39 73 60" fill="none" stroke="#f4f6f3" stroke-width="25"/>
+    <path d="M588 343 q10 3 17 -4" fill="none" stroke="#e98942" stroke-width="14"/>
+  </g>
+
+  <!-- motion lines -->
+  <g fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity=".9">
+    <path d="M210 300 h72"/>
+    <path d="M170 330 h40"/>
+    <path d="M760 390 h82"/>
+  </g>
+
+  <!-- foreground flowers -->
+  <g stroke="#4e9273" stroke-width="6" stroke-linecap="round">
+    <path d="M95 650 q5 -60 3 -105 M95 610 q-28 -26 -42 -15 M98 575 q25 -24 39 -16" fill="none"/>
+    <circle cx="98" cy="536" r="15" fill="#ef7d78" stroke="#b65a62"/>
+    <circle cx="80" cy="539" r="12" fill="#f48d82" stroke="#b65a62"/>
+    <circle cx="115" cy="539" r="12" fill="#f48d82" stroke="#b65a62"/>
+    <circle cx="98" cy="538" r="8" fill="#f5c85b" stroke="#b98235"/>
+  </g>
+
+  <text x="500" y="665" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#47726f" opacity=".8">PEDALING INTO THE SUNSHINE</text>
+</svg>

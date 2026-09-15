@@ -25,6 +25,11 @@ taskkill /FI "WINDOWTITLE eq LangGraph-5011*" /F /T >nul 2>&1
 taskkill /FI "WINDOWTITLE eq FastAPI-5012*" /F /T >nul 2>&1
 taskkill /FI "WINDOWTITLE eq NextJS-5013*" /F /T >nul 2>&1
 
+:: Step 2b: Kill stale webui dev processes regardless of port/title
+:: (covers manually started `npm run dev` that may sit on 3000/3001/...)
+echo   Killing stale webui dev processes (any port)...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like '*smart-test-platform\webui*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+
 :: Step 3: Wait for TCP sockets to fully release
 echo [2/2] Waiting for ports to release...
 set "ALL_FREE=0"

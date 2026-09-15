@@ -28,6 +28,7 @@ import base64
 import json
 import mimetypes
 import os
+import uuid
 from pathlib import Path
 
 import httpx
@@ -292,6 +293,10 @@ def _vision_config() -> tuple[str, str, str]:
     return model, base_url, api_key
 
 
+# OpenCode Go 网关要求 x-opencode-session 头（见 model_factory._go_session_headers）。
+_GO_SESSION_ID = uuid.uuid4().hex
+
+
 @mcp.tool
 async def analyze_image(image_path: str, prompt: str = "") -> dict:
     """调用视觉模型分析一张本地图片（截图核验 / UI 走查 / 界面取证）。
@@ -340,10 +345,12 @@ async def analyze_image(image_path: str, prompt: str = "") -> dict:
         "max_tokens": 2000,
     }
     try:
+        headers = {"Authorization": f"Bearer {api_key}"}
+        if "opencode.ai" in base_url.lower():
+            headers["x-opencode-session"] = _GO_SESSION_ID
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
-                url, json=payload,
-                headers={"Authorization": f"Bearer {api_key}"})
+                url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
         description = data["choices"][0]["message"]["content"]

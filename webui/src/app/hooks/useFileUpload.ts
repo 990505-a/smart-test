@@ -114,7 +114,7 @@ export function useFileUpload(
       }
       if (oversizedFiles.length > 0) {
         toast.error(
-          `File too large (max 20MB): ${oversizedFiles.map((f) => f.name).join(", ")}`,
+          `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB): ${oversizedFiles.map((f) => f.name).join(", ")}`,
         );
       }
       if (duplicateFiles.length > 0) {
