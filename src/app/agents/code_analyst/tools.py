@@ -2,33 +2,31 @@
 
 与用例生成智能体共用一条 stdio MCP 会话路径（cbm_call）。工具面向代码
 分析场景：定位符号、追调用链、按全名读源码；grep/glob/read_file 等文件
-工具由 DeepAgents 后端直接提供（/repo/ 只读挂载），不在此重复。
+工具由 DeepAgents 后端直接提供（cwd = 本次挂载的工作区，真实路径），
+不在此重复。
 
-未挂载仓库或仓库未建图谱时给出降级提示（改用 grep /repo/）。
+未挂载工作区或其未建图谱时给出降级提示（改用 grep/read_file 按真实路径检索）。
 """
 
 import json
 
 from langchain.tools import tool
-from langgraph.config import get_config
 
 _MAX_RESULT_CHARS = 12000
 
 
 def _project() -> str:
-    """当前会话挂载仓库对应的图谱项目名；未挂载返回空串。"""
-    try:
-        config = get_config()
-    except RuntimeError:
-        return ""
-    repo = (config.get("configurable") or {}).get("repo_path", "") or ""
+    """当前会话挂载目录对应的图谱项目名；未挂载返回空串。"""
+    from src.app.agents.workspace_backend import mounted_workspace_path
+
+    repo = mounted_workspace_path()
     return repo.replace(":/", "-").replace("/", "-") if repo else ""
 
 
 def _degraded(kind: str) -> str:
-    return (f"Error: 无法使用代码图谱{kind}。可能原因：会话未挂载仓库，或该仓库尚未建索引。"
-            "请改用 grep/glob/read_file 直接检索 /repo/；如需建库，"
-            "建议用户在平台「代码图谱」页为该仓库完成一次索引。")
+    return (f"Error: 无法使用代码图谱{kind}。可能原因：会话未挂载目录，或用例目录尚未建索引。"
+            "请改用 grep/glob/read_file 按真实路径直接检索；如需建库，"
+            "建议用户在平台「代码图谱」页为该目录完成一次索引。")
 
 
 def _format(payload: dict) -> str:

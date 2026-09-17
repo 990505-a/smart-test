@@ -27,7 +27,19 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import GraphView, { NODE_PALETTE, type GraphNodeInfo } from "@/app/components/GraphView";
+import dynamic from "next/dynamic";
+import { NODE_PALETTE, type GraphNodeInfo } from "@/app/components/graph-palette";
+
+// 图谱渲染是 WebGL（sigma），在服务端渲染时连模块都不该 require
+// （sigma 顶层就引用 WebGL2RenderingContext，Node 里直接抛错、预渲染失败）。
+const GraphView = dynamic(() => import("@/app/components/GraphView"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      图谱渲染器加载中…
+    </div>
+  ),
+});
 import {
   CheckCircle2, Database, FileCode2, Loader2, Play, Plus, RefreshCw,
   Timer, Trash2, XCircle,

@@ -1,0 +1,39 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Node
+webui/node_modules/
+webui/.next/
+webui/out/
+# 宿主 node_modules 不进构建上下文；playwright runner 在镜像里自己 npm install
+tools/playwright-runner/node_modules/
+
+# 运行期产物（容器内各自生成，不打进镜像）
+logs/
+.langgraph_api/
+langgraph_server.log
+lightrag.log
+smart_test_platform.db
+docker-data/
+
+# 数据与工作区（由 docker-compose 以卷挂载）
+workspace/
+
+# 学习/素材目录（平台运行不需要）
+assets/
+learning-records/
+lessons/
+reference/
+
+# 环境与编辑器
+.env
+.vscode/
+.idea/
+.DS_Store
+.git/
+.planning/
+tests/

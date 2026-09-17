@@ -1,7 +1,6 @@
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { ThemeProvider } from "@/providers/ThemeProvider";
 import { SWRProvider } from "@/providers/SWRProvider";
-import { AuthProvider } from "@/providers/AuthProvider";
 import { AppShell } from "@/app/components/AppShell";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -16,11 +15,9 @@ export default function RootLayout({
       <body className="font-sans" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <SWRProvider>
-            <AuthProvider>
-              <NuqsAdapter>
-                <AppShell>{children}</AppShell>
-              </NuqsAdapter>
-            </AuthProvider>
+            <NuqsAdapter>
+              <AppShell>{children}</AppShell>
+            </NuqsAdapter>
           </SWRProvider>
           <Toaster position="top-center" />
         </ThemeProvider>

@@ -1,112 +1,111 @@
 "use client";
 
-// EverOS 文件化记忆 hooks（2026-08-31 记忆系统重构）
-// 存储 = EverOS 管理的 Markdown 文件；检索 = EverOS 服务（hybrid/keyword 自动）。
+/**
+ * Agent 记忆（harness 风格 Markdown 记忆模块）的 SWR hooks。
+ *
+ * 记忆 = workspace/<space>/memory/ 下的一组 .md（AGENTS.md / MEMORY.md /
+ * USER.md / failures.md / PROJECT.md / DECISIONS.md + 用户自建）。文件是唯一
+ * 事实源：页面读写的都是文件本身，每个模块可以单独启用/停用。
+ */
 
-import useSWR from "swr";
-import useSWRMutation from "swr/mutation";
-import { mutate } from "swr";
+import useSWR, { mutate as globalMutate } from "swr";
 import { apiClient } from "@/lib/api-client";
 
-// === Types ===
+const fetcher = <T,>(path: string) => apiClient.get<T>(path).then((r) => r.data);
+const MEMORY_KEY_PREFIX = "/memories";
 
-export interface MemoryFileMeta {
-  path: string;
-  size: number;
-  modified_at: string;
-  track: "user" | "agent";
+export interface MemoryModule {
+  id: string;
+  file: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  builtin: boolean;
+  chars: number;
+  updated_at: number | null;
+}
+
+export interface MemoryModuleDetail extends MemoryModule {
+  content: string;
 }
 
 export interface MemoryStatus {
-  up: boolean;
-  error?: string;
-  version?: string;
-  capabilities?: { llm?: boolean; embed?: boolean; rerank?: boolean };
-  disabled_features?: string[];
-  root?: string;
-  files?: number;
+  root: string;
+  enabled_modules: number;
+  total_modules: number;
+  chars: number;
 }
 
 export interface MemoryHit {
-  id: string | null;
-  subject: string;
-  summary: string | null;
-  timestamp: string | null;
-  score: number | null;
+  module_id: string;
+  file: string;
+  label: string;
+  line: number;
+  text: string;
+  score: number;
 }
 
-// === SWR Hooks ===
+export function useMemoryModules() {
+  return useSWR("/memories/modules", () => fetcher<MemoryModule[]>("/memories/modules"));
+}
 
-/** EverOS 服务状态（版本/能力/embedding 是否解锁/文件数） */
 export function useMemoryStatus() {
-  return useSWR("/memories/status", () =>
-    apiClient.get<MemoryStatus>("/memories/status").then((r) => r.data));
+  return useSWR("/memories/status", () => fetcher<MemoryStatus>("/memories/status"));
 }
 
-/** 记忆文件列表（MD 单一事实源） */
-export function useMemoryFiles() {
-  return useSWR("/memories/files", () =>
-    apiClient.get<MemoryFileMeta[]>("/memories/files").then((r) => r.data));
-}
-
-/** 读取单个记忆文件内容 */
-export function useReadMemoryFile(path: string | null) {
-  return useSWR(path ? ["/memories/file", path] : null, ([, p]) =>
-    apiClient
-      .get<{ path: string; content: string }>("/memories/file", { path: p })
-      .then((r) => r.data));
-}
-
-/** 保存记忆文件（人工编辑由 EverOS watcher 自动回灌索引） */
-export function useWriteMemoryFile() {
-  return useSWRMutation(
-    "/memories/files",
-    async (_url: string, { arg }: { arg: { path: string; content: string } }) => {
-      const result = await apiClient.put<{ path: string; saved: boolean }>(
-        "/memories/file", arg);
-      mutate("/memories/files");
-      mutate(["/memories/file", arg.path]);
-      return result;
-    }
-  );
-}
-
-/** 删除记忆文件 */
-export function useDeleteMemoryFile() {
-  return useSWRMutation(
-    "/memories/files",
-    async (_url: string, { arg }: { arg: string }) => {
-      const result = await apiClient.delete(
-        `/memories/file?path=${encodeURIComponent(arg)}`);
-      mutate("/memories/files");
-      return result;
-    }
-  );
-}
-
-/** 检索记忆（等价 Agent 的 search_memories 工具） */
-export async function searchMemories(query: string, topK = 8): Promise<MemoryHit[]> {
-  const result = await apiClient.post<MemoryHit[]>("/memories/search", {
-    query,
-    top_k: topK,
+export function useMemoryModule(id: string | null) {
+  const key = id ? `/memories/modules/${encodeURIComponent(id)}` : null;
+  return useSWR(key, () => fetcher<MemoryModuleDetail>(key as string), {
+    revalidateOnFocus: false,
   });
-  return result.data ?? [];
 }
 
-/** 手动写入一条长期记忆（等价 Agent 的 save_memory 工具，触发 LLM 蒸馏固化） */
-export async function saveMemory(
-  key: string,
-  content: string,
-  category?: string
-): Promise<{ key: string; flush_status?: string } | null> {
-  const result = await apiClient.post<{ key: string; flush_status?: string }>(
-    "/memories/save", { key, content, category });
-  mutate("/memories/files");
-  return result.data;
-}
-
-/** Revalidate all memory SWR caches */
+/** 任何写入后刷新所有 /memories 的缓存（列表 + 详情 + 状态） */
 export function revalidateMemories() {
-  mutate("/memories/files");
-  mutate("/memories/status");
+  void globalMutate(
+    (key) => typeof key === "string" && key.startsWith(MEMORY_KEY_PREFIX),
+    undefined,
+    { revalidate: true },
+  );
+}
+
+export async function saveMemoryModule(id: string, content: string) {
+  const response = await apiClient.put<MemoryModule>(
+    `/memories/modules/${encodeURIComponent(id)}`, { content });
+  revalidateMemories();
+  return response.data;
+}
+
+export async function setMemoryModuleEnabled(id: string, enabled: boolean) {
+  const response = await apiClient.patch<MemoryModule>(
+    `/memories/modules/${encodeURIComponent(id)}`, { enabled });
+  revalidateMemories();
+  return response.data;
+}
+
+export async function createMemoryModule(body: {
+  label: string; file?: string; content?: string; description?: string;
+}) {
+  const response = await apiClient.post<MemoryModule>("/memories/modules", body);
+  revalidateMemories();
+  return response.data;
+}
+
+export async function deleteMemoryModule(id: string) {
+  await apiClient.delete(`/memories/modules/${encodeURIComponent(id)}`);
+  revalidateMemories();
+}
+
+export async function appendMemoryEntry(body: {
+  module: string; content: string; category?: string;
+}) {
+  const response = await apiClient.post<MemoryModule>("/memories/entries", body);
+  revalidateMemories();
+  return response.data;
+}
+
+export async function searchMemories(query: string, limit = 8) {
+  const response = await apiClient.post<{ count: number; hits: MemoryHit[] }>(
+    "/memories/search", { query, limit });
+  return response.data;
 }

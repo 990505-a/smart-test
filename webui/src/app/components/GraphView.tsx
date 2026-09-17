@@ -15,37 +15,14 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import SigmaLib from "sigma";
+import { NODE_PALETTE, STRUCTURAL_LABELS, type GraphNodeInfo } from "@/app/components/graph-palette";
 import type { CbmGraphData } from "@/lib/api/useNewModules";
 
-export interface GraphNodeInfo {
-  id: number;
-  name: string;
-  label: string;
-  qualified_name?: string;
-  file_path?: string;
-  start_line?: number;
-  end_line?: number;
-  color: string;
-  status?: string;
-  in_calls?: number;
-}
-
-/** 节点 label → 颜色(与页面图例一致) */
-export const NODE_PALETTE: Record<string, string> = {
-  Function: "#3b82f6",
-  Method: "#3b82f6",
-  Class: "#a78bfa",
-  Interface: "#a78bfa",
-  Struct: "#a78bfa",
-  Route: "#f472b6",
-  Variable: "#fbbf24",
-  Constant: "#fbbf24",
-  File: "#94a3b8",
-  Module: "#cbd5e1",
-  Folder: "#94a3b8",
-  Section: "#cbd5e1",
-};
-const STRUCTURAL = new Set(["File", "Folder", "Module", "Section"]);
+// 节点类型 / 颜色 / 结构节点集合放在 graph-palette.ts：那是纯数据，页面可以直接
+// 引用而不惊动 sigma（SSR 下 require sigma 会因 WebGL2RenderingContext 抛错）。
+export type { GraphNodeInfo } from "@/app/components/graph-palette";
+export { NODE_PALETTE } from "@/app/components/graph-palette";
+const STRUCTURAL = STRUCTURAL_LABELS;
 
 /** 边类型 → 颜色 */
 const EDGE_COLORS: Record<string, string> = {

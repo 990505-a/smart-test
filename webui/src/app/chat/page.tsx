@@ -13,7 +13,6 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { AGENT_CONFIG, AgentKey } from "@/app/types/types";
-import { AgentTabs } from "@/app/components/AgentTabs";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { ThreadList } from "@/app/components/ThreadList";
 import { Assistant } from "@langchain/langgraph-sdk";
@@ -24,7 +23,7 @@ import { Assistant } from "@langchain/langgraph-sdk";
 // chat-scoped controls.
 // ---------------------------------------------------------------------------
 function HomePageInner() {
-  const [threadId, setThreadId] = useQueryState("threadId");
+  const [, setThreadId] = useQueryState("threadId");
   // "1" (default) shows the session list, "0" hides it.
   const [sidebar, setSidebar] = useQueryState("sidebar", parseAsString.withDefault("1"));
   const [activeAgent, setActiveAgent] = useQueryState("agent", {
@@ -47,11 +46,21 @@ function HomePageInner() {
     setThreadId(null); // Clear thread on agent switch to prevent state leakage
   };
 
+  // 点开会话时把模式切回这条会话自己的 agent（dsh：会话记着自己的模式）。
+  // 旧会话（agent 为空）保持当前模式不动。
   const handleThreadSelect = useCallback(
-    (id: string) => {
+    (id: string, threadAgent?: string) => {
+      const match = threadAgent
+        ? (Object.keys(AGENT_CONFIG) as AgentKey[]).find(
+            (key) => AGENT_CONFIG[key].graphKey === threadAgent,
+          )
+        : undefined;
+      if (match && match !== activeAgent) {
+        setActiveAgent(match);
+      }
       setThreadId(id);
     },
-    [setThreadId],
+    [setThreadId, setActiveAgent, activeAgent],
   );
 
   const handleNewChat = useCallback(() => {
@@ -81,8 +90,8 @@ function HomePageInner() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Slim chat header：三段布局——左：侧边栏开关（位置固定，图标随状态切换）；
-          中：Agent Tabs；右：新对话 */}
+      {/* Slim chat header：左：侧边栏开关；中：当前模式名（只读提示，切换在输入框旁）；
+          右：新对话。模式选择移进输入区了——它属于"这次对话的配置"，不是导航。 */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b bg-background px-4">
         <Button
           variant="ghost"
@@ -97,11 +106,13 @@ function HomePageInner() {
             <PanelLeftOpen className="h-4 w-4" />
           )}
         </Button>
-        <div className="flex min-w-0 flex-1 justify-center">
-          <AgentTabs
-            activeAgent={activeAgent ?? "testcase"}
-            onAgentChange={handleAgentChange}
-          />
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2 text-sm">
+          <span className="truncate text-muted-foreground">
+            {currentConfig?.label ?? "用例生成"}
+          </span>
+          <span className="hidden font-mono text-[11px] text-muted-foreground/60 sm:inline">
+            {assistantId}
+          </span>
         </div>
         <Button
           variant="outline"
@@ -144,7 +155,11 @@ function HomePageInner() {
                 onHistoryRevalidate={handleHistoryRevalidate}
                 workspaceId="default"
               >
-                <ChatInterface assistantId={assistantId} />
+                <ChatInterface
+                  assistantId={assistantId}
+                  activeAgent={activeAgent ?? "testcase"}
+                  onAgentChange={handleAgentChange}
+                />
               </ChatProvider>
             </ResizablePanel>
           </ResizablePanelGroup>

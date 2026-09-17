@@ -2,12 +2,17 @@
 
 import React, { useEffect, useState } from "react";
 import { PageHeader } from "@/app/components/ui-patterns";
-import { useAuth } from "@/providers/AuthProvider";
 import { apiClient } from "@/lib/api-client";
 import {
   useModelSettings,
   useModelPresets,
   usePlatformSettings,
+  useLangfuseSettings,
+  testLangfuseConnection,
+  useMonitorLangfuseSettings,
+  testMonitorLangfuseConnection,
+  useJudgeSettings,
+  testJudgeConnection,
   useFeishuStatus,
   useUnityStatus,
   testModelConnection,
@@ -67,8 +72,50 @@ const MODEL_FIELDS: SettingField[] = [
   { key: "vision_api_key", label: "API Key", secret: true, placeholder: "留空使用文本模型的 Key" },
 ];
 
-const PLATFORM_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string }[] = [
-  { key: "feishu_folder_token", label: "飞书目录（每次导出自动新建思维导图）", placeholder: "目录 URL 中 drive/folder/ 后面的 token" },
+const LANGFUSE_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string;
+  select?: { value: string; label: string }[] }[] = [
+  {
+    key: "langfuse_enabled",
+    label: "是否上报",
+    select: [
+      { value: "true", label: "上报（测评 trace 与分数写入 Langfuse）" },
+      { value: "false", label: "关闭（结果只在本地）" },
+    ],
+  },
+  { key: "langfuse_base_url", label: "Langfuse 地址", placeholder: "http://127.0.0.1:3000" },
+  { key: "langfuse_public_key", label: "Public Key", placeholder: "pk-lf-…（决定 trace 落在哪个项目）" },
+  { key: "langfuse_secret_key", label: "Secret Key", secret: true, placeholder: "sk-lf-…（留空表示不修改）" },
+  { key: "langfuse_environment", label: "环境标识", placeholder: "eval" },
+];
+
+// Langfuse 监控（日常智能体使用链路）：与测评那组 key 分开，日常排查看监控组织、
+// 跑测评只看测评组织。默认关闭——没配就不上报，避免误写进测评的 Langfuse。
+const MONITOR_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string;
+  select?: { value: string; label: string }[] }[] = [
+  {
+    key: "langfuse_monitor_enabled",
+    label: "是否上报日常对话",
+    select: [
+      { value: "true", label: "上报（日常对话 trace 写入监控 Langfuse）" },
+      { value: "false", label: "关闭（默认，不上报）" },
+    ],
+  },
+  { key: "langfuse_monitor_base_url", label: "Langfuse 地址", placeholder: "http://127.0.0.1:3000" },
+  { key: "langfuse_monitor_public_key", label: "Public Key", placeholder: "pk-lf-…（监控组织的项目）" },
+  { key: "langfuse_monitor_secret_key", label: "Secret Key", secret: true, placeholder: "sk-lf-…（留空表示不修改）" },
+  { key: "langfuse_monitor_environment", label: "环境标识", placeholder: "monitor" },
+];
+
+// LLM 裁判（测评打分）：三个都留空 = 继承主 LLM。这里的文案必须把"留空继承"
+// 说清楚——之前没有任何入口，用户看到测评页卡片上写着 judge：glm-4.7，
+// 却翻遍设置也找不到在哪配。
+const JUDGE_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string }[] = [
+  { key: "judge_model", label: "裁判模型", placeholder: "留空 = 继承主 LLM（推荐另配一个，避免与被测 agent 同源）" },
+  { key: "judge_base_url", label: "API 地址", placeholder: "留空 = 继承主 LLM 的地址" },
+  { key: "judge_api_key", label: "API Key", secret: true, placeholder: "留空 = 继承主 LLM 的 Key（留空表示不修改）" },
+];
+
+const PLATFORM_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string }[] = [  { key: "feishu_folder_token", label: "飞书目录（每次导出自动新建思维导图）", placeholder: "目录 URL 中 drive/folder/ 后面的 token" },
   { key: "feishu_mindnote_id", label: "飞书思维导图 ID（固定追加模式）", placeholder: "用例保存目标 mindnote id；配置目录后此项不生效" },
   { key: "lark_cli_bin", label: "lark-cli 命令", placeholder: "lark-cli" },
   { key: "lark_cli_identity", label: "飞书身份 (user/bot)", placeholder: "user" },
@@ -81,11 +128,7 @@ const PLATFORM_FIELDS: { key: string; label: string; secret?: boolean; placehold
   { key: "game_client_repo", label: "游戏客户端路径", placeholder: "E:/m72-publish/m72/client" },
   { key: "unity_host", label: "Unity 主机", placeholder: "127.0.0.1" },
   { key: "unity_port", label: "Unity LuaRemoteServer 端口", placeholder: "16666" },
-  { key: "everos_enabled", label: "记忆模块开关 (true/false)" },
-  { key: "everos_port", label: "EverOS 记忆服务端口", placeholder: "9631" },
-  { key: "everos_embedding_api_key", label: "记忆 Embedding Key（解锁向量检索/反思/技能蒸馏）", secret: true, placeholder: "留空=关键词模式；任意 OpenAI 兼容 key" },
-  { key: "everos_embedding_base_url", label: "记忆 Embedding API 地址", placeholder: "留空复用 LightRAG 的地址；OpenAI 官方填 https://api.openai.com/v1" },
-  { key: "everos_embedding_model", label: "记忆 Embedding 模型", placeholder: "留空复用 LightRAG 的模型；OpenAI 官方填 text-embedding-3-small" },
+  { key: "memory_enabled", label: "记忆总开关 (true/false)", placeholder: "false = 完全不向提示词注入记忆（各模块的开关在「Agent 记忆」页）" },
   { key: "api_auto_max_repair", label: "接口脚本自修复次数上限" },
 ];
 
@@ -274,22 +317,26 @@ function FeishuLoginGuide() {
 }
 
 export default function SettingsPage() {
-  const { user, refresh } = useAuth();
   const modelSettings = useModelSettings();
   const modelPresets = useModelPresets();
   const platformSettings = usePlatformSettings();
+  const langfuseSettings = useLangfuseSettings();
+  const monitorSettings = useMonitorLangfuseSettings();
+  const judgeSettings = useJudgeSettings();
   const feishuStatus = useFeishuStatus();
   const unityStatus = useUnityStatus();
 
   const [savingModel, setSavingModel] = useState(false);
   const [savingPlatform, setSavingPlatform] = useState(false);
+  const [savingLangfuse, setSavingLangfuse] = useState(false);
+  const [testingLangfuse, setTestingLangfuse] = useState(false);
+  const [savingMonitor, setSavingMonitor] = useState(false);
+  const [testingMonitor, setTestingMonitor] = useState(false);
+  const [savingJudge, setSavingJudge] = useState(false);
+  const [testingJudge, setTestingJudge] = useState(false);
   const [testingModel, setTestingModel] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [presetBusy, setPresetBusy] = useState(false);
-  const [newUsername, setNewUsername] = useState("");
-  const [oldPassword, setOldPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [profileSaving, setProfileSaving] = useState(false);
 
   const saveModel = async (values: Record<string, string>) => {
     setSavingModel(true);
@@ -301,6 +348,103 @@ export default function SettingsPage() {
       toast.error(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSavingModel(false);
+    }
+  };
+
+  const saveLangfuse = async (values: Record<string, string>) => {
+    setSavingLangfuse(true);
+    try {
+      await apiClient.put("/settings/langfuse", { values });
+      toast.success("Langfuse 配置已保存：网页触发的测评立刻生效，CLI 重启后生效");
+      langfuseSettings.mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingLangfuse(false);
+    }
+  };
+
+  const saveJudge = async (values: Record<string, string>) => {
+    setSavingJudge(true);
+    try {
+      await apiClient.put("/settings/judge", { values });
+      toast.success("裁判配置已保存：网页触发的测评下一批次立刻生效");
+      judgeSettings.mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingJudge(false);
+    }
+  };
+
+  const runJudgeTest = async (form: Record<string, string>) => {
+    setTestingJudge(true);
+    try {
+      const result = await testJudgeConnection(form);
+      if (result.ok) {
+        const from = result.source === "judge" ? "独立配置" : "继承主 LLM";
+        toast.success(
+          `裁判可用 · ${result.latency_ms}ms · ${result.model}（${from}）`
+          + (result.verdict ? ` · 自检判定 ${result.verdict.score}` : ""),
+        );
+      } else {
+        toast.error(`不通：${result.error ?? "未知错误"}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "测试失败");
+    } finally {
+      setTestingJudge(false);
+    }
+  };
+
+  const saveMonitor = async (values: Record<string, string>) => {
+    setSavingMonitor(true);
+    try {
+      await apiClient.put("/settings/langfuse-monitor", { values });
+      toast.success("监控配置已保存：日常对话从下一轮开始上报（无需重启）");
+      monitorSettings.mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingMonitor(false);
+    }
+  };
+
+  const runMonitorTest = async (form: Record<string, string>) => {
+    setTestingMonitor(true);
+    try {
+      const result = await testMonitorLangfuseConnection(form);
+      if (result.ok) {
+        toast.success(
+          `连通正常（${result.latency_ms}ms）· 项目 ${result.project_name ?? "?"}`
+          + (result.organization ? ` · 组织 ${result.organization}` : ""),
+        );
+      } else {
+        toast.error(result.error ?? "连通失败");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "测试失败");
+    } finally {
+      setTestingMonitor(false);
+    }
+  };
+
+  const runLangfuseTest = async (form: Record<string, string>) => {    setTestingLangfuse(true);
+    try {
+      const result = await testLangfuseConnection(form);
+      if (result.ok) {
+        toast.success(
+          `连通正常 · ${result.latency_ms}ms · 项目 ${result.project_name ?? "?"}`
+          + `（${result.project_id ?? "?"}）`
+          + (result.organization ? ` · 组织 ${result.organization}` : ""),
+        );
+      } else {
+        toast.error(`不通：${result.error ?? "未知错误"}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "测试失败");
+    } finally {
+      setTestingLangfuse(false);
     }
   };
 
@@ -384,40 +528,6 @@ export default function SettingsPage() {
     }
   };
 
-  const changeUsername = async () => {
-    if (!newUsername.trim()) return;
-    setProfileSaving(true);
-    try {
-      await apiClient.post("/auth/change-username", { new_username: newUsername.trim() });
-      toast.success("用户名已修改");
-      setNewUsername("");
-      await refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "修改失败");
-    } finally {
-      setProfileSaving(false);
-    }
-  };
-
-  const changePassword = async () => {
-    if (!oldPassword || !newPassword) {
-      toast.error("请输入原密码和新密码");
-      return;
-    }
-    setProfileSaving(true);
-    try {
-      await apiClient.post("/auth/change-password", { old_password: oldPassword, new_password: newPassword });
-      toast.success("密码已修改");
-      setOldPassword("");
-      setNewPassword("");
-      await refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "修改失败");
-    } finally {
-      setProfileSaving(false);
-    }
-  };
-
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-5xl px-6 py-8 lg:px-8">
@@ -426,7 +536,7 @@ export default function SettingsPage() {
             title="设置"
             description={
               <span className="flex flex-wrap items-center gap-x-3">
-                <span>账号、模型与平台集成配置。集成状态：</span>
+                <span>模型与平台集成配置（本地单机模式，无需登录）。集成状态：</span>
                 <span className="flex items-center gap-1">
                   飞书
                   {feishuStatus.data?.logged_in ? (
@@ -447,49 +557,14 @@ export default function SettingsPage() {
             }
           />
 
-        {/* 账号设置 */}
+        {/* 本地单机模式说明（原「账号」卡片：登录已移除，见 api/v2/auth.py） */}
         <Card className="p-5">
-          <h3 className="text-base font-semibold">账号</h3>
+          <h3 className="text-base font-semibold">运行模式</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            当前用户：{user?.username}（{user?.role}）
-            {user?.must_change_password && " · 请尽快修改默认密码"}
+            本地单机模式：平台不要求登录，所有操作以本机身份执行。工作区、用例、记忆都在本机
+            <code className="mx-1">workspace/</code>目录下，请自行做好备份与访问控制
+            （对外暴露时建议在反向代理层加 Basic Auth）。
           </p>
-          <Separator className="my-4" />
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className="flex flex-col gap-3">
-              <Label>修改用户名</Label>
-              <Input
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                placeholder={user?.username}
-              />
-              <div>
-                <Button size="sm" variant="outline" onClick={changeUsername} disabled={profileSaving || !newUsername.trim()}>
-                  修改用户名
-                </Button>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3">
-              <Label>修改密码</Label>
-              <Input
-                type="password"
-                value={oldPassword}
-                onChange={(e) => setOldPassword(e.target.value)}
-                placeholder="原密码"
-              />
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="新密码（至少6位）"
-              />
-              <div>
-                <Button size="sm" variant="outline" onClick={changePassword} disabled={profileSaving}>
-                  修改密码
-                </Button>
-              </div>
-            </div>
-          </div>
         </Card>
 
         {/* 模型设置 */}
@@ -548,11 +623,76 @@ export default function SettingsPage() {
         {/* 飞书登录引导（设备码流：本页发起 → 浏览器授权 → 回本页完成） */}
         <FeishuLoginGuide />
 
+        {/* Langfuse（测评追踪）：trace 与分数写到哪里 */}
+        {langfuseSettings.data && (
+          <SettingsForm
+            title="Langfuse（测评追踪）"
+            description="测评的 trace 与分数上报到哪个 Langfuse 实例。key 对属于某个项目——trace 链接的路由前缀就是那个项目 id，所以换 key 等于换项目（对应 .env 的 LANGFUSE_*）。"
+            fields={LANGFUSE_FIELDS}
+            values={langfuseSettings.data}
+            onSave={saveLangfuse}
+            saving={savingLangfuse}
+            extraActions={(form) => (
+              <Button variant="outline" size="sm" disabled={testingLangfuse}
+                      onClick={() => runLangfuseTest(form)}>
+                {testingLangfuse && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                测试连通
+              </Button>
+            )}
+          />
+        )}
+
+        {/* Langfuse（监控）：日常对话的 trace 落到另一个组织，与测评互不干扰 */}
+        {monitorSettings.data && (
+          <SettingsForm
+            title="Langfuse（监控 · 日常对话）"
+            description="日常使用平台智能体时（用例生成 / Unity / Web-UI / 代码分析）的 trace 上报到这里，
+            与上面「测评追踪」是两套 key：日常排查看监控，跑测评时只看测评，两边的 trace 不混在一起。
+            留空/关闭即不上报（对应 .env 的 LANGFUSE_MONITOR_*）。"
+            fields={MONITOR_FIELDS}
+            values={monitorSettings.data}
+            onSave={saveMonitor}
+            saving={savingMonitor}
+            extraActions={(form) => (
+              <Button variant="outline" size="sm" disabled={testingMonitor}
+                      onClick={() => runMonitorTest(form)}>
+                {testingMonitor && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                测试连通
+              </Button>
+            )}
+          />
+        )}
+
+        {/* LLM 裁判（测评打分）：留空即继承主 LLM，卡片上直接写清实际用谁 */}
+        {judgeSettings.data && (
+          <SettingsForm
+            title="LLM 裁判（测评打分）"
+            description={
+              `测评里 llm_judge / llm_judge_pass 两个分数由它给出。三项都留空表示「继承主 LLM」——`
+              + `当前实际使用：${judgeSettings.data.effective.model}`
+              + `（${judgeSettings.data.effective.source === "judge" ? "独立配置" : "继承主 LLM"}）`
+              + `，地址 ${judgeSettings.data.effective.base_url.replace("host.docker.internal", "localhost")}。`
+              + `建议另配一个模型：judge 与被测 agent 同源时，同一套偏好会同时影响行为和评判（对应 .env 的 JUDGE_*）。`
+            }
+            fields={JUDGE_FIELDS}
+            values={judgeSettings.data.values}
+            onSave={saveJudge}
+            saving={savingJudge}
+            extraActions={(form) => (
+              <Button variant="outline" size="sm" disabled={testingJudge}
+                      onClick={() => runJudgeTest(form)}>
+                {testingJudge && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                测试连通
+              </Button>
+            )}
+          />
+        )}
+
         {/* 平台集成设置 */}
         {platformSettings.data && (
           <SettingsForm
             title="平台集成"
-            description="飞书 / LightRAG / codebase-memory / 游戏仓库 / Unity / 自进化调度"
+            description="飞书 / LightRAG / codebase-memory / 游戏仓库 / Unity / 记忆总开关"
             fields={PLATFORM_FIELDS}
             values={platformSettings.data}
             onSave={savePlatform}

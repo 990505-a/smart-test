@@ -6,7 +6,7 @@ import type {
   PaginatedMessagesResponse,
   PaginatedMessage,
 } from "@/app/types/types";
-import { getConfig } from "@/lib/config";
+import { getFastapiUrl } from "@/lib/config";
 
 const fetcher = async (url: string): Promise<PaginatedMessagesResponse> => {
   const response = await fetch(url);
@@ -38,8 +38,7 @@ export function usePaginatedMessages(
         // No more pages
         if (previousPageData && !previousPageData.has_more) return null;
 
-        const config = getConfig();
-        const apiBase = config?.fastapiUrl || "http://localhost:5012";
+        const apiBase = getFastapiUrl();
 
         // First page: no cursor
         if (pageIndex === 0) {

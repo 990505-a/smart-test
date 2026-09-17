@@ -1,0 +1,75 @@
+# Web-UI 自动化执行器（Playwright CLI sidecar）
+#
+# 为什么单独一个镜像：后端是 python，没有 Node 运行时；而 Playwright 的浏览器
+# 是一套重且与 OS 强绑定的依赖。与其把 node + 一堆 libnss3/libatk 装进后端镜像，
+# 不如把这个 sidecar 独立出来——它独占工具链，通过 HTTP 暴露 playwright CLI
+# （接口见 tools/playwright-runner/server.mjs）。
+#
+# 基础镜像选择：默认 node:22-slim + `playwright install --with-deps`。
+# 官方 mcr.microsoft.com/playwright 镜像确实更省事（浏览器与系统依赖全部预装），
+# 但本机拉 mcr 极慢（daemon 配了 max-concurrent-downloads: 1），而 apt 只要
+# 清掉 Docker Desktop 注入的代理就能走清华镜像正常装。两种方式最终等价，
+# 用 BASE_IMAGE 可以切回官方镜像：
+#   docker build -f Dockerfile.playwright \
+#     --build-arg BASE_IMAGE=mcr.microsoft.com/playwright:v1.56.1-noble .
+#
+# 版本必须与 tools/playwright-runner/package.json 里的 @playwright/test 一致，
+# 否则 CLI 会拒绝使用已下载的浏览器。
+#
+# 构建：
+#   docker build -f Dockerfile.playwright -t smart-test-playwright:latest .
+
+ARG BASE_IMAGE=node:22-slim
+FROM ${BASE_IMAGE}
+
+ENV PW_HOME=/opt/pw \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    NODE_ENV=production \
+    PORT=5015 \
+    HOST=0.0.0.0 \
+    RUNS_ROOT=/work/runs \
+    DEBIAN_FRONTEND=noninteractive
+
+WORKDIR ${PW_HOME}
+
+# 清掉宿主代理：Docker Desktop 会注入 HTTP_PROXY=host.docker.internal:7897，
+# 本机实测它让 apt 返回 502；宿主与容器都能直连外网，一律走直连 + 国内镜像。
+ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+ARG PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+
+COPY tools/playwright-runner/package.json ./package.json
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    export HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= NO_PROXY='*' \
+    && if [ "$APT_MIRROR" != "deb.debian.org" ]; then \
+         sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+       fi \
+    && if [ "$NPM_REGISTRY" != "https://registry.npmjs.org" ]; then \
+         npm config set registry "$NPM_REGISTRY"; \
+       fi \
+    # node:22-slim 里根本没有 /etc/ssl —— npm 自带 Mozilla 根证书所以能装包，
+    # 但 WebKit 走系统信任库，缺了它连 https://m.douban.com 都报
+    # "Unacceptable TLS certificate"（证书本身是好的 DigiCert，实测
+    # 宿主 openssl 校验 return code 0）。Chromium 自带根证书所以不受影响，
+    # 于是表现为「test 能跑、screenshot 一跑就 TLS 失败」这种诡异现象。
+    && apt-get update -qq \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && npm install --no-audit --no-fund \
+    && ./node_modules/.bin/playwright install --with-deps chromium webkit \
+    && rm -rf /tmp/*
+
+COPY tools/playwright-runner/server.mjs ./server.mjs
+COPY tools/playwright-runner/start-local.sh ./start-local.sh
+
+RUN mkdir -p ${RUNS_ROOT}
+
+EXPOSE 5015
+
+# 容器内探活：CLI 版本查询即可证明 node + playwright 都在位。
+HEALTHCHECK --interval=20s --timeout=10s --start-period=15s --retries=5 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5015)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "server.mjs"]

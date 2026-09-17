@@ -66,18 +66,19 @@ class ContextInjectionMiddleware(AgentMiddleware):
 
 
 class FeishuReadonlyMiddleware(AgentMiddleware):
-    """会话开启「飞书检索」开关时，注入只读需求检索指引。
+    """注入只读需求检索指引（默认开启，会话不再有开关）。
 
-    前端输入框开关（?feishu=on → configurable.feishu_cli="readonly"）控制
-    智能体是否主动去飞书找需求；本中间件只在开启时注入行为指引。
-    「只读」的硬约束不在提示词，而在权限门：lark-cli 写入类命令一律
-    弹审批（见 middleware/permission_gate._lark_segment_safe）。
+    2026-09：前端去掉了「飞书检索」开关——它默认就该是开的（需求经常在飞书
+    文档里，agent 主动去查比让用户每次手动开要好）。只要 configurable 里没有
+    显式 ``feishu_cli="off"``（旧客户端才会传），就注入这份行为指引。
+    「只读」的硬约束不在提示词，而在权限门：lark-cli 写入类命令一律弹审批
+    （见 middleware/permission_gate._lark_segment_safe）。
     """
 
     _CONTEXT_BLOCK = """
 
 ---
-## 飞书需求检索（会话开关已开启，严格只读）
+## 飞书需求检索（默认开启，严格只读）
 
 - 需求澄清/补充阶段，当上传文档信息不足、用户提到需求在飞书，或需要交叉
   验证需求细节时，可按 `/skills/lark-drive`（`drive +search` 搜文档）与
@@ -101,9 +102,9 @@ class FeishuReadonlyMiddleware(AgentMiddleware):
         try:
             configurable = (get_config() or {}).get("configurable") or {}
         except RuntimeError:
-            return await handler(request)
+            configurable = {}
 
-        if str(configurable.get("feishu_cli", "")).strip().lower() != "readonly":
+        if str(configurable.get("feishu_cli", "")).strip().lower() == "off":
             return await handler(request)
 
         if isinstance(request.system_message.content, list):
@@ -120,43 +121,54 @@ class FeishuReadonlyMiddleware(AgentMiddleware):
 
 
 class ThreadContextMiddleware(AgentMiddleware):
-    """Injects thread_id into system prompt so agent knows its upload directory.
+    """注入当前工作区与会话上传目录（绝对路径）。
 
-    Reads thread_id from LangGraph configurable and tells the agent exactly
-    which directory contains the files uploaded in the current conversation.
-    This prevents the agent from listing files from other threads.
+    路径语义在 2026-09 改为**真实路径**（见 agents/workspace_backend.py）：
+    文件和 shell 都按真实路径工作，所以这里给的是磁盘上的绝对路径，而不是
+    过去的虚拟路径 ``/uploads/{thread_id}/``。
+
+    工作区说明复用 ``middleware/workspace_context.py``（其他智能体也挂它），
+    这里只补"本会话的上传目录"这一条 testcase 特有的信息。
     """
+
+    def __init__(self, agent_name: str = "testcase") -> None:
+        self._agent_name = agent_name
+
+    def _uploads_dir(self) -> tuple[str, str]:
+        from langgraph.config import get_config
+
+        from src.app.core.config import settings
+        from src.app.core.workspace import get_space_id
+
+        try:
+            config = get_config()
+        except RuntimeError:
+            return "", ""
+        thread_id = (config.get("configurable") or {}).get("thread_id", "") or ""
+        if not thread_id:
+            return "", ""
+        base = settings.workspace_dir / get_space_id() / self._agent_name
+        return str((base / "uploads" / thread_id).resolve()), thread_id
 
     async def awrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
-        from langgraph.config import get_config
+        from src.app.middleware.workspace_context import workspace_context_block
 
-        thread_id = ""
-        try:
-            config = get_config()
-            thread_id = config.get("configurable", {}).get("thread_id", "")
-        except RuntimeError:
-            pass
-
+        uploads, thread_id = self._uploads_dir()
         if not thread_id:
             return await handler(request)
 
-        context_block = f"""
+        context_block = workspace_context_block(self._agent_name) + f"""
 
----
-## 会话上传目录（系统自动注入，不要询问用户）
+### 本会话上传文件目录
 
-当前会话上传文件目录: `/uploads/{thread_id}/`
-
-**查找本会话上传的文件时，必须使用以下路径：**
-- 查看文件列表: `ls("/uploads/{thread_id}/")`
-- 读取文件内容: `read_file("/uploads/{thread_id}/文件名")`
-
-**绝对不要使用 `ls("/uploads/")` 查看其他会话的文件。**
-将具体文件路径直接传入子智能体任务描述，不要让子智能体自行搜索。
+- 上传文件目录：`{uploads}`
+- 读取时用**绝对路径**（用户消息里已给出具体文件的完整路径），例如
+  `read_file("{uploads}/文件名")`。
+- **不要**去列别的会话的上传目录；把具体文件路径直接写进子智能体任务描述里。
 ---
 """
 

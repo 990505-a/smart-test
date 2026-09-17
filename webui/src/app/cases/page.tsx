@@ -4,7 +4,7 @@
 // 智能体生成落盘 → 用户在源文件上直接标注（✅/❌/⚠️ + `>` 批注）→
 // 自进化按标注反思；飞书导出读同一份文档（标注自动剥离）。
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseAsString, useQueryState } from "nuqs";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -66,7 +66,24 @@ function formatDate(unix: number): string {
   return new Date(unix * 1000).toLocaleString("zh-CN", { hour12: false });
 }
 
+// nuqs 的 useQueryState 走 useSearchParams：静态预渲染时必须包 Suspense
+// （否则 next build 报 missing-suspense-with-csr-bailout）。去登录之前这个页面
+// 因为被 RequireAuth 挡在 SSR 之外而"侥幸"不报错，去掉登录后就暴露了。
 export default function CaseDocsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full items-center justify-center">
+          <p className="text-sm text-muted-foreground">加载中…</p>
+        </div>
+      }
+    >
+      <CaseDocsPageInner />
+    </Suspense>
+  );
+}
+
+function CaseDocsPageInner() {
   const { data: docs, isLoading, mutate: reloadDocs } = useCaseDocs();
   const [documentQuery] = useQueryState("name", parseAsString);
   const [selected, setSelected] = useState<string | null>(documentQuery);

@@ -1,0 +1,290 @@
+# 智能测试平台 —— Docker 部署编排
+#
+# 与启动器（launcher.py）的对应关系：
+#   启动器每次开机自启的三个常驻服务 = 本文件默认启动的三个容器
+#     LangGraph :5011 / FastAPI :5012 / WebUI :5013
+#   LightRAG 与 EverOS 在启动器里是「按需启动」，此处对应 profile `rag`（见文末）。
+#
+# 用法：
+#   docker compose up -d --build        构建并启动全部核心服务
+#   docker compose ps                   查看健康状态
+#   docker compose logs -f fastapi      跟踪日志
+#   docker compose down                 停止（数据留在 ./docker-data 与 ./workspace）
+name: smart-test
+
+# Docker Desktop 会把宿主代理注入容器（HTTP_PROXY=host.docker.internal:7897），
+# 本机实测该代理对 npm/Debian 源返回 502，而宿主与容器均可直连外网，
+# 故构建期与运行期一律清空代理变量，走直连。
+x-no-proxy-build: &no-proxy-build
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  http_proxy: ""
+  https_proxy: ""
+  NO_PROXY: "*"
+  no_proxy: "*"
+
+x-no-proxy-env: &no-proxy-env
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  http_proxy: ""
+  https_proxy: ""
+  NO_PROXY: "*"
+  no_proxy: "*"
+
+services:
+  # ---------------------------------------------------------------- LangGraph
+  # 智能体运行时（用例生成 / UI 自动化 / 代码分析三个 graph，见 graph.json）
+  langgraph:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args: *no-proxy-build
+    image: smart-test-backend:latest
+    container_name: smart-test-langgraph
+    command: ["python", "start_server.py"]
+    env_file:
+      - .env
+    environment:
+      <<: *no-proxy-env
+      # 服务自身地址：容器内仍是 5011，故沿用 .env 的 localhost 语义
+      LANGGRAPH_API_URL: http://localhost:5011
+      # SQLite 落在共享数据卷，FastAPI 与该服务读写同一份库
+      SQLITE_DB: /data/smart_test_platform.db
+      # 宿主上的 LightRAG(:5014) 从容器内以 host.docker.internal 访问
+      LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL_IN_DOCKER:-http://host.docker.internal:5014}
+      # Web-UI 自动化执行器：agent 在这个容器里跑，必须走服务名而不是
+      # .env 里的 127.0.0.1（那会指到本容器自己）。见 DOCKER.md 的跨容器地址说明。
+      PLAYWRIGHT_RUNNER_URL: http://playwright:5015
+      # 自建 Langfuse 跑在宿主（eval-platform 栈的 :3000），容器内 127.0.0.1
+      # 指不到它。测评上报与 Web 页起批次都要用这个地址。
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL_IN_DOCKER:-http://host.docker.internal:3000}
+    ports:
+      - "5011:5011"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./workspace:/app/workspace     # 用例/上传/记忆等业务数据
+      - ./logs:/app/logs
+      - ./docker-data:/data            # SQLite 持久化
+      # agent 进程的「模型热更新」是 watch 这个文件的（middleware/live_model_reload.py）：
+      # 设置页保存 → 写 .env → 这里一变就重建模型，不用重启。之前没挂这个文件，
+      # 那句"保存后无需重启即时生效"在容器部署里从来没生效过（进程一直用启动时
+      # 注入的环境变量）。见 DOCKER.md 的跨容器地址/配置一节。
+      - ./.env:/app/.env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5011/ok', timeout=5).status==200 else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ FastAPI
+  # 平台自身 API（认证、用例库、图谱调度、记忆文件管理…）
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args: *no-proxy-build
+    image: smart-test-backend:latest
+    container_name: smart-test-fastapi
+    command: ["python", "-m", "uvicorn", "src.app.fastapi_app:app", "--host", "0.0.0.0", "--port", "5012"]
+    env_file:
+      - .env
+    environment:
+      <<: *no-proxy-env
+      # 关键：容器内 localhost 指向自己，必须走服务名才能到达 LangGraph
+      LANGGRAPH_API_URL: http://langgraph:5011
+      SQLITE_DB: /data/smart_test_platform.db
+      LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL_IN_DOCKER:-http://host.docker.internal:5014}
+      # EverOS 记忆服务由本进程按需拉起（EVEROS_HOST=127.0.0.1 即容器自身），
+      # 可执行文件来自镜像内 /app/.venv/bin/everos，无需额外容器
+      # Web-UI 自动化执行器：独立容器，见下方 playwright 服务
+      PLAYWRIGHT_RUNNER_URL: http://playwright:5015
+      # 测评（测评模块）上报到宿主上的 Langfuse
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL_IN_DOCKER:-http://host.docker.internal:3000}
+    ports:
+      - "5012:5012"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./workspace:/app/workspace
+      - ./logs:/app/logs
+      - ./docker-data:/data
+      # 设置页保存时要把配置写回 .env（供宿主机上的 CLI 与下次重建使用）。
+      # 只靠 compose 的 env_file 是**注入变量**，容器里没有这个文件，
+      # 那样写出来的 /app/.env 是容器内的临时文件，一重建就没了。
+      - ./.env:/app/.env
+      # 评测集目录：写一条新用例应该**立刻能跑**，而不是重建镜像。镜像里本来就有
+      # 一份（构建时 COPY 进来的），这里挂载覆盖它，让宿主机的 datasets/*.yaml
+      # 成为唯一事实源——否则「加一条用例」这一步会卡在 build 上。
+      - ./datasets:/app/datasets
+    depends_on:
+      langgraph:
+        condition: service_healthy
+      playwright:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5012/health', timeout=5).status==200 else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # ---------------------------------------------------- Playwright CLI 执行器
+  # Web-UI 自动化（浏览器 UI 用例）的执行引擎。后端是 python、没有 Node 运行时，
+  # 而 Playwright 的浏览器是一套重且与 OS 强绑定的依赖，故把工具链隔离在这里，
+  # 通过 HTTP 暴露 `playwright test` / `playwright screenshot`（接口见
+  # tools/playwright-runner/server.mjs）。基础镜像是微软官方镜像：浏览器与系统
+  # 依赖预装且版本锁定，不需要 apt、不需要下载浏览器。
+  #
+  # 单独一条命令构建/起停：
+  #   docker compose up -d --build playwright
+  #   docker compose logs -f playwright
+  playwright:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+      args:
+        <<: *no-proxy-build
+        # 官方源在本机约 3s/请求且会中断，默认走国内镜像
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    image: smart-test-playwright:latest
+    container_name: smart-test-playwright
+    environment:
+      <<: *no-proxy-env
+      PORT: "5015"
+      HOST: 0.0.0.0
+      PW_HOME: /opt/pw
+      RUNS_ROOT: /work/runs
+      # 单条用例 / 整个 CLI 调用的超时（毫秒），与后端 WEB_UI_*_TIMEOUT_S 对齐
+      RUN_TIMEOUT_MS: "300000"
+      # 被测站点在本机 Docker 网络之外时（如自建站点），保留 DNS 可用性
+      NODE_OPTIONS: --dns-result-order=ipv4first
+    ports:
+      - "5015:5015"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 执行产物（截图 / trace / report.json）落到工作区，Web 页与宿主都能看
+      - ./workspace/default/web-ui-auto/runs:/work/runs
+    restart: unless-stopped
+
+  # ------------------------------------------------------- dsh（DeepSeek Harness）
+  # 平台 agent 能力的另一个宿主：经 MCP(stdio) 复用平台 services 层，
+  # 技能库直挂 src/app/skills/，人设做成 agent preset（见 dsh/README.md）。
+  # 默认关闭 —— 它自带一套会话/UI，属于可选工作台：
+  #   docker compose --profile dsh up -d --build dsh
+  # 首次访问的 URL（带 token）在 `docker compose logs dsh` 里。
+  dsh:
+    profiles: ["dsh"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dsh
+      args:
+        <<: *no-proxy-build
+        BACKEND_IMAGE: smart-test-backend:latest
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    image: smart-test-dsh:latest
+    container_name: smart-test-dsh
+    env_file:
+      - .env
+    environment:
+      <<: *no-proxy-env
+      HOME: /home/dsh
+      DSH_HOME: /home/dsh/.dsh
+      DSH_PORT: "3080"
+      # 容器内地址：MCP 桥与技能库都要用服务名 / 容器内路径
+      SQLITE_DB: /data/smart_test_platform.db
+      LANGGRAPH_API_URL: http://langgraph:5011
+      LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL_IN_DOCKER:-http://host.docker.internal:5014}
+      DSH_BUNDLED_SKILL_DIR: /workspace/smart-test/src/app/skills
+      DSH_TELEMETRY_DISABLED: "1"
+    ports:
+      # 宿主 3081：3080 常被宿主机上另跑的 dsh 实例占用
+      - "3081:3080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 平台代码：MCP 桥与技能库从容器内直接读
+      - ./:/workspace/smart-test
+      - ./workspace:/app/workspace
+      - ./docker-data/dsh-home:/home/dsh
+      - ./docker-data:/data
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    restart: unless-stopped
+
+
+  # -------------------------------------------------------------------- WebUI
+  webui:
+    build:
+      context: .
+      dockerfile: Dockerfile.webui
+      args:
+        <<: *no-proxy-build
+        # 官方源在本机约 3s/请求且会中断，默认走国内镜像；置空则用官方源
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    image: smart-test-webui:latest
+    container_name: smart-test-webui
+    environment:
+      <<: *no-proxy-env
+      # Next.js 服务端路由（/api/upload-to-workspace）在容器内取后端
+      PYTHON_API_URL: http://fastapi:5012
+      NEXT_TELEMETRY_DISABLED: "1"
+      # 浏览器侧地址由 webui/src/lib/config.ts 默认 http://localhost:5011 / :5012，
+      # 对应下方对外发布的端口，无需额外配置
+    ports:
+      - "5013:5013"
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    healthcheck:
+      # 探活用 /chat：登录页已移除（2026-09），探 /login 会 404 让容器永远 unhealthy
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5013/chat').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ------------------------------------------------- LightRAG 知识库（按需启用）
+  # 启动器里 LightRAG 不随平台自启，故此处放在 `rag` profile 下，默认不启动：
+  #   LIGHTRAG_BASE_URL_IN_DOCKER=http://lightrag:5014 docker compose --profile rag up -d
+  # 注意：.env 的 LIGHTRAG_EMBEDDING_BASE_URL 指向宿主机本机 MLX 服务(:7997)，
+  # 容器内以 host.docker.internal 兜底改写。
+  lightrag:
+    profiles: ["rag"]
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args: *no-proxy-build
+    image: smart-test-backend:latest
+    container_name: smart-test-lightrag
+    command: ["python", "-m", "lightrag.api.lightrag_server"]
+    env_file:
+      - .env
+    environment:
+      <<: *no-proxy-env
+      HOST: 0.0.0.0
+      PORT: "5014"
+      WORKING_DIR: /app/workspace/default/rag
+      LLM_BINDING: openai
+      LLM_BINDING_HOST: https://api.deepseek.com/v1
+      LLM_BINDING_API_KEY: ${DEEPSEEK_API_KEY:-}
+      LLM_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      EMBEDDING_BINDING: openai
+      EMBEDDING_BINDING_HOST: ${LIGHTRAG_EMBEDDING_BASE_URL_HOST:-http://host.docker.internal:7997/v1}
+      EMBEDDING_BINDING_API_KEY: ${LIGHTRAG_EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${LIGHTRAG_EMBEDDING_MODEL:-}
+      EMBEDDING_DIM: ${LIGHTRAG_EMBEDDING_DIM:-1024}
+    ports:
+      - "5014:5014"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./workspace:/app/workspace
+      - ./logs:/app/logs
+    restart: unless-stopped

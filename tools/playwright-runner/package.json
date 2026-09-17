@@ -1,0 +1,13 @@
+{
+  "name": "smart-test-playwright-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP executor that drives the Playwright CLI on behalf of the smart-test backend",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

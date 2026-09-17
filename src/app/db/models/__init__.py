@@ -38,8 +38,14 @@ from src.app.db.models.codebase import CodebaseIndexRun, CodebaseRepo  # noqa: F
 from src.app.db.models.api_script import ApiScript, ApiScriptRun  # noqa: F401
 from src.app.db.models.api_doc import ApiDocImport  # noqa: F401
 
-# Unity UI automation module (UI 自动化模块)
-from src.app.db.models.ui_script import UiScript, UiScriptRun  # noqa: F401
+# Unity UI automation module (Unity 自动化模块)
+from src.app.db.models.unity_script import UnityScript, UnityScriptRun  # noqa: F401
+
+# Browser UI automation module (Web-UI 自动化模块, Playwright CLI)
+from src.app.db.models.web_ui_script import WebUiScript, WebUiScriptRun  # noqa: F401
+
+# Eval module (测评模块)
+from src.app.db.models.eval_run import EvalBatch, EvalCaseResult  # noqa: F401
 
 # Settings module (设置模块)
 from src.app.db.models.setting import SettingKV  # noqa: F401

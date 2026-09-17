@@ -57,6 +57,17 @@ class ThreadInfo(Base):
         onupdate=func.now(),
         nullable=False,
     )
+    # 这个会话用哪个智能体（LangGraph assistant id，如 testcase_agent）。
+    # 会话列表拿它显示"这条对话是哪个模式的"，点开历史会话时也靠它把模式切回去
+    # （dsh 的会话记着自己的 agent，不靠 URL 上的 ?agent=）。
+    agent: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="LangGraph assistant id this thread was created with",
+    )
+
     # 删除墓碑：置 1 后不再出现在会话列表，且消息保存/线程注册都不会复活它
     # （行保留是为了挡住 upsert——按 thread_id 唯一键直接 insert 会复活）
     deleted: Mapped[bool] = mapped_column(

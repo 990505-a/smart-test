@@ -48,18 +48,69 @@ PLATFORM_KEYS: dict[str, str] = {
     "game_client_repo": "GAME_CLIENT_REPO",
     "unity_host": "UNITY_HOST",
     "unity_port": "UNITY_PORT",
-    "everos_enabled": "EVEROS_ENABLED",
-    "everos_port": "EVEROS_PORT",
-    "everos_embedding_api_key": "EVEROS_EMBEDDING_API_KEY",
-    "everos_embedding_base_url": "EVEROS_EMBEDDING_BASE_URL",
-    "everos_embedding_model": "EVEROS_EMBEDDING_MODEL",
+    "memory_enabled": "MEMORY_ENABLED",
     "api_auto_max_repair": "API_AUTO_MAX_REPAIR",
 }
 
+# Langfuse（测评追踪）-> env var names。自建实例的 key 对是程序进出
+# Langfuse 的凭证；public key 不脱敏（Langfuse 界面上本来就可见，方便核对
+# 是哪个项目），secret key 必须脱敏。
+LANGFUSE_KEYS: dict[str, str] = {
+    "langfuse_enabled": "LANGFUSE_ENABLED",
+    "langfuse_base_url": "LANGFUSE_BASE_URL",
+    "langfuse_public_key": "LANGFUSE_PUBLIC_KEY",
+    "langfuse_secret_key": "LANGFUSE_SECRET_KEY",
+    "langfuse_environment": "LANGFUSE_ENVIRONMENT",
+}
+
 SECRET_KEYS = {"llm_api_key", "vision_api_key", "deepseek_api_key",
-               "lightrag_embedding_api_key", "everos_embedding_api_key"}
+               "lightrag_embedding_api_key",
+               "langfuse_secret_key", "langfuse_monitor_secret_key", "judge_api_key"}
+
+# LLM 裁判（测评打分）-> env var names。三个都可以留空：留空表示**继承主 LLM**
+# （见 eval/scorers.py 的 judge_endpoint_from_values），界面上必须把这件事说清楚，
+# 否则用户看到"judge：glm-4.7"会以为自己配过。
+JUDGE_KEYS: dict[str, str] = {
+    "judge_model": "JUDGE_MODEL",
+    "judge_base_url": "JUDGE_BASE_URL",
+    "judge_api_key": "JUDGE_API_KEY",
+}
+
+# Langfuse 监控（日常智能体使用链路）-> env var names。
+# 与测评用的 LANGFUSE_* **分开**：日常排查看监控组织，跑测评只看测评组织，
+# 两边的 trace 不混在一起。见 monitoring/tracing.py。
+LANGFUSE_MONITOR_KEYS: dict[str, str] = {
+    "langfuse_monitor_enabled": "LANGFUSE_MONITOR_ENABLED",
+    "langfuse_monitor_base_url": "LANGFUSE_MONITOR_BASE_URL",
+    "langfuse_monitor_public_key": "LANGFUSE_MONITOR_PUBLIC_KEY",
+    "langfuse_monitor_secret_key": "LANGFUSE_MONITOR_SECRET_KEY",
+    "langfuse_monitor_environment": "LANGFUSE_MONITOR_ENVIRONMENT",
+}
 
 _ENV_PATH = Path(__file__).parent.parent.parent.parent / ".env"
+
+
+def read_env_file(env_names: list[str]) -> dict[str, str]:
+    """从仓库 .env 里读原始值。
+
+    为什么设置页要用它而不是 `env_settings`：容器里的环境变量被 compose 覆盖过
+    （比如 LANGFUSE_BASE_URL 在容器内是 host.docker.internal，而 .env 里是人能用的
+    127.0.0.1）。设置页是给人看的、也是往 .env 里写的，两边保持同一视角才不会
+    「显示一个地址、保存成另一个地址」。
+    """
+    values: dict[str, str] = {}
+    if not _ENV_PATH.exists():
+        return values
+    wanted = set(env_names)
+    for line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, _, value = stripped.partition("=")
+        name = name.strip()
+        if name in wanted:
+            values[name] = value.strip()
+    return values
 
 
 class SettingsService:
@@ -102,6 +153,53 @@ class SettingsService:
             else:
                 merged[key] = str(getattr(env_settings, key, "") or "")
         return merged
+
+    async def _effective(self, namespace: str, keys: dict[str, str]) -> dict[str, str]:
+        """设置页保存的值优先，其次 .env 文件，最后进程环境。
+
+        评测/裁判/监控都**必须**走这里而不是直接读 ``settings.*``：设置页存的是
+        DB + .env，进程环境变量在重启前不会变，直接读进程环境就会出现
+        「设置页改完不生效，必须重启容器」这种坑；容器部署里进程环境还可能是
+        更早的一份 .env（compose 只在创建容器时注入），于是页面显示的模型名和
+        agent 实际在跑的模型不是同一个——这正是「judge：glm-4.7」的成因。
+        """
+        merged = await self.get_namespace(namespace, keys)
+        from_file = read_env_file(list(keys.values()))
+        result: dict[str, str] = {}
+        for key, env_name in keys.items():
+            stored = await self.get(namespace, key)
+            if stored is not None:
+                result[key] = stored.strip()
+            elif env_name in from_file:
+                result[key] = from_file[env_name].strip()
+            else:
+                result[key] = str(merged.get(key) or "").strip()
+        return result
+
+    async def langfuse_values(self) -> dict[str, str]:
+        """生效中的 Langfuse（测评）配置。"""
+        return await self._effective("langfuse", LANGFUSE_KEYS)
+
+    async def monitor_langfuse_values(self) -> dict[str, str]:
+        """生效中的 Langfuse（监控）配置——日常智能体使用链路专用。"""
+        return await self._effective("langfuse_monitor", LANGFUSE_MONITOR_KEYS)
+
+    async def model_values(self) -> dict[str, str]:
+        """生效中的主 LLM 配置（与 agent 进程 model_factory 同一优先级）。
+
+        裁判/监控在「继承主 LLM」时必须读这里，而不是 ``settings.llm_model``：
+        进程环境可能是过期的一份（容器只在创建时注入 .env），那样解析出来的
+        模型名和 agent 实际在跑的模型就会分叉。
+        """
+        return await self._effective("model", MODEL_KEYS)
+
+    async def judge_values(self) -> dict[str, str]:
+        """生效中的 LLM 裁判配置（设置页保存的值优先，其次 .env）。
+
+        和 langfuse_values 同样的理由：网页触发的测评要立刻按新配置打分，
+        不能等容器重启。留空的项表示"继承主 LLM"，由调用方回退。
+        """
+        return await self._effective("judge", JUDGE_KEYS)
 
     async def set_many(self, namespace: str, values: dict[str, str]) -> None:
         for key, value in values.items():

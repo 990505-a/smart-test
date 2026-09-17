@@ -136,13 +136,8 @@ export function useChat({
     "permission",
     parseAsString.withDefault("workspace_write"),
   );
-  // Per-conversation Feishu readonly search toggle ("on"|"off") — forwarded as
-  // configurable.feishu_cli ("readonly"|"off") so the agent only reaches for
-  // lark-cli requirement search when the user opted in.
-  const [feishuSearch] = useQueryState(
-    "feishu",
-    parseAsString.withDefault("off"),
-  );
+  // 飞书检索开关已移除（2026-09）：默认就允许只读检索，不再往 configurable
+  // 传 feishu_cli（后端中间件在缺省时按"开启"处理，写成 "off" 才关闭）。
   const client = useClient();
 
   // Pending execute-approval interrupt (dsh-style): the agent paused on a
@@ -308,7 +303,9 @@ export function useChat({
     if (!ensureThreadIdPromiseRef.current) {
       ensureThreadIdPromiseRef.current = (async () => {
         try {
-          const newThread = await client.threads.create();
+          const newThread = await client.threads.create({
+            metadata: { agent: assistantId },
+          });
           ensuredThreadIdRef.current = newThread.thread_id;
           setThreadId(newThread.thread_id);
           return newThread.thread_id;
@@ -404,6 +401,9 @@ export function useChat({
           }
 
           const payload = {
+            // 会话的模式（LangGraph assistant id）：首条消息落库时写进
+            // thread_infos.agent，会话列表与"点开历史会话恢复模式"都靠它。
+            agent: assistantId,
             messages: toSend.map((m) => {
               const attachmentMetadataByMessage = attachmentMetadataRef.current.get(tid);
               const existingAdditional =
@@ -891,7 +891,7 @@ export function useChat({
    * so switching to a different thread won't interrupt it.
    */
   const sendMessage = useCallback(
-    async (content: string, contentBlocks?: ContentBlock[], context?: { repoPath?: string }) => {
+    async (content: string, contentBlocks?: ContentBlock[], context?: { workspacePath?: string }) => {
       const imageBlocks =
         contentBlocks?.filter((b) => b.type === "image") ?? [];
       const fileBlocks =
@@ -912,7 +912,7 @@ export function useChat({
         if (workspacePath) {
           // Path reference only — embedding the full text bloats thread state.
           fileTextParts.push(
-            `### File: ${filename}\n\n文件已上传到工作区：${workspacePath}\n请先用 read_file 工具读取该文件的完整内容再进行分析，不要凭空猜测内容。`,
+            `### File: ${filename}\n\n文件已上传到工作区（绝对路径）：${workspacePath}\n请先用 read_file 工具读取该文件的完整内容再进行分析，不要凭空猜测内容。`,
           );
         } else {
           fileTextParts.push(
@@ -978,7 +978,9 @@ export function useChat({
       try {
         // Get or create thread
         if (!currentThreadId) {
-          const newThread = await client.threads.create();
+          const newThread = await client.threads.create({
+            metadata: { agent: assistantId },
+          });
           currentThreadId = newThread.thread_id;
           setThreadId(currentThreadId);
 
@@ -1006,7 +1008,9 @@ export function useChat({
             await client.threads.get(currentThreadId);
           } catch {
             // Thread lost from LangGraph — recreate it
-            const recreated = await client.threads.create();
+            const recreated = await client.threads.create({
+              metadata: { agent: assistantId },
+            });
             // If the new thread has a different ID, we need to update
             // But LangGraph allows creating with specific metadata, so just use the same ID approach
             // Actually we can't force a thread_id with LangGraph SDK, so update our tracking
@@ -1035,12 +1039,12 @@ export function useChat({
         const streamingThreadId = currentThreadId;
 
         // Remember the run's configurable so a later resume (approval decision)
-        // keeps the same repo mount / effort / approval switch.
+        // keeps the same workspace mount / effort / approval switch.
         lastRunConfigRef.current = {
           space_id: workspaceId || "default",
-          repo_path: context?.repoPath || "",
+          // 工作区 = 本次对话的目录（agent 的 cwd）；留空用平台默认。
+          workspace_path: context?.workspacePath || "",
           permission_mode: permissionMode,
-          feishu_cli: feishuSearch === "on" ? "readonly" : "off",
           ...(reasoningEffort
             ? { llm_reasoning_effort: reasoningEffort }
             : {}),
@@ -1118,7 +1122,7 @@ export function useChat({
 
       onHistoryRevalidate?.();
     },
-    [threadId, assistantId, client, workspaceId, setThreadId, scheduleHistoryRevalidate, onHistoryRevalidate, paginated, saveMessagesToLocalStore, isViewedThread, scheduleStreamRender, flushStreamRender, bumpLoadingIfViewed, upsertStreamMessage, reasoningEffort, permissionMode, feishuSearch, processStreamEvents, finalizeStream, tombstoneRuns, cancelThreadRuns],
+    [threadId, assistantId, client, workspaceId, setThreadId, scheduleHistoryRevalidate, onHistoryRevalidate, paginated, saveMessagesToLocalStore, isViewedThread, scheduleStreamRender, flushStreamRender, bumpLoadingIfViewed, upsertStreamMessage, reasoningEffort, permissionMode, processStreamEvents, finalizeStream, tombstoneRuns, cancelThreadRuns],
   );
 
   /**

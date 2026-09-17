@@ -47,11 +47,13 @@ router = APIRouter(prefix="/threads")
 class ThreadCreateRequest(BaseModel):
     thread_id: str
     title: str = "无标题对话"
+    agent: str = ""  # LangGraph assistant id（哪个模式/智能体）
 
 
 class ThreadUpdateRequest(BaseModel):
     title: str | None = None
     description: str | None = None
+    agent: str | None = None
 
 
 def _iso_utc(dt: Any) -> str | None:
@@ -136,6 +138,7 @@ async def list_threads(
                     "thread_id": t.thread_id,
                     "title": t.title,
                     "description": t.description,
+                    "agent": getattr(t, "agent", "") or "",
                     "created_at": _iso_utc(t.created_at),
                     "updated_at": _iso_utc(t.updated_at),
                 }
@@ -160,7 +163,8 @@ async def create_thread(request: ThreadCreateRequest) -> dict[str, Any]:
         if row:
             return {"success": True, "thread_id": request.thread_id, "created": False}
 
-        info = ThreadInfo(thread_id=request.thread_id, title=request.title)
+        info = ThreadInfo(thread_id=request.thread_id, title=request.title,
+                          agent=(request.agent or "").strip())
         session.add(info)
         await session.commit()
         return {"success": True, "thread_id": request.thread_id, "created": True}
@@ -183,6 +187,8 @@ async def update_thread(thread_id: str, request: ThreadUpdateRequest) -> dict[st
             info.title = request.title
         if request.description is not None:
             info.description = request.description
+        if request.agent is not None:
+            info.agent = request.agent.strip()
         await session.commit()
         return {"success": True, "thread_id": thread_id}
 
@@ -298,6 +304,9 @@ class MessageInput(BaseModel):
 class SaveMessagesRequest(BaseModel):
     """Request body for saving messages after streaming."""
     messages: list[MessageInput]
+    #: 本次保存所属的智能体（前端在保存消息时带上）。首条消息落库时写进
+    #: thread_infos.agent，会话列表与历史恢复都靠它知道"这是哪个模式的会话"。
+    agent: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +442,8 @@ def _derive_thread_title(messages: list[MessageInput]) -> str | None:
     return None
 
 
-async def _upsert_thread_info(session: Any, thread_id: str, messages: list[MessageInput]) -> bool:
+async def _upsert_thread_info(session: Any, thread_id: str, messages: list[MessageInput],
+                              agent: str | None = None) -> bool:
     """Ensure a live ThreadInfo row exists; return False for a tombstone.
 
     Defense in depth: the conversation list (GET /threads) only reads
@@ -459,7 +469,8 @@ async def _upsert_thread_info(session: Any, thread_id: str, messages: list[Messa
         # 让后到者静默跳过，再回读走统一更新分支。
         stmt = (
             sqlite_insert(ThreadInfo)
-            .values(thread_id=thread_id, title=title or "无标题对话")
+            .values(thread_id=thread_id, title=title or "无标题对话",
+                      agent=(agent or "").strip())
             .on_conflict_do_nothing(index_elements=["thread_id"])
         )
         await session.execute(stmt)
@@ -478,6 +489,9 @@ async def _upsert_thread_info(session: Any, thread_id: str, messages: list[Messa
     )
     if title is not None and healable:
         info.title = title
+    # 旧会话（agent 为空）在下次保存时补齐；已有值不被覆盖（会话模式是它的身份）
+    if agent and not getattr(info, "agent", ""):
+        info.agent = agent.strip()
     info.updated_at = func.now()
     return True
 
@@ -504,7 +518,7 @@ async def save_thread_messages(
     updated_count = 0
 
     async with async_session_factory() as session:
-        if not await _upsert_thread_info(session, thread_id, request.messages):
+        if not await _upsert_thread_info(session, thread_id, request.messages, request.agent):
             await session.rollback()
             return {"saved": 0, "updated": 0, "total": 0, "ignored": True}
 

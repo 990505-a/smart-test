@@ -26,6 +26,15 @@ workspace/default/web/web-output/
 workspace/default/testcase/
 workspace/default/dsh/
 
+# 自动化执行产物（截图 / trace / report.json），单次跑动辄几十 MB，不进 git
+workspace/default/web-ui-auto/runs/
+workspace/default/unity-auto/
+# 测评批次的执行现场（live.ndjson / live.log）：运行期数据，每跑一次新生成
+workspace/default/eval-runs/
+
+# Docker 运行期数据（SQLite 库、dsh home），由 docker compose 以卷挂载
+docker-data/
+
 # RAG storage
 rag_storage/
 
@@ -46,3 +55,6 @@ dsh/logs/
 .pytest_cache/
 .langgraph_api/
 .zcode/
+
+# 验收用例的截图/报告产物（可重跑生成，不入库）
+tools/playwright-runner/acceptance/artifacts/

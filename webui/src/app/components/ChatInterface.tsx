@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderGit2, Settings, ChevronUp, FlaskConical, Brain, ShieldAlert, BookOpen } from "lucide-react";
+import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderOpen, Settings, ChevronUp, FlaskConical, Brain, ShieldAlert } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
@@ -33,9 +33,13 @@ import { Input } from "@/components/ui/input";
 import type { ToolCall, TodoItem, SubAgent } from "@/app/types/types";
 import type { Message } from "@langchain/langgraph-sdk";
 import { SubAgentPanel } from "@/app/components/SubAgentPanel";
+import { AgentPicker } from "@/app/components/AgentPicker";
 
 interface ChatInterfaceProps {
   assistantId: string;
+  /** 当前智能体模式（agent key）。选择器就在输入框旁边——模式属于"这次对话的配置" */
+  activeAgent: string;
+  onAgentChange: (value: string) => void;
 }
 
 /** Stable empty tool-call array shared by all human messages (memo safety). */
@@ -52,14 +56,19 @@ const getStatusIcon = (status: TodoItem["status"], className?: string) => {
   }
 };
 
-export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) => {
+export const ChatInterface = React.memo<ChatInterfaceProps>(({
+  assistantId,
+  activeAgent,
+  onAgentChange,
+}) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [input, setInput] = useState("");
   const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
-  const [repoList, setRepoList] = useState<string[]>([]);
-  const [selectedRepo, setSelectedRepo] = useState("");
-  const [repoDialogOpen, setRepoDialogOpen] = useState(false);
-  const [newRepoPath, setNewRepoPath] = useState("");
+  // 工作区（dsh 风格）：本次对话挂载的目录 = agent 的 cwd。留空 = 平台默认工作区。
+  const [workspaceList, setWorkspaceList] = useState<string[]>([]);
+  const [selectedWorkspace, setSelectedWorkspace] = useState("");
+  const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
+  const [newWorkspacePath, setNewWorkspacePath] = useState("");
 
   // Scroll container ref for auto-scroll
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -80,11 +89,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
   }, [permissionMode, setPermissionMode]);
   // 切到完全访问需要二次确认（dsh: RiskConfirmation）
   const [fullAccessConfirmOpen, setFullAccessConfirmOpen] = useState(false);
-  // 飞书需求检索开关（?feishu=on|off，默认 off）→ 后端 configurable.feishu_cli。
-  // 开启后需求澄清/补充阶段智能体可用 lark-cli 只读检索飞书云文档（写操作仍走审批）。
-  const [feishuSearch, setFeishuSearch] = useQueryState("feishu", {
-    defaultValue: "off",
-  });
+  // 飞书检索开关已移除（2026-09）：它默认就该开着，摆个开关只会让人忘了开。
+  // 智能体现在默认被允许用 lark-cli 只读检索飞书需求（写操作仍走审批门）。
 
   // 需在 useFileUpload 之前解构：ensureThreadId 传给上传 hook 按需建线程
   const {
@@ -120,82 +126,77 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
     handlePaste,
   } = useFileUpload(undefined, currentThreadId ?? undefined, ensureThreadId);
 
-  const REPO_STORAGE_KEY = "smart-test-platform-repos";
-  // 记住用户显式选择（含「不挂载仓库」），刷新后不回退到自动选第一个
-  const REPO_SELECTED_KEY = "smart-test-platform-selected-repo";
+  const WORKSPACE_STORAGE_KEY = "smart-test-platform-workspaces";
+  // 记住用户显式选择（含「平台默认工作区」），刷新后不回退
+  const WORKSPACE_SELECTED_KEY = "smart-test-platform-selected-workspace";
 
-  const rememberRepoChoice = useCallback((repo: string) => {
-    localStorage.setItem(REPO_SELECTED_KEY, repo || "__none__");
+  const rememberWorkspaceChoice = useCallback((path: string) => {
+    localStorage.setItem(WORKSPACE_SELECTED_KEY, path || "__default__");
   }, []);
 
-  // Load repos: localStorage 手动添加的 + 平台「代码图谱」页保存的受管仓库,合并去重
+  // 工作区候选：localStorage 里手动加过的 + 平台「代码图谱」页登记过的目录
+  // （那些目录本来就是"我常分析的工程"），合并去重。
   useEffect(() => {
     let local: string[] = [];
     try {
-      const saved = localStorage.getItem(REPO_STORAGE_KEY);
+      const saved = localStorage.getItem(WORKSPACE_STORAGE_KEY);
       if (saved) local = JSON.parse(saved);
     } catch {}
     let savedChoice: string | null = null;
     try {
-      savedChoice = localStorage.getItem(REPO_SELECTED_KEY);
+      savedChoice = localStorage.getItem(WORKSPACE_SELECTED_KEY);
     } catch {}
     apiClient
       .get<{ repos: { repo_path: string }[] }>("/codebase/repos")
       .then((res) => {
-        const platform: string[] = (res.data?.repos ?? []).map(
-          (r) => r.repo_path,
-        );
+        const platform: string[] = (res.data?.repos ?? []).map((r) => r.repo_path);
         const merged = [...new Set([...local, ...platform])];
-        setRepoList(merged);
-        setSelectedRepo((prev) => {
+        setWorkspaceList(merged);
+        setSelectedWorkspace((prev) => {
           if (prev) return prev;
-          if (savedChoice === "__none__") return "";
-          if (savedChoice && merged.includes(savedChoice)) return savedChoice;
-          return merged[0] || "";
+          if (!savedChoice || savedChoice === "__default__") return "";
+          return merged.includes(savedChoice) ? savedChoice : "";
         });
       })
       .catch(() => {
-        // 平台接口不可达时退回 localStorage
-        setRepoList(local);
-        setSelectedRepo((prev) => {
+        setWorkspaceList(local);
+        setSelectedWorkspace((prev) => {
           if (prev) return prev;
-          if (savedChoice === "__none__") return "";
-          if (savedChoice && local.includes(savedChoice)) return savedChoice;
-          return local[0] || "";
+          return savedChoice && savedChoice !== "__default__" && local.includes(savedChoice)
+            ? savedChoice
+            : "";
         });
       });
   }, []);
 
-  // Save repos to localStorage
-  const saveRepoList = useCallback((repos: string[]) => {
-    setRepoList(repos);
-    localStorage.setItem(REPO_STORAGE_KEY, JSON.stringify(repos));
+  const saveWorkspaceList = useCallback((paths: string[]) => {
+    setWorkspaceList(paths);
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(paths));
   }, []);
 
-  const handleAddRepo = useCallback(() => {
-    const path = newRepoPath.trim();
-    if (!path || repoList.includes(path)) return;
-    const newList = [...repoList, path];
-    saveRepoList(newList);
-    setSelectedRepo(path);
-    rememberRepoChoice(path);
-    setNewRepoPath("");
-    setRepoDialogOpen(false);
-  }, [newRepoPath, repoList, saveRepoList, rememberRepoChoice]);
+  const handleAddWorkspace = useCallback(() => {
+    const path = newWorkspacePath.trim();
+    if (!path || workspaceList.includes(path)) return;
+    saveWorkspaceList([...workspaceList, path]);
+    setSelectedWorkspace(path);
+    rememberWorkspaceChoice(path);
+    setNewWorkspacePath("");
+    setWorkspaceDialogOpen(false);
+  }, [newWorkspacePath, workspaceList, saveWorkspaceList, rememberWorkspaceChoice]);
 
-  const handleRemoveRepo = useCallback((path: string) => {
-    const newList = repoList.filter((r) => r !== path);
-    saveRepoList(newList);
-    if (selectedRepo === path) {
-      setSelectedRepo(newList[0] || "");
-      rememberRepoChoice(newList[0] || "");
+  const handleRemoveWorkspace = useCallback((path: string) => {
+    const next = workspaceList.filter((p) => p !== path);
+    saveWorkspaceList(next);
+    if (selectedWorkspace === path) {
+      setSelectedWorkspace("");
+      rememberWorkspaceChoice("");
     }
-  }, [repoList, selectedRepo, saveRepoList, rememberRepoChoice]);
+  }, [workspaceList, selectedWorkspace, saveWorkspaceList, rememberWorkspaceChoice]);
 
-  const handleSelectRepo = useCallback((repo: string) => {
-    setSelectedRepo(repo);
-    rememberRepoChoice(repo);
-  }, [rememberRepoChoice]);
+  const handleSelectWorkspace = useCallback((path: string) => {
+    setSelectedWorkspace(path);
+    rememberWorkspaceChoice(path);
+  }, [rememberWorkspaceChoice]);
 
   // 子智能体实时操作面板（右侧抽屉）
   const [activitySubAgent, setActivitySubAgent] = useState<SubAgent | null>(null);
@@ -229,21 +230,18 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
         toast.error("文件还在上传中，请等待上传完成后再发送");
         return;
       }
-      // 仓库可选：仅有需求文档、不做代码分析的会话可以不挂载仓库。
-      // 未选择时不阻断发送，后端 /repo/ 会返回「未挂载仓库」提示由智能体转告。
-      // Inject code analysis context into message so agent can see it
-      const contextPrefix = selectedRepo
-        ? `[代码分析上下文 - 可在任何阶段使用此信息辅助分析] 仓库路径: ${selectedRepo}\n\n`
-        : "";
-      // 用户主动发消息 → 强制恢复底部跟随
+      // 工作区可选：不挂载就用平台默认工作区，不阻断发送。
+      // 工作区通过 configurable.workspace_path 传给后端（成为 agent 的 cwd），
+      // 不再往消息里塞「[代码分析上下文] 仓库路径: …」——那段前缀既污染消息、
+      // 又暗示"必须读这个仓库"，而工作区只是干活的地方。
       isNearBottomRef.current = true;
-      sendMessage(contextPrefix + messageText, contentBlocks, {
-        repoPath: selectedRepo,
+      sendMessage(messageText, contentBlocks, {
+        workspacePath: selectedWorkspace,
       });
       setInput("");
       clearContentBlocks();
     },
-    [input, contentBlocks, isLoading, isUploading, approvalPending, sendMessage, submitDisabled, clearContentBlocks, selectedRepo],
+    [input, contentBlocks, isLoading, isUploading, approvalPending, sendMessage, submitDisabled, clearContentBlocks, selectedWorkspace],
   );
 
   const handleKeyDown = useCallback(
@@ -741,63 +739,45 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
                   className="hidden"
                 />
                 <div className="flex flex-wrap items-center gap-2 border-l border-border pl-4">
-                  {/* Repo selector (可选：仅需求文档的会话可不挂载仓库)。
-                      Radix Select 而非原生 <select>：深色模式下原生下拉是
-                      系统白底+继承浅色文字，选项会白字白底不可见。 */}
+                  {/* 智能体模式选择器（dsh 风格：模式在输入框旁，不在顶部栏） */}
+                  <AgentPicker
+                    activeAgent={activeAgent}
+                    onAgentChange={onAgentChange}
+                    disabled={isLoading}
+                  />
+                  {/* 工作区选择器（dsh 风格）：本次对话挂载的目录 = agent 的 cwd。
+                      留空表示用平台默认工作区。 */}
                   <div className="flex shrink-0 items-center gap-1">
-                    <FolderGit2 size={14} className="text-muted-foreground" />
+                    <FolderOpen size={14} className="text-muted-foreground" />
                     <Select
-                      value={selectedRepo || "__none__"}
-                      onValueChange={(v) => handleSelectRepo(!v || v === "__none__" ? "" : v)}
+                      value={selectedWorkspace || "__default__"}
+                      onValueChange={(v) => handleSelectWorkspace(!v || v === "__default__" ? "" : v)}
                     >
                       <SelectTrigger
                         size="sm"
                         className="h-7 max-w-48 gap-1 truncate border border-border bg-transparent px-1.5 text-xs text-foreground"
-                        title={selectedRepo || "仅需求文档的会话可不挂载仓库"}
+                        title={selectedWorkspace || "平台默认工作区（workspace/default/<模式>）"}
                       >
-                        <SelectValue placeholder="选择仓库" />
+                        <SelectValue placeholder="选择工作区">
+                          {selectedWorkspace || "平台默认工作区"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent className="w-80">
-                        <SelectItem value="__none__">不挂载仓库</SelectItem>
-                        {repoList.map((r) => (
-                          <SelectItem key={r} value={r} title={r} className="font-mono text-xs">
-                            <span className="block max-w-full truncate">{r}</span>
+                        <SelectItem value="__default__">平台默认工作区</SelectItem>
+                        {workspaceList.map((w) => (
+                          <SelectItem key={w} value={w} title={w} className="font-mono text-xs">
+                            <span className="block max-w-full truncate">{w}</span>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <button
                       type="button"
-                      onClick={() => setRepoDialogOpen(true)}
+                      onClick={() => setWorkspaceDialogOpen(true)}
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                      title="管理仓库"
+                      title="管理工作区"
                     >
                       <Settings size={12} />
-                    </button>
-                  </div>
-                  {/* Feishu readonly search toggle (per conversation, ?feishu=) */}
-                  <div className="flex shrink-0 items-center gap-1">
-                    <BookOpen
-                      size={14}
-                      className={cn(
-                        "text-muted-foreground",
-                        feishuSearch === "on" && "text-brand",
-                      )}
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setFeishuSearch((v) => (v === "on" ? "off" : "on"))
-                      }
-                      className={cn(
-                        "h-7 whitespace-nowrap rounded border px-1.5 text-xs transition-colors",
-                        feishuSearch === "on"
-                          ? "border-brand bg-brand/10 text-brand"
-                          : "border-border bg-transparent text-muted-foreground hover:text-foreground",
-                      )}
-                      title="飞书需求检索（只读）：开启后需求澄清/补充阶段智能体可用 lark-cli 搜索并读取飞书云文档；写入类操作仍需审批"
-                    >
-                      飞书检索：{feishuSearch === "on" ? "开" : "关"}
                     </button>
                   </div>
                   {/* Reasoning effort chip (per conversation, ?effort=) */}
@@ -812,7 +792,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
                         className="h-7 gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
                         title="思考强度（需要模型支持 reasoning_effort）"
                       >
-                        <SelectValue placeholder="思考：关" />
+                        <SelectValue placeholder="思考：关">
+                          {{"": "思考：关", low: "思考：低", medium: "思考：中",
+                            high: "思考：高"}[reasoningEffort] ?? "思考：关"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">思考：关</SelectItem>
@@ -846,7 +829,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
                         className="h-7 gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
                         title="权限档位：工作区=文件限工作区、只读命令白名单自动放行、其余命令审批；完全访问=全部放行"
                       >
-                        <SelectValue placeholder="工作区" />
+                        <SelectValue placeholder="工作区">
+                          {permissionMode === "full_access" ? "完全访问" : "工作区"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="workspace_write">工作区</SelectItem>
@@ -916,21 +901,26 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
         </DialogContent>
       </Dialog>
 
-      {/* Add Repo Dialog */}
-      <Dialog open={repoDialogOpen} onOpenChange={setRepoDialogOpen}>
-        <DialogContent className="sm:max-w-[450px]">
+      {/* 管理工作区（本地列表，仅存 localStorage） */}
+      <Dialog open={workspaceDialogOpen} onOpenChange={setWorkspaceDialogOpen}>
+        <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle>管理代码仓库</DialogTitle>
+            <DialogTitle>管理工作区</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-2">
-            {repoList.length > 0 && (
+            <p className="text-xs leading-5 text-muted-foreground">
+              工作区就是本次对话的目录：选定后它就是智能体的工作目录（shell 的 cwd，
+              相对路径都相对它解析）。它不是「必须分析的仓库」——只是你让它干活的地方。
+              完全访问档下智能体也能操作工作区之外的路径。留空则用平台默认工作区。
+            </p>
+            {workspaceList.length > 0 && (
               <div className="space-y-1.5">
-                {repoList.map((repo) => (
-                  <div key={repo} className="flex items-center justify-between rounded border border-border px-3 py-1.5">
-                    <span className="truncate text-xs font-mono">{repo}</span>
+                {workspaceList.map((path) => (
+                  <div key={path} className="flex items-center justify-between rounded border border-border px-3 py-1.5">
+                    <span className="truncate text-xs font-mono">{path}</span>
                     <button
                       type="button"
-                      onClick={() => handleRemoveRepo(repo)}
+                      onClick={() => handleRemoveWorkspace(path)}
                       className="ml-2 text-xs text-muted-foreground hover:text-destructive"
                     >
                       删除
@@ -941,13 +931,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistantId }) =>
             )}
             <div className="flex items-center gap-2">
               <Input
-                placeholder="输入仓库路径，如 D:/projects/my-app"
-                value={newRepoPath}
-                onChange={(e) => setNewRepoPath(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddRepo()}
-                className="text-xs"
+                placeholder="输入目录路径，如 /Users/you/projects/m72 或 E:/m72-publish/m72"
+                value={newWorkspacePath}
+                onChange={(e) => setNewWorkspacePath(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddWorkspace()}
+                className="font-mono text-xs"
               />
-              <Button size="sm" onClick={handleAddRepo} disabled={!newRepoPath.trim()}>
+              <Button size="sm" onClick={handleAddWorkspace} disabled={!newWorkspacePath.trim()}>
                 添加
               </Button>
             </div>

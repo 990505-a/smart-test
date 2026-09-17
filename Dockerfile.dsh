@@ -1,0 +1,73 @@
+# dsh（DeepSeek Harness）—— 平台的 agent harness，独立容器
+#
+# 为什么基于 smart-test-backend 而不是 node 官方镜像：
+#   dsh 本身只要 Node，但平台给 dsh 配的 MCP 工具桥
+#   （src/app/mcp_servers/agent_tools_server.py、rag_server.py）是 stdio 进程，
+#   必须由 python + 平台依赖拉起。把两者放一个镜像里，preset 里的
+#   `command: /app/.venv/bin/python -m src.app.mcp_servers.agent_tools_server`
+#   才能直接跑通，不需要跨容器造一个 python。
+#
+# Node 用 node:22-slim 的二进制直接拷进来（多阶段），避免 apt —— 本机
+# Docker Desktop 代理对 Debian 源不稳定（见 DOCKER.md 的代理问题记录）。
+#
+# 构建：
+#   docker build -f Dockerfile.dsh -t smart-test-dsh:latest .
+
+ARG BACKEND_IMAGE=smart-test-backend:latest
+
+# ── 取 Node ────────────────────────────────────────────────────────────────
+FROM node:22-slim AS node
+
+# ── 目标镜像 ───────────────────────────────────────────────────────────────
+FROM ${BACKEND_IMAGE}
+
+USER root
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && node -v && npm -v
+
+# socat：dsh 拒绝 bind 0.0.0.0（RCE 安全围栏），容器发布端口需要一层回环桥，
+# 见 docker/dsh-entrypoint.sh。apt 前清掉 Docker Desktop 注入的代理（它让
+# Debian 源 502），并换国内镜像。
+ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    export HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= NO_PROXY='*' \
+ && if [ "$APT_MIRROR" != "deb.debian.org" ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+ && apt-get update -qq \
+ && apt-get install -y --no-install-recommends socat \
+ && rm -rf /var/lib/apt/lists/*
+
+# dsh 从 npm 安装（自包含，无需编译原生模块）。
+ARG DSH_VERSION=next
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN if [ "$NPM_REGISTRY" != "https://registry.npmjs.org" ]; then \
+      npm config set registry "$NPM_REGISTRY"; \
+    fi \
+ && npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" --no-audit --no-fund \
+ && dsh --version
+
+# dsh 的 agent home：settings.yaml（模型 provider）与会话数据都在这里，
+# compose 会把它挂成卷，容器重建不丢会话。
+ENV HOME=/home/dsh \
+    DSH_HOME=/home/dsh/.dsh \
+    DSH_PORT=3080
+
+RUN mkdir -p /home/dsh/.dsh /workspace
+COPY docker/dsh-entrypoint.sh /usr/local/bin/dsh-entrypoint.sh
+RUN chmod +x /usr/local/bin/dsh-entrypoint.sh
+
+WORKDIR /workspace
+
+EXPOSE 3080
+
+# 探活只关心端口在监听；dsh 对 / 返回 401（要 token）也算服务已就绪。
+HEALTHCHECK --interval=20s --timeout=10s --start-period=40s --retries=5 \
+  CMD python -c "import socket,sys; s=socket.socket(); s.settimeout(5); sys.exit(0 if s.connect_ex(('127.0.0.1', int(__import__('os').environ.get('DSH_PORT', 3080)))) == 0 else 1)"
+
+ENTRYPOINT ["/usr/local/bin/dsh-entrypoint.sh"]

@@ -1,4 +1,4 @@
-"""Unity UI Automation Agent (UI 自动化模块).
+"""Unity UI Automation Agent (Unity 自动化模块).
 
 Playwright-style UI automation for the Unity + Lua game client
 (E:\\m72-publish\\m72). The agent drives the game's Lua UI controls
@@ -6,6 +6,8 @@ through the vendored `unity-ui-test` skill (HTTP LuaRemoteServer on
 :16666): open/close windows, logical button clicks, TMP text asserts,
 screenshots, and GM commands for test-data setup — mirroring
 Playwright's locator/assert philosophy on Unity UI controls.
+
+浏览器方向的 UI 自动化见 agents/webui（Playwright CLI），两者并列。
 
 Architecture:
     |-- SkillsMiddleware (outer)  -> /skills/ includes unity-ui-test SKILL.md + guides
@@ -20,12 +22,15 @@ so the agent can write and run python test scripts.
 from pathlib import Path
 
 from deepagents import create_deep_agent as create_agent
-from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
+from deepagents.backends import CompositeBackend, FilesystemBackend
 from deepagents.middleware import SkillsMiddleware
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
 
-from app.core.config import settings
+from app.agents.testcase.model_factory import build_chat_model
+from app.agents.workspace_backend import WorkspaceShellBackend
+from app.middleware.memory_injection import MemoryInjectionMiddleware
+from app.monitoring import MonitorMiddleware
+from app.middleware.workspace_context import WorkspaceContextMiddleware
 from app.core.workspace import get_workspace_dir
 from app.middleware.permission_gate import build_permission_middleware
 from src.app.agents.unity.tools import UNITY_AGENT_TOOLS
@@ -33,23 +38,20 @@ from src.app.agents.unity.tools import UNITY_AGENT_TOOLS
 load_dotenv()
 
 # ============================================================================
-# LLM
+# LLM — 与 testcase agent 共用 model_factory：provider 由 LLM_BASE_URL 派生
+# （设置页可热改，不需要动代码）。原先是写死 `deepseek:` provider，只认
+# DEEPSEEK_API_KEY + 官方端点，换任何第三方 OpenAI 兼容端点都会 401。
 # ============================================================================
-llm = init_chat_model(f"deepseek:{settings.deepseek_model}", max_retries=10)
-llm.profile = {"max_input_tokens": 1_000_000}
-llm.request_timeout = 900
+llm = build_chat_model()
 
 # ============================================================================
-# Backend: shell workspace (default) + skills (read-only, /skills/)
+# Backend: 本次对话挂载的工作区（真实路径）+ skills (read-only, /skills/)
 # ============================================================================
 _workspace_dir = get_workspace_dir("default", "unity")
 _workspace_dir.mkdir(parents=True, exist_ok=True)
-shell_backend = LocalShellBackend(
-    root_dir=_workspace_dir,
-    virtual_mode=False,
-    inherit_env=True,
-    timeout=180,
-)
+# WorkspaceShellBackend：cwd = configurable.workspace_path（未挂载时用上面的默认
+# 目录），真实路径语义——与 testcase/code_analyst 用同一套工作区模型。
+shell_backend = WorkspaceShellBackend(_workspace_dir)
 
 skills_dir = Path(__file__).parent.parent.parent / "skills"  # src/app/skills/
 skills_backend = FilesystemBackend(root_dir=skills_dir, virtual_mode=True)
@@ -119,6 +121,9 @@ agent = create_agent(
     system_prompt=SYSTEM_PROMPT,
     middleware=[
         skills_middleware,
+        MemoryInjectionMiddleware(),
+        WorkspaceContextMiddleware("unity"),  # 注入工作区路径（绝对路径提示）  # 注入工作区记忆（AGENTS.md/MEMORY.md/…，可在 /memories 开关）
+        MonitorMiddleware("unity_agent"),  # 日常链路上报监控 Langfuse
         build_permission_middleware(),  # dsh-style 三档权限门 execute/文件写 (see middleware/permission_gate.py)
     ],
     backend=composite_backend,

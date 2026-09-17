@@ -1,0 +1,44 @@
+# 后端镜像：FastAPI(:5012) 与 LangGraph(:5011) 共用同一镜像，仅启动命令不同。
+# 依赖按 uv.lock 锁定安装；pyproject 未定义 build-system，`uv sync` 只装依赖，
+# 应用代码由 WORKDIR 提供（代码内以 `src.app.*` 导入，根目录需在 sys.path）。
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+
+# 不装系统包：基础镜像已含 ca-certificates，pip/npm 走 HTTPS 无需额外证书。
+# 若需让 agent 在容器内执行 git 操作（permission_gate 的 git 白名单），
+# 再取消下面一行注释（需能访问 Debian 源）：
+# RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+# uv 只用于装依赖，装进系统环境即可；uv sync 管理的是 /app/.venv，
+# 不会清理系统 site-packages，故无需额外搬运二进制。
+ARG UV_INDEX_URL_OVERRIDE=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir -i "${UV_INDEX_URL_OVERRIDE}" uv
+
+WORKDIR /app
+
+# 依赖层单列，改源码不会让依赖缓存失效。
+# 默认走清华 PyPI 镜像（本机实测官方源单包 20-90s，明显拖慢构建）；
+# 需要官方源时把 UV_INDEX_URL_OVERRIDE 传成 https://pypi.org/simple。
+# cache mount 让包下载在多次构建间复用，中断后重跑无需重下。
+ENV UV_DEFAULT_INDEX=${UV_INDEX_URL_OVERRIDE} \
+    UV_INDEX_URL=${UV_INDEX_URL_OVERRIDE}
+
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-install-project --no-dev
+
+COPY . .
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+# compose 会在此挂载数据卷；先建好目录，避免容器内首次写入失败
+RUN mkdir -p /app/logs /app/workspace /data
+
+EXPOSE 5011 5012
+
+CMD ["python", "-m", "uvicorn", "src.app.fastapi_app:app", "--host", "0.0.0.0", "--port", "5012"]

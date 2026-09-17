@@ -7,6 +7,9 @@
     "unity_agent": {
       "path": "./src/app/agents/unity/agent.py:agent"
     },
+    "webui_agent": {
+      "path": "./src/app/agents/webui/agent.py:agent"
+    },
     "code_analyst_agent": {
       "path": "./src/app/agents/code_analyst/agent.py:agent"
     }

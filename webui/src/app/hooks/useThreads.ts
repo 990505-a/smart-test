@@ -8,6 +8,8 @@ export interface ThreadItem {
   updatedAt: Date;
   title: string;
   description: string;
+  /** LangGraph assistant id（这个会话用哪个智能体模式）；旧会话可能为空 */
+  agent: string;
 }
 
 const DEFAULT_PAGE_SIZE = 20;

@@ -1,9 +1,19 @@
 import { getFastapiUrl } from "@/lib/config";
-import { getToken, clearAuth } from "@/lib/auth";
 import type { PaginatedResponse, SuccessResponse, MessageResponse } from "@/app/types/api";
 
 export function getApiBaseUrl(): string {
   return getFastapiUrl();
+}
+
+/**
+ * 拼一个带 `/api/v2` 前缀的绝对地址。
+ *
+ * 给「浏览器自己要发的请求」用：`<img src>`、`<video>`、`<iframe>`、新标签页——
+ * 它们不走 apiClient，不会自动补前缀，少了这段就会拿到 404 的 JSON，然后被
+ * 浏览器的 ORB 拦成 ERR_BLOCKED_BY_ORB（看起来像"图片挂了"，其实是 404）。
+ */
+export function apiV2Url(path: string): string {
+  return `${getApiBaseUrl()}/api/v2${path}`;
 }
 
 class ApiClient {
@@ -19,10 +29,8 @@ class ApiClient {
       "X-Space-Id": "default",
     };
 
-    const token = getToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
+    // 平台是本地单机模式（2026-09 去掉登录页）：不再附带 token。
+    // 后端 CurrentUserDep 在没有 token 时返回内置本地用户，见 api/v2/auth.py。
 
     // Merge with existing headers (handle both cases)
     if (options.headers) {
@@ -39,11 +47,9 @@ class ApiClient {
     });
 
     if (res.status === 401) {
-      clearAuth();
-      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login";
-      }
-      throw new Error("登录已过期，请重新登录");
+      // 去登录页之后这里不该再出现 401；出现就是配置问题（例如反代 Basic Auth），
+      // 把原因原样抛给调用方，而不是跳一个不存在的登录页。
+      throw new Error("后端返回 401（平台已无登录功能，请检查反代是否要求 Basic Auth）");
     }
 
     if (!res.ok) {

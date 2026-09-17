@@ -187,23 +187,25 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 
 | 模块 | 后端 | 前端页面 |
 |---|---|---|
-| 用户模块 | `db/models/user.py` + `api/v2/auth.py`（PBKDF2 + Bearer Token，默认 admin/admin123） | `/login` |
+| 用户模块 | **2026-09-17 去登录**：界面无登录/登出入口，`CurrentUserDep` 无 token 时返回内置本地用户（`api/v2/auth.py`）；`/auth/login` 等仍保留给外部脚本与验收测试 | —（原 `/login` 已删） |
 | 设置模块 | `api/v2/settings.py` + `services/settings_service.py`（DB KV + .env 同步） | `/settings` |
 | 用例生成→飞书 | `services/feishu_service.py`（lark-cli：mindnotes 思维导图 + docs 拉取）；testcase agent 新工具 `export_project_mindmap`（按 project_name 读 MD 文档导图） | — |
 | 用例存储 | **2026-08-28 MD 重构**：一个项目 = `workspace/default/cases/{项目名}.md`（唯一事实源），`services/case_docs_service.py` 解析（标题层级=导图节点层级，[P0-P3] 优先级，「前置：」+ `- 操作 ⇒ 预期` 缩进步骤）；智能体工具收敛为 save/read/list_case_document*；API `/api/v2/case-docs`；旧 test_cases/test_steps/case_groups/tags/case_review* 五张表与数据已删除 | `/cases`（MD 查看/编辑器 + 标注工具栏 + 飞书导图按钮） |
 | 用例标注 | 用户直接在 MD 源文件上标注：标题尾部 ✅/❌/⚠️ + `>` 引用批注；漏测用例直接补进文档。无打分表、无 API——下游全是 LLM 读原文 | `/cases` 编辑模式 |
-| 记忆（EverOS） | **2026-08-31 重构**：本地 EverOS server（pip 包，MD 单一事实源 + SQLite + LanceDB，离线进化 OME）。`services/everos_service.py` 按需拉起（:9631）/HTTP 客户端/文件操作；agent 工具 save/search_memories 走 REST；注入中间件扫 `workspace/default/memory/**/episodes/*.md` 目录（字节稳定）；`api/v2/memories` 文件浏览/编辑 API。**Windows 两垫片**：`everos_compat/fcntl.py`（msvcrt 锁 shim，PYTHONPATH 注入）+ `tools/patch_everos.py`（everalgo 0.4.0 DetectionResult 失配补丁，启动前自动应用）。自进化模块已删：经验沉淀由 EverOS OME 接管 | `/memories` |
+| 记忆（harness 风格 MD） | **2026-09-17 重构**：记忆 = `workspace/<space>/memory/` 下的 Markdown 模块（`AGENTS.md` 工作区指令 / `MEMORY.md` 长期记忆 / `USER.md` 用户画像 / `failures.md` 失败教训 / `PROJECT.md` 项目上下文 / `DECISIONS.md` 决策记录 + 用户自建），`manifest.json` 记启用状态。`services/memory_service.py` 负责种子落盘/读写/启停/关键词检索/注入块拼装；`middleware/memory_injection.py` 注入 system prompt（AGENTS.md 标为必须遵守）；agent 工具 `save_memory/record_failure/search_memories/read_memory_module/list_memory_modules/update_memory_module`；`api/v2/memories` CRUD。**EverOS 服务整体移除**（含 `everos_compat` 垫片、`tools/patch_everos.py`、launcher 服务项、`EVEROS_*` 配置）；旧数据自动迁移：`user.md`→`USER.md`、episodes 主题→`MEMORY.md`（各一次） | `/memories` |
 | 技能库 | `api/v2/skills.py`：上传 SKILL.md / zip 技能包、浏览、删除（技能库由用户手动维护，蒸馏功能已移除） | `/skills` |
 | MCP | `mcp_servers/rag_server.py`（FastMCP stdio，按需拉起）；codebase-memory 由 `mcp_client.py` stdio 直连 exe | `/mcp` |
 | RAG | `services/lightrag_service.py`（LightRAG Server HTTP API；本体由启动器常驻 :9621，LLM=DeepSeek，Embedding=硅基流动 bge-m3） | `/rag` |
 | 代码图谱 | `services/codebase_service.py`（**平台侧全走 `exe cli <tool> <json>` 一锤子模式**，stdout 纯 JSON；stdio MCP 会话在 index 长调用上偶发挂起弃用于平台路径，仅 Agent `search_codebase` 工具继续走 `cbm_call`+垫片）；仓库管理/索引编排/定时增量/图数据代理；exe 为 **GS/Lua 定制版** `C:/codebase/cbm-gs.exe`（备份于 `C:/codebase/*.bak-20260826` + git bundle；官方 v0.10.8 无 GS，勿回切）；HTTP 图服务用官方版 `build/c` exe（GS 版构建未内嵌 UI 资源，`--ui=true` 起不来；两 exe 共享索引存储） | `/codebase` |
 | 接口自动化 | `services/api_auto_service.py`（飞书文档→LLM 生成 pytest→执行→AI 自修复，最多 API_AUTO_MAX_REPAIR 次） | `/api-auto` |
-| UI 自动化 | `skills/unity-ui-test/`（vendor 自 unity-auto-test-skill）+ `agents/unity/`（graph: unity_agent）+ `services/unity_service.py` | `/ui-auto` + 聊天页「UI自动化」tab |
+| Unity 自动化<br>（原 UI 自动化） | `skills/unity-ui-test/`（vendor 自 unity-auto-test-skill）+ `agents/unity/`（graph: unity_agent）+ `services/unity_service.py`。**2026-09 由「UI 自动化」改名**，与新增的 Web-UI 自动化并列；表 `ui_scripts`/`ui_script_runs` 由 `init_db()` 就地 RENAME 为 `unity_scripts`/`unity_script_runs` | `/unity-auto` + 聊天页「Unity自动化」tab |
+| **Web-UI 自动化**<br>（2026-09 新增） | 浏览器 UI 用例，执行引擎是**官方 Playwright CLI**。`agents/webui/`（graph: webui_agent，7 个 `webui_*` 工具）+ `services/playwright_service.py`（HTTP 调 runner）+ `skills/web-ui-test/`（SKILL.md + 4 篇 guides：CLI/locator/assertion/H5 专项）。执行器是独立 sidecar `tools/playwright-runner/`（image `smart-test-playwright`，独占 @playwright/test + chromium/webkit），暴露 `POST /run`（playwright test → JSON 报告 + 产物清单）、`POST /screenshot`、`POST /cli`。AI 生成 spec → 执行 → 失败自修复（`WEB_UI_MAX_REPAIR` 轮）→ 入库 | `/web-ui-auto` + 聊天页「Web-UI自动化」tab |
+| 智能体测评<br>（2026-09 新增） | `src/app/eval/`：确定性 traceId + LangGraph 事件流 → Langfuse trace 树；YAML 评测集；确定性打分器 + LLM-as-judge；门禁表达式；CLI（`python -m src.app.eval.cli`，退出码可做 CI 门禁）。设计参照 dsh-eval-automation，详见 `EVAL.md`。表 `eval_batches`/`eval_case_results` | `/eval` |
 | 代码分析智能体 | `agents/code_analyst/`（graph: code_analyst_agent）：双轨检索=图谱工具（graph_search/trace_symbol/read_symbol，经 cbm_call）+ `/repo/` 原生 grep/read_file；与用例智能体的区别——不生成用例，专注功能定位/调用链/影响面/实现解读，图谱缺失时自动降级文件工具。testcase 的 `search_codebase` 工具共用同一会话 | 聊天页「代码分析」tab |
 
 ## 新路由（/api/v2）
 
-`auth` `settings` `feishu` `skills` `api-auto` `ui-auto` `rag` `codebase`（`evolution` 已随自进化移除；`memories` 重写为 EverOS 文件 API）
+`auth` `settings` `feishu` `skills` `api-auto` `unity-auto` `web-ui-auto` `eval` `rag` `codebase`（`evolution` 已随自进化移除；`memories` 重写为记忆模块 API（2026-09-17 起与 EverOS 无关）；`ui-auto` 于 2026-09 更名为 `unity-auto`）
 新模块路由强制 Bearer 登录；旧路由保持可选认证兼容。
 
 ## 运行前提
@@ -211,35 +213,51 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 - 飞书：本机 `lark-cli` 已登录（`lark-cli auth login`）；设置页填 FEISHU_MINDNOTE_ID
 - RAG：启动器(:9000)启动 lightrag 本体（:9621）；需 `LIGHTRAG_EMBEDDING_API_KEY`（默认硅基流动 bge-m3，OpenAI 兼容）；LLM 复用 DEEPSEEK_API_KEY；知识库管理在 `/rag` 页，图谱可视化 `:9621/webui`
 - 代码图谱：独立平台模块（不接智能体）。`/codebase` 页三 Tab：仓库管理（多仓库 + 文件类型 include/exclude，规则写入仓库根 `.cbmignore` 代管块，卡片可查看实际内容）/ 图谱可视化（**Sigma.js WebGL** + graphology + 客户端 ForceAtlas2 布局；不用 exe 预计算坐标——那是 3D 布局投影到 2D 无结构，且前 N 节点多为同色 File/Module。节点按 label 配色、度数定大小、默认隐藏结构节点）/ 定时任务（APScheduler IntervalTrigger 每 N 小时，只增量已建库仓库）。索引进度：CLI stderr 逐行回调 → runs API progress 字段 → 前端阶段+最新日志行。exe：管理走 `cli <tool> <json>` 一锤子模式；HTTP 图数据服务 `--ui=true :9749` 由 `ensure_graph_daemon()` 探活+自动拉起。表 `codebase_repos`/`codebase_index_runs`
-- UI 自动化：Unity Editor 打开 m72 项目，Tools > LuaTestTool 启动 Server（:16666），进入 Play Mode
-- 记忆（EverOS）：LLM 默认复用 LLM_*/DEEPSEEK_*；embedding key（设置页「记忆 Embedding Key」或 EVEROS_EMBEDDING_API_KEY）留空 = 关键词检索模式，填任意 OpenAI 兼容 key 解锁向量/混合检索与反思、技能蒸馏；写入后索引异步传播（~30s），检索立即可见性以 flush 为准
-- 启动器(:5010)管理 5 个服务：LangGraph(:5011) / FastAPI(:5012) / WebUI(:5013) / LightRAG(:5014，autostart=False) / EverOS(:9631，autostart=False，平台检测不可用时会自动拉起)。MCP（rag/codebase-memory）全部 stdio 按需拉起，不进启动器
+- Unity 自动化：Unity Editor 打开 m72 项目，Tools > LuaTestTool 启动 Server（:16666），进入 Play Mode
+- Web-UI 自动化：需要一个 Playwright 执行器。容器部署由 compose 的 `playwright` 服务提供（agent 用 `PLAYWRIGHT_RUNNER_URL=http://playwright:5015`）；本机开发跑 `./tools/playwright-runner/start-local.sh`（首次自动装依赖 + chromium）
+- 智能体测评：需要 Langfuse（`LANGFUSE_*`）与 judge 端点（`JUDGE_*`，缺省回退主 LLM）。容器部署时 `LANGFUSE_BASE_URL` 覆盖为 `host.docker.internal:3000`（Langfuse 跑在宿主）
+- 记忆：无需外部服务；`workspace/<space>/memory/` 下的 Markdown 即事实源，页面改完下一轮对话生效（注入是每个模型调用前重算的）。总开关 `MEMORY_ENABLED`（设置页「记忆总开关」），单模块开关在 `/memories` 页
+- 启动器(:5010)管理 4 个服务：LangGraph(:5011) / FastAPI(:5012) / WebUI(:5013) / LightRAG(:5014，autostart=False)。MCP（rag/codebase-memory）全部 stdio 按需拉起，不进启动器
 
 ## 数据库
 
 现存表 users/auth_tokens/api_doc_imports/api_scripts/api_script_runs/
-ui_scripts/ui_script_runs/settings_kv/workspaces/projects/attachments/configurations/
+unity_scripts/unity_script_runs/web_ui_scripts/web_ui_script_runs/eval_batches/eval_case_results/
+settings_kv/workspaces/projects/attachments/configurations/
 thread_infos/thread_messages/identifier_seq/codebase_repos/codebase_index_runs，启动自动 create_all。
-（2026-08-31 记忆 EverOS 化：memories/evolution_runs 表随模型删除，数据为空未迁移；
-记忆存储 = `workspace/default/memory/` 下的 Markdown 文件，Git 跟踪 *.md/*.toml，
-`.index/.tmp/.lock` 二进制索引不进 git）
+（2026-09-17：`thread_infos` 新增 `agent` 列（会话属于哪个模式/智能体），由 `init_db()` 就地 ALTER 迁移）
+（2026-09：ui_scripts→unity_scripts、ui_script_runs→unity_script_runs 由 `init_db()` 就地
+RENAME 迁移，旧库无需重建；web_ui_* 与 eval_* 为新增表）
+（2026-08-31 记忆 EverOS 化 → 2026-09-17 又改为 harness 风格 Markdown 模块：
+memories/evolution_runs 表早已删除；记忆存储 = `workspace/default/memory/` 下的
+`*.md` + `manifest.json`，Git 跟踪；旧的 EverOS 索引目录（`.index/`、`smart-test/`）
+是历史残留，可人工清理）
 （2026-08-28 用例 MD 重构：test_cases/test_steps/case_groups/tags/test_case_tags/
 case_reviews/case_review_batches 及 api/web 自动化等 30 张遗留表连同数据已 DROP，
 备份于 smart_test_platform.backup_*.db；projects 表仅为附件归属锚点保留）
 
-## 2026-08-26 去 git / 去 wiki-mcp 改造
+## 2026-09-17 工作区模型（取代"挂载仓库"）
 
-聊天链路彻底移除 git 与 wiki-mcp，改为**按会话挂载目录直接检索**：
-- 前端每次对话强制选择仓库（`ChatInterface` 发送前拦截），`configurable.repo_path` 随 run 传入
-- `agents/testcase/repo_backend.py` `RepoProxyBackend` 挂为 CompositeBackend 的 `/repo/` **只读**路由，
-  agent 用自带 `grep/glob/ls/read_file` 直接查仓库（grep 为字面量匹配，ripgrep 优先自动降级纯 Python）
-- `agents/testcase/tools/codebase_tools.py` 提供 `search_codebase` 图谱检索工具（项目名由 repo_path 推导：`E:/a/b`→`E-a-b`，未建库时降级提示）
-- 已删除：`git_tools.py`（6 个 git 工具）、`mcp_servers/git_server.py`、`services/git_service.py`、
-  `services/code_analysis_service.py`、`api/v2/code_analysis.py`、`db/models/code_analysis.py`、
-  wiki-mcp 全链路（agent wiki 工具加载、`api/v2/wikis.py`、config wiki_* 设置、前端 Wiki 选择器与 `useWikis.ts`）
-- SYSTEM_PROMPT：「代码变更分析」章节重写为「代码检索（挂载仓库 /repo/）」；Wiki 章节删除
-- codebase-memory exe 于 2026-08-26 曾升级官方 v0.10.8（丢失 GS 解析），2026-08-31 已切回
-  GS/Lua 定制版（`C:/codebase/cbm-gs.exe`，源自 `feat/gs-structured-ast` 分支备份，索引格式与新版互通）
+对话页不再"挂仓库"，改成 **dsh 式工作区**：一次对话挂一个目录，它就是 agent 的
+`cwd`（相对路径相对它解析、shell 在这里执行），路径是**真实路径**（`virtual_mode=False`）——
+`read_file` 收绝对路径，完全访问档下工作区之外也能操作。
+
+- `agents/workspace_backend.py`：`WorkspaceShellBackend`（`LocalShellBackend` 子类，`cwd`
+  是**动态属性**，按 `configurable.workspace_path` 解析，兼容旧字段 `repo_path`）；
+  未挂载时回退 `workspace/default/<agent>/`
+- 删除：`agents/testcase/repo_backend.py`（`RepoProxyBackend` 只读 `/repo/` 路由 +
+  ripgrep 看门狗 + `/repo` shell 路径翻译）、前端仓库选择器与 localStorage 列表、
+  提示词里"必须读仓库"的措辞
+- 新增：`middleware/workspace_context.py` 注入"当前工作区的绝对路径 + `ls/read_file`
+  用绝对路径"（`ls(".")`/`ls("/")` 在真实路径语义下会列文件系统根目录，必须在提示词里说清）；
+  testcase 的 `ThreadContextMiddleware` 复用它并补会话上传目录
+- 上传文件路径：`/api/v2/upload-to-workspace` 返回**绝对路径**（前端消息里带上，
+  agent 直接 `read_file`）
+- 监控：`monitoring/tracing.py` 的 `MonitorMiddleware` 把一个 run 折叠成一条 Langfuse
+  trace（generation + tool span，`sessionId`=会话 id），配置走 `LANGFUSE_MONITOR_*`
+  （与测评的 `LANGFUSE_*` 分开）；未配置则空转，上报失败只记日志
+- 飞书检索开关取消：`FeishuReadonlyMiddleware` 默认注入只读检索指引（显式
+  `configurable.feishu_cli="off"` 才关闭）
 
 ## 2026-08-28 用例存储 MD 化（去关系库）
 

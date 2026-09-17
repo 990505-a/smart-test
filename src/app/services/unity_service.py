@@ -1,4 +1,4 @@
-"""Unity UI automation service (UI 自动化模块).
+"""Unity UI automation service (Unity 自动化模块).
 
 Wraps the vendored unity-auto-test python layer
 (``src/app/skills/unity-ui-test/python``) which talks to the in-game
@@ -90,7 +90,7 @@ async def screenshot(save_path: str | None = None) -> dict:
         if clients is None:
             return {"success": False, "error": f"skill 导入失败: {_import_error}"}
         target = save_path or str(
-            settings.workspace_dir / "default" / "ui-auto" / "screenshots"
+            settings.workspace_dir / "default" / "unity-auto" / "screenshots"
             / f"shot_{time.strftime('%Y%m%d_%H%M%S')}.png")
         Path(target).parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -130,14 +130,14 @@ async def shown_windows() -> dict:
     return await asyncio.to_thread(_q)
 
 
-async def run_ui_script(script_id: str, name: str, content: str) -> dict:
-    """Run a saved UI automation python script in a subprocess.
+async def run_unity_script(script_id: str, name: str, content: str) -> dict:
+    """Run a saved Unity automation python script in a subprocess.
 
     The script has the vendored skill on sys.path via UNITY_SKILL_DIR
     env var and a standard prelude (client/ui/text/inspector/gm objects).
     """
     started = time.monotonic()
-    workdir = settings.workspace_dir / "default" / "ui-auto" / script_id
+    workdir = settings.workspace_dir / "default" / "unity-auto" / script_id
     workdir.mkdir(parents=True, exist_ok=True)
     script_file = workdir / f"{name or 'ui_test'}.py"
 

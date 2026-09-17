@@ -1,6 +1,6 @@
-"""Unity Agent tools (UI 自动化模块).
+"""Unity Agent tools (Unity 自动化模块).
 
-Direct tools wrapping the vendored unity-auto-test skill
+Direct tools wrapping the vendored unity-ui-test skill
 (LuaRemoteServer HTTP bridge). The heavy lifting (window ops, GM
 commands, text asserts) is documented in the `unity-ui-test` skill
 which the agent reads via SkillsMiddleware.

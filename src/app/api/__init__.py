@@ -12,6 +12,7 @@ from src.app.api.v2 import (
     case_docs,
     codebase,
     configurations,
+    eval as eval_api,
     extract_pdf,
     feishu,
     mcp,
@@ -21,7 +22,8 @@ from src.app.api.v2 import (
     rag,
     settings,
     skills,
-    ui_auto,
+    unity_auto,
+    web_ui_auto,
     workspaces,
 )
 
@@ -41,7 +43,9 @@ api_router.include_router(settings.router, tags=["Settings (设置模块)"])
 api_router.include_router(feishu.router, tags=["Feishu (飞书模块)"])
 api_router.include_router(skills.router, tags=["Skills (Skill 蒸馏模块)"])
 api_router.include_router(api_auto.router, tags=["API Automation (接口自动化模块)"])
-api_router.include_router(ui_auto.router, tags=["UI Automation (UI 自动化模块)"])
+api_router.include_router(unity_auto.router, tags=["Unity Automation (Unity 自动化模块)"])
+api_router.include_router(web_ui_auto.router, tags=["Web-UI Automation (Web-UI 自动化模块)"])
+api_router.include_router(eval_api.router, tags=["Eval (测评模块)"])
 api_router.include_router(mcp.router, tags=["MCP (MCP 模块)"])
 api_router.include_router(rag.router, tags=["RAG (知识库本体)"])
 api_router.include_router(codebase.router, tags=["Codebase (代码图谱本体)"])

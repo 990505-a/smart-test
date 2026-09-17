@@ -30,6 +30,17 @@ import type { ThreadItem } from "@/app/hooks/useThreads";
 import { useThreads } from "@/app/hooks/useThreads";
 import { getFastapiUrl } from "@/lib/config";
 
+/** agent id → 会话列表里的短标签（列表窄，只放模式名的头两个字） */
+export function agentShortLabel(agent: string): string {
+  switch (agent) {
+    case "testcase_agent": return "用例";
+    case "unity_agent": return "Unity";
+    case "webui_agent": return "Web-UI";
+    case "code_analyst_agent": return "代码";
+    default: return "";
+  }
+}
+
 const GROUP_LABELS = {
   today: "今天",
   yesterday: "昨天",
@@ -81,7 +92,7 @@ function EmptyState() {
 }
 
 interface ThreadListProps {
-  onThreadSelect: (id: string) => void;
+  onThreadSelect: (id: string, agent?: string) => void;
   onMutateReady?: (mutate: () => void) => void;
 }
 
@@ -325,7 +336,7 @@ export function ThreadList({
                           >
                             <button
                               type="button"
-                              onClick={() => onThreadSelect(thread.id)}
+                              onClick={() => onThreadSelect(thread.id, thread.agent)}
                               className="flex min-w-0 flex-1 items-center gap-2 text-left"
                             >
                               <span
@@ -336,6 +347,11 @@ export function ThreadList({
                               >
                                 {thread.title}
                               </span>
+                              {agentShortLabel(thread.agent) && (
+                                <span className="shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground">
+                                  {agentShortLabel(thread.agent)}
+                                </span>
+                              )}
                             </button>
                             {/* Hover swap: timestamp fades out, delete action fades in */}
                             <span

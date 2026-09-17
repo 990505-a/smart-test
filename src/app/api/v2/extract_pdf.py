@@ -51,13 +51,13 @@ class UploadToWorkspaceRequest(BaseModel):
 
 
 class UploadToWorkspaceResponse(BaseModel):
-    workspace_path: str  # Virtual absolute path for agent file tools (e.g., /uploads/abc_doc.pdf)
+    workspace_path: str  # 绝对路径（agent 的文件工具按真实路径工作）
     full_path: str  # Absolute filesystem path
     filename: str
     size: int
     chars: int
     text_preview: str  # First 200 chars for display
-    text_file_path: str = ""  # Virtual absolute path to extracted text file (e.g., /uploads/abc_doc_extracted.txt)
+    text_file_path: str = ""  # 提取出的文本文件的绝对路径
 
 
 @router.post("/extract-pdf-text", response_model=ExtractPdfResponse)
@@ -98,11 +98,11 @@ async def extract_pdf_text_endpoint(req: ExtractPdfRequest):
 async def upload_to_workspace(req: UploadToWorkspaceRequest):
     """Extract text from a file, save both original and extracted text to workspace.
 
-    Returns a workspace path reference that can be embedded in messages instead of
+    Returns an absolute path reference that can be embedded in messages instead of
     the full text content. This prevents LangGraph thread state bloat.
 
     The saved files go to workspace/{space_id}/{agent_name}/uploads/{thread_id}/ and are
-    accessible by the agent via its FilesystemBackend file tools.
+    read by the agent with its file tools（绝对路径，semantics = 真实路径）。
     When thread_id is provided, files are isolated per-conversation-thread.
     """
     try:
@@ -161,17 +161,11 @@ async def upload_to_workspace(req: UploadToWorkspaceRequest):
         text_filename = f"{unique_prefix}_{Path(safe_name).stem}_extracted.txt"
         text_path = uploads_dir / text_filename
         text_path.write_text(extracted_text, encoding="utf-8")
-        if req.thread_id:
-            text_file_path = f"/uploads/{req.thread_id}/{text_filename}"
-        else:
-            text_file_path = f"/uploads/{text_filename}"
+        text_file_path = str(text_path)
         logger.info("[upload-to-workspace] Saved extracted text: %s (%d chars)", text_path, len(extracted_text))
 
-    # Virtual absolute path for agent file tools (virtual_mode=True uses /-prefixed paths)
-    if req.thread_id:
-        workspace_rel_path = f"/uploads/{req.thread_id}/{unique_filename}"
-    else:
-        workspace_rel_path = f"/uploads/{unique_filename}"
+    # 真实路径（2026-09 起 agent 后端是 virtual_mode=False，读文件用绝对路径）
+    workspace_rel_path = str(original_path)
 
     text_preview = extracted_text[:200] if extracted_text else "[No text extracted]"
     if not extraction_ok:

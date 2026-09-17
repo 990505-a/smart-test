@@ -4,7 +4,6 @@ import React, { useRef, useState } from "react";
 import { PageHeader, EmptyState } from "@/app/components/ui-patterns";
 import { useSkillTree, SkillTreeNode } from "@/lib/api/useNewModules";
 import { apiClient, getApiBaseUrl } from "@/lib/api-client";
-import { getToken } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -82,7 +81,6 @@ export default function SkillsPage() {
       form.append("file", file);
       const res = await fetch(`${getApiBaseUrl()}/api/v2/skills/upload`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
         body: form,
       });
       const json = await res.json();

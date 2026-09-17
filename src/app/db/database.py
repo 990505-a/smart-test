@@ -78,6 +78,20 @@ async def init_db() -> None:
     from sqlalchemy import text
 
     async with engine.begin() as conn:
+        # 「UI 自动化」改名「Unity 自动化」：把旧库的表就地改名，避免
+        # create_all 另建新表、旧脚本记录变孤儿。改名必须在 create_all
+        # 之前——表已存在时 RENAME 是唯一正确的迁移，create_all 只补缺失表。
+        for old, new in (("ui_scripts", "unity_scripts"),
+                         ("ui_script_runs", "unity_script_runs")):
+            has_old = (await conn.execute(text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=:n"
+            ), {"n": old})).first()
+            has_new = (await conn.execute(text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=:n"
+            ), {"n": new})).first()
+            if has_old is not None and has_new is None:
+                await conn.execute(text(f'ALTER TABLE "{old}" RENAME TO "{new}"'))
+
         await conn.run_sync(Base.metadata.create_all)
 
         # SQLite cannot drop a single-column UNIQUE constraint in place. Older
@@ -140,6 +154,7 @@ async def init_db() -> None:
         # ALTER 失败（列已存在）直接忽略——SQLite 报 duplicate column name。
         for stmt in (
             "ALTER TABLE thread_infos ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE thread_infos ADD COLUMN agent VARCHAR(64) NOT NULL DEFAULT ''",
         ):
             try:
                 await conn.execute(text(stmt))

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>第 1 课 · 写一条用例，跑出分数，让门禁替你下结论</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+
+<header>
+  <p class="eyebrow">智能体测评 · 第 1 课</p>
+  <h1>写一条用例，跑出分数，让门禁替你下结论</h1>
+  <p class="lead">这节课你把整条闭环亲手走一遍：写一个评测集 → 起一个批次 → 读懂每个分数 → 看 trace → 让门禁给出判决。做完你会有一个能反复重跑的「回归入口」。</p>
+  <p class="meta">预计 25 分钟（其中 5 分钟在等智能体跑）· 前置：能打开 <code>http://localhost:5013/eval</code> · 环境是干净的（<code>bash tools/reset-data.sh</code> 可随时回到空场）</p>
+  <nav>
+    <a href="./0001-first-eval-case.html">本课</a>
+    <a href="../reference/dataset-and-gate.html">速查：评测集字段与门禁语法</a>
+    <a href="../MISSION.md">这门课要带我去哪（MISSION）</a>
+  </nav>
+</header>
+
+<main id="main">
+
+<section>
+  <h2>先看清整条链路：谁负责什么</h2>
+  <p class="thesis">评测集是代码，分数是观测，门禁是判决。</p>
+  <ol class="flow">
+    <li>写评测集<br><small>YAML：任务 + 期望</small></li>
+    <li>起批次<br><small>平台驱动智能体</small></li>
+    <li>打分<br><small>确定性 + LLM 裁判</small></li>
+    <li>上报<br><small>trace 与分数进 Langfuse</small></li>
+  </ol>
+  <p>后面两步在你按下「启动」之后自动发生：每条用例跑完立刻落库（所以页面上是一条一条长出来的），整批结束后汇总均分、求值门禁、写回批次结论。</p>
+  <p class="note">关键区分：<strong>「分数」和「判决」是两件事</strong>。分数来自打分器，判决来自门禁表达式。门禁留空时，只要没有执行异常，批次就是 <code>passed</code>——哪怕分数很难看。这一点第 4 节会再讲一次。</p>
+</section>
+
+<section>
+  <h2>用例设计：三个字段决定一切</h2>
+  <p>一个评测集文件（<code>datasets/*.yaml</code>）由若干 <strong>item</strong> 组成，每个 item 就三块内容。你写什么，决定了后面能拿到哪些分数。</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>字段</th><th>写什么</th><th>不写会怎样</th></tr></thead>
+      <tbody>
+        <tr><td><code>input</code></td><td>交给智能体的任务原话。要写成<strong>可判定</strong>的产出要求：几条、什么格式、什么语言。</td><td>没有输入就没得跑</td></tr>
+        <tr><td><code>expected</code></td><td>机器能验的期望：<code>contains</code> / <code>not_contains</code> / <code>tools</code> / <code>max_tool_errors</code> / <code>evidence</code></td><td>这几项对应的分数<strong>不会产出</strong>（不是 0 分，是没有这一项）</td></tr>
+        <tr><td><code>judge</code></td><td>需要读懂语义才判得了的标准：<code>criteria</code> + 及格线 <code>pass</code></td><td>没有 LLM 裁判分数</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>设计要点（写第一条时最容易踩的）</h3>
+  <ul>
+    <li><strong>input 里把"几条、什么格式"写死</strong>，否则 judge 的"恰好 3 条"无从判断——判据必须在任务里交代过，这叫可判定性。</li>
+    <li><strong>能自动判的不要写进 judge</strong>：包含某个词、必须调用某个工具、报错不超过几次，这些都是确定性的，交给 <code>expected</code>；judge 只用来判"内容对不对、有没有真核实过"。</li>
+    <li><strong>judge 的 criteria 要写成"判不通过的条件"</strong>（"多于或少于 3 条判不通过"），比只写正面要求更能压住模型的宽容倾向。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>动手：把你的第一条用例跑起来</h2>
+
+  <h3>第 1 步 · 在页面上新建评测集</h3>
+  <p>在 <code>/eval</code> 页面的<strong>「评测集」</strong>卡片右上角点<strong>「新建评测集」</strong>，按这张表填（表里左边是界面字段，右边是它写进文件的位置）：</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>界面字段</th><th>填什么</th></tr></thead>
+      <tbody>
+        <tr><td>文件名</td><td><code>my-first.yaml</code>（写进仓库的 <code>datasets/</code>）</td></tr>
+        <tr><td>评测集名 name</td><td><code>my-first</code></td></tr>
+        <tr><td>被测 agent</td><td><code>testcase_agent</code></td></tr>
+        <tr><td>用例 · 任务（input）</td><td>为一个「手机号 + 验证码」登录功能列出 3 条最关键的测试点。<br>每条一行，用「1. …」这样的编号列出，只写测试点，不写用例细节。</td></tr>
+        <tr><td>确定性期望 · 答复须包含</td><td><code>验证码</code></td></tr>
+        <tr><td>LLM 裁判 · 评审标准</td><td>回答必须恰好 3 条、编号成列，且三条都与手机号 + 验证码登录相关（例如验证码错误、验证码过期、手机号格式非法）。多于或少于 3 条判不通过。</td></tr>
+        <tr><td>LLM 裁判 · 及格线</td><td><code>0.7</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>点「创建」。保存的不是数据库里的一行配置，而是<strong>真的写了一个 YAML 文件</strong>——点开列表里的「编辑」，展开「查看磁盘上的原始 YAML」，你会看到它长什么样（多行任务落成 <code>|</code> 块，中文不转义）。文件是唯一事实源：直接手改也行，页面每次打开都从磁盘读回。</p>
+  <p class="note">为什么用 <code>testcase_agent</code>：它的输入输出都是纯文本，没有外部依赖，跑一条约 10 秒——适合把机制看清，而不是把时间花在等浏览器上。</p>
+
+  <h3>第 2 步 · 起批次</h3>
+  <ol>
+    <li>在 <code>/eval</code> 点右上角<strong>「启动测评」</strong>。</li>
+    <li>评测集选 <code>my-first.yaml</code>（刚建的集子立刻出现在下拉里，不用重启任何东西）。被测 agent 会自动填成 <code>testcase_agent</code>。</li>
+    <li>门禁表达式填：<code>avg(llm_judge)&gt;=0.6 &amp;&amp; all(task_output_match)</code>（含义：所有用例的「答复命中期望片段」都为真，且 judge 平均分不低于 0.6）。</li>
+    <li>点<strong>「启动」</strong>，然后打开这条批次的<strong>「详情」</strong>。</li>
+  </ol>
+
+  <h3>第 3 步 · 盯着实时面板看</h3>
+  <p>你会在详情里看到：<strong>正在跑：login-001 mm:ss</strong>、「agent 在做什么（实时）」里逐条冒出 <em>模型生成中 · 某模型</em>、以及「执行日志（实时尾部）」。这一栏是执行进程边跑边写的现场（<code>workspace/default/eval-runs/&lt;批次id&gt;/</code>），不是猜的进度。</p>
+
+  <h3>第 4 步 · 读分数</h3>
+  <p>跑完（约 10–30 秒）用例表会有一行 <code>login-001</code>。这份评测集只会产出 <strong>3 个分数</strong>，逐个看：</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>分数名</th><th>谁算的</th><th>怎么算</th><th>怎么读</th></tr></thead>
+      <tbody>
+        <tr><td><code>task_output_match</code></td><td>确定性打分器</td><td>最终答复里是否出现 <code>contains</code> 里的任一片段</td><td>布尔值。它是"事实核对"，最便宜也最可信</td></tr>
+        <tr><td><code>llm_judge</code></td><td>LLM 裁判</td><td>裁判模型按 <code>criteria</code> 打 0–1 分，理由写在分数的 comment 里</td><td>数值。看分数一定要同时看 comment（理由）</td></tr>
+        <tr><td><code>llm_judge_pass</code></td><td>LLM 裁判</td><td><code>llm_judge</code> 是否 ≥ 数据集里的 <code>pass</code></td><td>布尔值。门禁里用它比用原始分更稳</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">没写 <code>expected.tools</code> 就没有 <code>tool_sequence</code>，没写 <code>max_tool_errors</code> 就没有 <code>tool_errors</code>——<strong>分数是"按需产出"的</strong>，别把"没有这个分数"误读成"这项是 0 分"。</p>
+
+  <h3>第 5 步 · 去 Langfuse 里看这条运行的轨迹</h3>
+  <p>用例行的「链路」列有一个 <strong>trace</strong> 链接，点开是 <code>http://localhost:3000/project/&lt;项目id&gt;/traces/&lt;traceId&gt;</code>。在那里你能看到：输入（你的 <code>input</code>）、每一次模型调用（模型名、耗时、token）、以及最终输出。分数就挂在这条 trace 上——<strong>分数与轨迹是同一个对象</strong>，这是这套测评能被信任的原因。</p>
+</section>
+
+<section>
+  <h2>读懂判决：passed / failed / error</h2>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>批次状态</th><th>含义</th></tr></thead>
+      <tbody>
+        <tr><td><code>passed</code></td><td>门禁通过 <strong>且</strong> 没有任何用例执行异常</td></tr>
+        <tr><td><code>failed</code></td><td>有用例执行异常（但没全挂），或门禁没通过</td></tr>
+        <tr><td><code>error</code></td><td>所有用例都执行异常（通常是环境问题：agent 名写错、模型端点不通）</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="thesis">「执行异常」只看用例有没有跑起来，与分数高低无关。</p>
+  <p>实测过的一次真业务批次：6 条用例全部跑通、状态 <code>passed</code>，但均分只有 0.667（两条没产出期望内容）。如果门禁留空，这种"看起来通过、实际不达标"的批次会被当成绿灯——<strong>所以回归一定要写门禁</strong>。</p>
+  <details>
+    <summary>门禁为什么"写错字也算失败"？（fail-closed）</summary>
+    <p>门禁里写了没人产出的分数名（比如把 <code>llm_judge</code> 写成 <code>llm_judeg</code>），求值时会直接判失败，而不是当作"没有约束"。理由是：一个打错字的门禁读成"全过"，比读成"失败"危险得多——前者会把坏版本放进线上。</p>
+  </details>
+</section>
+
+<section>
+  <h2>改一次，再跑一次（这一步别跳过）</h2>
+  <p>把 <code>input</code> 里的「3 条」改成「5 条」，<strong>其它都不动</strong>，再起一个批次。你会看到 <code>llm_judge</code> 掉下去、comment 里出现"多于 3 条"之类的理由——因为 judge 的判据里写死了 3 条。</p>
+  <p>这个动作的意义：你刚刚用<strong>一次可复现的实验</strong>证明了"用例的判据与任务描述必须一致"。这就是测评的全部手感——改一处、跑一次、看分数怎么动。做完了记得把文件改回去。</p>
+</section>
+
+<section>
+  <h2>自测（先想答案，再点检查）</h2>
+
+  <form data-quiz data-answer="b"
+        data-explanation="avg 是在整个批次的所有用例上求平均；同一条用例的多次运行不属于一次批次。"
+        data-hint="想想门禁是在什么时候求值的——它是给整批下结论的。">
+    <fieldset>
+      <legend>1. 门禁里的 <code>avg(llm_judge)&gt;=0.6</code> 是在什么范围上求平均？</legend>
+      <label class="option"><input type="radio" name="q1" value="a">同一条用例的多次运行结果</label>
+      <label class="option"><input type="radio" name="q1" value="b">整个批次里所有用例的分数</label>
+      <label class="option"><input type="radio" name="q1" value="c">最近若干次批次的历史结果</label>
+      <button type="submit">检查答案</button>
+      <p class="feedback" data-feedback role="status" aria-live="polite"></p>
+    </fieldset>
+  </form>
+
+  <form data-quiz data-answer="c"
+        data-explanation="passed 只保证「门禁通过且没有执行异常」；分数高低由门禁表达式负责，门禁留空时它管不着。"
+        data-hint="异常（error）指的是用例有没有跑起来，不是分数低。">
+    <fieldset>
+      <legend>2. 批次状态是 <code>passed</code>，最确定能推出什么？</legend>
+      <label class="option"><input type="radio" name="q2" value="a">所有分数都达到了及格阈值</label>
+      <label class="option"><input type="radio" name="q2" value="b">门禁表达式一定写得没问题</label>
+      <label class="option"><input type="radio" name="q2" value="c">没有用例发生执行异常</label>
+      <button type="submit">检查答案</button>
+      <p class="feedback" data-feedback role="status" aria-live="polite"></p>
+    </fieldset>
+  </form>
+
+  <form data-quiz data-answer="a"
+        data-explanation="expected.tools 才会产出 tool_sequence 分数；写在 input 里只能「引导」模型，不能「判定」。"
+        data-hint="要能自动判定，就必须落在会被打分器读取的字段里。">
+    <fieldset>
+      <legend>3. 要让"必须调用过 webui_run_spec"变成可自动判定的分数，写在哪？</legend>
+      <label class="option"><input type="radio" name="q3" value="a">item 的 <code>expected.tools</code> 里</label>
+      <label class="option"><input type="radio" name="q3" value="b">judge 的 <code>criteria</code> 里</label>
+      <label class="option"><input type="radio" name="q3" value="c">任务的 <code>input</code> 描述里</label>
+      <button type="submit">检查答案</button>
+      <p class="feedback" data-feedback role="status" aria-live="polite"></p>
+    </fieldset>
+  </form>
+
+  <noscript><p>测验反馈需要 JavaScript；也可以回到第 4 节的表格自行核对。</p></noscript>
+</section>
+
+<section>
+  <h2>下一步与延伸</h2>
+  <ul class="roadmap">
+    <li>速查卡：<a href="../reference/dataset-and-gate.html">评测集字段 · 分数名 · 门禁语法</a>——写用例时对着它抄。</li>
+    <li>一手材料（本仓库）：<code>EVAL.md</code>（流程与设计取舍）、<code>src/app/eval/scorers.py</code>（每个分数的真实算法，注释里写着为什么这么算）。</li>
+    <li>外部一手材料：<a href="https://langfuse.com/docs/evaluation/overview">Langfuse · Evaluation Overview</a> 与 <a href="https://langfuse.com/docs/evaluation/scores/overview">Scores</a>——理解"分数 / 数据集 / 实验"的通用概念（本机是自建 4.36.1-zh，概念一致、界面为中文）。</li>
+    <li>下一课（预告）：<strong>读一条 trace</strong>——把分数和轨迹对上，定位"是哪一步把分数拉低的"。</li>
+  </ul>
+  <p class="note">卡住、或想深挖任何一处（比如"为什么 trace_id 要确定性派生"），直接问你的助教——我就是这门课的老师，可以随时展开讲或带你改代码验证。</p>
+</section>
+
+</main>
+
+<footer>
+  <p class="source">本课基于本仓库当前代码与实测结果编写（2026-09-17，环境已重置为干净状态）。 引用：<code>EVAL.md</code>、<code>src/app/eval/scorers.py</code>、<code>src/app/api/v2/eval.py</code>、<code>datasets/smoke-testcase.yaml</code>。</p>
+</footer>
+
+</body>
+</html>

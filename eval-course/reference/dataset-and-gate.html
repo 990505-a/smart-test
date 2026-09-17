@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>速查 · 评测集字段、分数名与门禁语法</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+
+<header>
+  <p class="eyebrow">智能体测评 · 速查卡</p>
+  <h1>评测集字段、分数名与门禁语法</h1>
+  <p class="lead">写用例、读分数、写门禁时对着抄。所有条目都对应本仓库当前实现（<code>src/app/eval/</code>）。</p>
+  <nav>
+    <a href="../lessons/0001-first-eval-case.html">第 1 课</a>
+    <a href="./dataset-and-gate.html">本速查卡</a>
+    <a href="../MISSION.md">MISSION</a>
+  </nav>
+</header>
+
+<main id="main">
+
+<section>
+  <h2>1 · 评测集文件（<code>datasets/*.yaml</code>）</h2>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>字段</th><th>必填</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>name</code></td><td>✓</td><td>评测集名（批次名会用它拼 <code>name@release</code>）</td></tr>
+        <tr><td><code>description</code></td><td></td><td>一句话说明这个集子测什么</td></tr>
+        <tr><td><code>agent</code></td><td>✓</td><td>被测智能体（LangGraph 图名：<code>testcase_agent</code> / <code>webui_agent</code> / <code>unity_agent</code> / <code>code_analyst_agent</code>）</td></tr>
+        <tr><td><code>max_repair</code></td><td></td><td>数据集级声明（当前网页路径未接入，见 EVAL.md「已知限制」）</td></tr>
+        <tr><td><code>items[]</code></td><td>✓</td><td>用例列表，见下</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>item 的三个字段</h3>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>字段</th><th>子字段</th><th>含义 / 产出的分数</th></tr></thead>
+      <tbody>
+        <tr><td rowspan="1"><code>id</code></td><td>—</td><td>用例标识（页面与 Langfuse 里都用它认人）</td></tr>
+        <tr><td rowspan="1"><code>input</code></td><td>—</td><td>交给智能体的任务原话（也是 trace 的 input）</td></tr>
+        <tr><td rowspan="5"><code>expected</code></td><td><code>contains: [...]</code></td><td>最终答复须包含其中任一片段 → <code>task_output_match</code></td></tr>
+        <tr><td><code>not_contains: [...]</code></td><td>不得出现的片段 → <code>no_forbidden_content</code></td></tr>
+        <tr><td><code>tools: {sequence: [...], mode: subsequence|exact}</code></td><td>工具调用序列 → <code>tool_sequence</code></td></tr>
+        <tr><td><code>max_tool_errors: N</code></td><td>工具报错预算 → <code>tool_errors</code>（数值，越小越好）</td></tr>
+        <tr><td><code>evidence: [...]</code></td><td>须产出的产物路径（支持单个 <code>*</code>）→ <code>evidence_exists</code></td></tr>
+        <tr><td rowspan="2"><code>judge</code></td><td><code>criteria</code></td><td>LLM 裁判的评审标准（写"判不通过的条件"更有约束力）</td></tr>
+        <tr><td><code>pass</code></td><td>及格线（0–1，常用 0.6–0.7）→ 产出 <code>llm_judge</code> 与 <code>llm_judge_pass</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note"><strong>分数是按需产出的</strong>：字段没写，对应分数就不存在（不是 0 分）。门禁里写了不存在的分数会直接判失败。</p>
+</section>
+
+<section>
+  <h2>2 · 分数名对照表</h2>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>分数名</th><th>类型</th><th>产出者</th><th>门禁里怎么用</th></tr></thead>
+      <tbody>
+        <tr><td><code>task_output_match</code></td><td>BOOLEAN</td><td>确定性：答复包含期望片段</td><td><code>all(task_output_match)</code></td></tr>
+        <tr><td><code>no_forbidden_content</code></td><td>BOOLEAN</td><td>确定性：未出现禁止内容</td><td><code>all(no_forbidden_content)</code></td></tr>
+        <tr><td><code>tool_sequence</code></td><td>BOOLEAN</td><td>确定性：工具调用序列符合期望</td><td><code>all(tool_sequence)</code></td></tr>
+        <tr><td><code>tool_errors</code></td><td>NUMERIC</td><td>确定性：工具报错次数</td><td><code>max(tool_errors)&lt;=2</code></td></tr>
+        <tr><td><code>evidence_exists</code></td><td>BOOLEAN</td><td>确定性：期望产物真的存在</td><td><code>avg(evidence_exists)&gt;=1</code></td></tr>
+        <tr><td><code>webui_case_pass_rate</code></td><td>NUMERIC</td><td>Web-UI：从 Playwright CLI 报告读到的用例通过率</td><td><code>avg(webui_case_pass_rate)&gt;=0.8</code></td></tr>
+        <tr><td><code>webui_cases_all_passed</code></td><td>BOOLEAN</td><td>Web-UI：这次执行是否零失败</td><td><code>all(webui_cases_all_passed)</code></td></tr>
+        <tr><td><code>llm_judge</code></td><td>NUMERIC</td><td>LLM 裁判原始分（0–1）</td><td><code>avg(llm_judge)&gt;=0.6</code> / <code>min(llm_judge)&gt;=0.4</code></td></tr>
+        <tr><td><code>llm_judge_pass</code></td><td>BOOLEAN</td><td>LLM 裁判是否过阈值</td><td><code>all(llm_judge_pass)</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="meta">布尔分数在门禁里按 1/0 参与 avg/min/max；CATEGORICAL 类型会被跳过。</p>
+</section>
+
+<section>
+  <h2>3 · 门禁语法</h2>
+  <div class="code-wrap"><pre><code>avg(分数名) >= 0.8      该分数在所有用例上的平均
+min(分数名) >= 0.6      最差的那条用例
+max(分数名) &lt;= 2       最坏情况的护栏（配 tool_errors 这类"越小越好"的分）
+all(布尔分数名)         每条用例都必须为真
+
+用 &amp;&amp; 串联多个子句（也接受逗号）：
+avg(task_output_match) &gt;= 0.8 &amp;&amp; all(tool_sequence) &amp;&amp; max(tool_errors) &lt;= 2</code></pre></div>
+  <ul>
+    <li>比较符支持 <code>&gt;= &lt;= &gt; &lt; ==</code>；<code>all(...)</code> 不带比较符。</li>
+    <li><strong>fail-closed</strong>：写了没人产出的分数名 → 判失败（防止打错字变成"没有约束"）。</li>
+    <li>留空门禁 = 不设约束：批次状态只看有没有执行异常。</li>
+    <li>页面里选完数据集会自动带一条推荐门禁（由该集子实际会产出的分数推导）。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>4 · 批次状态判定</h2>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>状态</th><th>条件</th></tr></thead>
+      <tbody>
+        <tr><td><code>passed</code></td><td>门禁通过 且 执行异常数 = 0</td></tr>
+        <tr><td><code>failed</code></td><td>门禁未通过，或有执行异常但未全挂</td></tr>
+        <tr><td><code>error</code></td><td>所有用例都执行异常（环境级故障）</td></tr>
+        <tr><td><code>running</code> + <strong>疑似中断</strong></td><td>记录仍是运行中，但执行进程心跳已停（容器重启 / 被 kill）</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note"><strong>passed ≠ 分数高</strong>。异常只看"用例有没有跑起来"。要抓分数，必须写门禁。</p>
+</section>
+
+<section>
+  <h2>5 · 入口与命令速查</h2>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>要做什么</th><th>怎么走</th></tr></thead>
+      <tbody>
+        <tr><td>新建 / 编辑 / 删除评测集</td><td><code>/eval</code> → 「评测集」卡片：表单式编辑器（用例三段：input / 确定性期望 / LLM 裁判）。保存即写盘，下拉立刻可选；也能「复制」一个集子改出变体</td></tr>
+        <tr><td>起批次、看结果（推荐）</td><td><code>http://localhost:5013/eval</code>（公网 <code>https://smarttest.h3comfyui.art/eval</code>）</td></tr>
+        <tr><td>容器里跑 CLI</td><td><code>docker compose exec fastapi python -m src.app.eval.cli --dataset datasets/&lt;名&gt;.yaml --release &lt;标签&gt; --gate "avg(llm_judge)&gt;=0.6"</code></td></tr>
+        <tr><td>宿主机跑 CLI（⚠️ 写的是另一个库）</td><td><code>.venv/bin/python -m src.app.eval.cli …</code> 用的是仓库根目录的 <code>smart_test_platform.db</code>，网页看不到；要网页可见就用上面那条</td></tr>
+        <tr><td>配裁判模型（judge）</td><td>设置页「LLM 裁判（测评打分）」；留空 = 继承主 LLM，带自检（走真实打分通道）。对应 <code>.env</code> 的 <code>JUDGE_MODEL / JUDGE_BASE_URL / JUDGE_API_KEY</code></td></tr>
+        <tr><td>看轨迹 / 分数详情</td><td><code>http://localhost:3000</code> → <code>/project/&lt;项目id&gt;/traces/&lt;traceId&gt;</code>（用例行「链路」列的链接）</td></tr>
+        <tr><td>看执行现场（实时进度文件）</td><td><code>workspace/default/eval-runs/&lt;批次id&gt;/{live.ndjson,live.log}</code></td></tr>
+        <tr><td>回到干净环境</td><td><code>bash tools/reset-data.sh</code>（备份到 <code>~/smart-test-backups/</code>；账号、设置、Langfuse 项目与密钥保留）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>6 · 五个常见坑</h2>
+  <ol>
+    <li><strong>评测集写在哪</strong>：页面保存的是仓库 <code>datasets/</code> 下的真实文件（已挂载进容器，改完立刻生效、不用重建镜像）。手改这些文件也可以——但别改 <code>datasets/specs/</code> 之类别的目录，那不在读取范围内。</li>
+    <li><strong>两个 SQLite 库</strong>：容器（网页 / <code>docker compose exec</code>）用 <code>docker-data/smart_test_platform.db</code>；宿主机直接跑 CLI 用仓库根目录的库 → 命令行跑的批次在网页上看不到。</li>
+    <li><strong>把确定性期望写进 judge</strong>：能机器判的（包含某词、调用过某工具）写进 <code>expected</code>，judge 留给语义判断。judge 慢、贵、还会抖。</li>
+    <li><strong>门禁留空</strong>：全跑通就 <code>passed</code>，分数再低也是绿灯。</li>
+    <li><strong>judge 默认继承主 LLM</strong>：设置页「LLM 裁判（测评打分）」三项留空 = 用主模型（测评页卡片会写明「继承主 LLM」）。真做回归时要配一个独立模型——同一套偏好同时影响被测行为和评判，分数就不独立了。配完点「测试连通」：它走的是真实打分通道（JSON 模式），能过就等于能判分。</li>
+    <li><strong>把"没有分数"读成"0 分"</strong>：字段没写就没有那个分数；门禁里写不存在的分数会 fail-closed。</li>
+  </ol>
+</section>
+
+</main>
+
+<footer>
+  <p class="source">对应实现：<code>src/app/eval/dataset.py</code>（字段解析）、<code>scorers.py</code>（分数名与算法）、<code>gate.py</code>（门禁语法）、<code>src/app/api/v2/eval.py</code>（状态判定与实时进度）。流程全貌见 <code>EVAL.md</code>。</p>
+</footer>
+
+</body>
+</html>

@@ -98,40 +98,70 @@ class Settings(BaseSettings):
     codebase_schedule_enabled: bool = True
     codebase_interval_hours: int = 24
 
-    # Game project (代码分析 / UI 自动化)
+    # Game project (代码分析 / Unity 自动化)
     game_repo_path: str = "E:/m72-publish/m72"
     game_client_repo: str = "E:/m72-publish/m72/client"
 
-    # Unity UI automation (UI 自动化模块)
+    # Unity UI automation (Unity 自动化模块)
     unity_host: str = "127.0.0.1"
     unity_port: int = 16666
 
-    # EverOS memory (记忆模块) — 本地 EverOS server，按需拉起（见 everos_service）
-    # Windows 说明：EverOS 官方不支持 Windows（fcntl），启动时通过
-    # src/app/everos_compat/fcntl.py 垫片 + tools/patch_everos.py 补丁拉起。
-    everos_enabled: bool = True
-    everos_host: str = "127.0.0.1"
-    everos_port: int = 9631
-    everos_root: str = "workspace/default/memory"  # 相对项目根目录（MD 单一事实源，进 git）
-    # 记忆隔离维度（平台单机单用户，固定三个维度即可）
-    everos_app_id: str = "smart-test"
-    everos_project_id: str = "default"
-    everos_user_id: str = "platform"
-    # LLM 三项留空则复用 llm_*（再回退 deepseek_*）
-    everos_llm_model: str = ""
-    everos_llm_base_url: str = ""
-    everos_llm_api_key: str = ""
-    # Embedding 三项：key 留空 = keyword-only 模式（向量/混合检索与反思、
-    # 技能蒸馏禁用）；base/model 留空则回退 lightrag_embedding_*（硅基流动）。
-    # 填 OpenAI 官方 key 时用 https://api.openai.com/v1 + text-embedding-3-small
-    everos_embedding_api_key: str = ""
-    everos_embedding_base_url: str = ""
-    everos_embedding_model: str = ""
+    # Agent 记忆（harness 风格 Markdown 记忆模块，见 services/memory_service.py）
+    # 记忆 = workspace/{space}/memory/ 下的一组可开关的 .md（AGENTS.md /
+    # MEMORY.md / USER.md / failures.md / PROJECT.md / DECISIONS.md + 用户自建），
+    # 启动时自动落盘种子文件，人工可直接编辑。旧的 EverOS 服务已移除。
+    memory_enabled: bool = True  # 总开关：关掉后不向 system prompt 注入任何记忆
 
     # API automation (接口自动化模块)
     api_script_workspace: str = ""  # default: workspace/default/api-auto
     api_script_python: str = "python"  # interpreter for pytest runs
     api_auto_max_repair: int = 3  # 自修复最大尝试次数
+
+    # Web-UI automation (Web-UI 自动化模块) — 浏览器 UI，经 Playwright CLI 执行
+    # 执行器是独立 sidecar（tools/playwright-runner）：后端无 Node 运行时，
+    # 浏览器依赖重且与 OS 强绑定，故把工具链隔离在容器里，走 HTTP 调用。
+    # 容器内用 service 名（http://playwright:5015），宿主机开发用 127.0.0.1。
+    playwright_runner_url: str = "http://127.0.0.1:5015"
+    playwright_workspace: str = ""  # default: workspace/default/web-ui-auto
+    web_ui_max_repair: int = 2  # 用例执行失败后 AI 自修复的最大尝试次数
+    web_ui_default_target_url: str = "https://m.douban.com/movie/"
+    web_ui_default_device: str = "iPhone 13"  # 不显式指定设备时的默认值（空串=桌面）
+    # 单条用例的 playwright test 超时（秒）与整体 HTTP 超时（秒）
+    web_ui_case_timeout_s: int = 90
+    web_ui_run_timeout_s: int = 300
+    # 产物（截图/trace/报告）是给浏览器直接取的，没法带自定义请求头，
+    # 走签名 URL：签名密钥留空则每次启动随机生成（重启后旧分享链接失效，
+    # 生产应在 .env 里固定）。
+    share_link_secret: str = ""
+    web_ui_share_ttl_hours: int = 168  # 分享链接默认有效期（7 天）
+
+    # Eval (测评模块) — Langfuse 闭环：观测(Trace) → 沉淀(Dataset) → 实验(Runner) → 回归(Gate)
+    # 参考 dsh-eval-automation 的设计：确定性 traceId 让跑在进程外的 runner
+    # 不必查 API 就能把分数挂回正确 trace。
+    langfuse_enabled: bool = True
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = "http://127.0.0.1:3000"  # 自建 Langfuse（docker）
+    langfuse_environment: str = "eval"
+    eval_max_repair: int = 1  # 测评时允许的用例自修复轮数（0 = 不做）
+    # 执行中的实时进度：批次现场写在 workspace/default/eval-runs/<batchId>/，
+    # 心跳是"进程还活着吗"的证据，静默超过 eval_stale_after_s 即判定已中断。
+    eval_run_dir: str = ""
+    eval_heartbeat_s: int = 15
+    eval_stale_after_s: int = 90
+    # judge 用独立的模型端点，缺省回退主 LLM；judge 与被测 agent 应尽量可独立配置
+    judge_model: str = ""
+    judge_base_url: str = ""
+    judge_api_key: str = ""
+
+    # Langfuse 监控（日常智能体使用链路）——与上面的 LANGFUSE_*（测评）**分开**：
+    # 日常排查看监控组织，跑测评只看测评组织，两边的 trace 不混在一起。
+    # 默认关闭：没配 key 就不上报，不会误写进测评的 Langfuse。
+    langfuse_monitor_enabled: bool = False
+    langfuse_monitor_base_url: str = ""
+    langfuse_monitor_public_key: str = ""
+    langfuse_monitor_secret_key: str = ""
+    langfuse_monitor_environment: str = "monitor"
 
     @property
     def database_url(self) -> str:

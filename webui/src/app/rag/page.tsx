@@ -3,7 +3,6 @@
 import React, { useRef, useState } from "react";
 import { PageHeader, StatusBadge, EmptyState } from "@/app/components/ui-patterns";
 import { apiClient, getApiBaseUrl } from "@/lib/api-client";
-import { getToken } from "@/lib/auth";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,7 +100,6 @@ export default function RagPage() {
       form.append("file", file);
       const res = await fetch(`${getApiBaseUrl()}/api/v2/rag/ingest-file`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
         body: form,
       });
       const json = await res.json();

@@ -6,16 +6,18 @@
 工具策略（双轨）：
 - 代码图谱（codebase-memory）：graph_search 定位符号 → trace_symbol
   追调用链 → read_symbol 按全名读源码；适合"谁调用谁/在哪定义"类问题
-- 原生文件工具（/repo/ 只读挂载）：grep/glob/read_file/ls 逐行核实；
-  适合"具体实现/上下文细节"类问题，图谱未建库时是唯一路径
+- 原生文件工具（真实路径，cwd = 本次对话挂载的工作区）：grep/glob/read_file/ls
+  逐行核实；适合"具体实现/上下文细节"类问题，图谱未建库时是唯一路径
 
 架构（精简自 testcase，去掉了用例/记忆/飞书等无关层）：
     |-- ThinkingEffort / LiveModelReload
     |   |-- ToolResultLimiter(20k) / MessageRepair / PermissionGate
     |   |-- LLM (settings 驱动，model_factory)
 Backend: CompositeBackend
-    /repo/   -> RepoProxyBackend（按会话 configurable.repo_path 只读挂载）
-    default  -> RepoAwareShellBackend（workspace/default/code_analyst/，分析报告落这里）
+    default -> WorkspaceShellBackend：本次对话挂载的工作区（真实路径，见
+               agents/workspace_backend.py），未挂载时退回
+               workspace/default/code_analyst/
+    /skills/ -> 平台技能库（本智能体暂未挂载技能，路由留空）
 """
 
 from pathlib import Path
@@ -24,11 +26,14 @@ from deepagents import create_deep_agent as create_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend
 from dotenv import load_dotenv
 
-from app.agents.testcase.repo_backend import RepoAwareShellBackend, RepoProxyBackend
+from app.agents.workspace_backend import WorkspaceShellBackend
 from app.agents.code_analyst.tools import (
     graph_search, read_symbol, repo_architecture, trace_symbol,
 )
 from app.middleware.live_model_reload import LiveModelReloadMiddleware
+from app.middleware.memory_injection import MemoryInjectionMiddleware
+from app.monitoring import MonitorMiddleware
+from app.middleware.workspace_context import WorkspaceContextMiddleware
 from app.middleware.message_repair import MessageRepairMiddleware
 from app.middleware.permission_gate import build_permission_middleware
 from app.middleware.thinking_effort import ThinkingEffortMiddleware
@@ -44,26 +49,21 @@ load_dotenv()
 llm = build_chat_model()
 
 # ============================================================================
-# Backend：/repo/ 只读挂载 + 分析报告工作区
+# Backend：本次对话挂载的工作区（真实路径语义，见 agents/workspace_backend.py）
 # ============================================================================
 _workspace_dir = get_workspace_dir("default", "code_analyst")
 _workspace_dir.mkdir(parents=True, exist_ok=True)
-file_backend = RepoAwareShellBackend(
-    root_dir=_workspace_dir,
-    virtual_mode=True,
-    inherit_env=True,
-    timeout=180,
-)
+file_backend = WorkspaceShellBackend(_workspace_dir)
 composite_backend = CompositeBackend(
     default=file_backend,
-    routes={"/repo/": RepoProxyBackend()},
+    routes={},
 )
 
 # ============================================================================
 # System prompt — 代码分析专家（区别于用例生成：回答问题/输出分析，不生成用例）
 # ============================================================================
 SYSTEM_PROMPT = """\
-你是一位资深游戏项目代码分析专家，负责对挂载的代码仓库（Unity + Lua 客户端、GS 服务端）做代码分析：
+你是一位资深游戏项目代码分析专家，负责对用户指定的代码做分析（Unity + Lua 客户端、GS 服务端）：
 功能定位、调用链追踪、影响面评估、实现解读、风险与坏味道识别。**你不生成测试用例**——那是用例生成智能体的职责。
 
 # 工作方式（双轨检索）
@@ -74,7 +74,8 @@ SYSTEM_PROMPT = """\
    - `trace_symbol` 追调用链（inbound=谁调用它，outbound=它调用谁，depth 1-3）
    - `read_symbol` 按 qualified_name 直接读符号源码
 2. **文件工具核实**（回答"具体怎么实现/边界细节"）：
-   - `/repo/` 是本会话挂载的仓库（只读），用 grep/glob/read_file/ls 逐行确认
+   - 本会话的工作区是 shell 的 cwd，相对路径相对它解析；要分析代码时用绝对路径
+     或先 `ls` 找到目标目录，再用 grep/glob/read_file 逐行确认
    - 图谱未建库时全部改走文件工具，不要反复重试图谱工具
 
 **分析某个具体系统/模块时的标准流程**（grep 找到文件只是第一步）：
@@ -85,8 +86,10 @@ grep/ls 定位系统文件 → **必须** `graph_search` 拿到该系统的核�
 
 # 硬性规则
 
-- **仓库路径必须以 `/repo/` 开头**。禁止使用 Windows 原始路径（如 `E:/xxx`）——文件工具只认虚拟路径，写错会直接报错。
-- **慎用 `execute`**：它运行在平台工作区沙箱，`/repo/` 路径在其中通常不可用，命令会失败或作用在错误目录（例如 git 查到的是平台仓库而非目标仓库）。**禁止用 execute 执行 git 命令或访问 /repo/**；需要看目录/文件内容一律用 ls/read_file/grep。
+- **用真实路径**：文件工具收绝对路径（如 `/Users/you/proj/src/a.lua`），相对路径按工作区解析。
+  代码不在工作区里时直接用它的绝对路径读——你有权访问工作区之外的目录。
+- **`execute` 就是本机 shell**（cwd = 工作区）：git log/grep/find 都能用，命令里也用真实路径。
+  权限档为 workspace_write 时，非只读命令会转人工审批；被拒就换只读手段（ls/read_file/grep）。
 
 # 产出原则
 
@@ -94,8 +97,8 @@ grep/ls 定位系统文件 → **必须** `graph_search` 拿到该系统的核�
 - 回答结构：先给结论，再给依据；涉及调用链时用 `A → B → C` 链式描述并标注各环节位置
 - 影响面分析要区分"直接调用方"与"间接影响"，并指出不确定的部分
 - 检索结果不足以确定时明确说"现有证据不足以确定"，并给出建议的下一步检索词；不要编造代码内容
-- 用户要求输出分析报告时，把报告保存为 Markdown 到当前工作区（save 到默认目录），并在回复中给出文件名
-- `/repo/` 只读；产生的分析文档一律写入工作区，不要尝试写 `/repo/`
+- 用户要求输出分析报告时，把报告保存为 Markdown 到当前工作区（相对路径即可），并在回复中给出文件名
+- 分析文档写入工作区；不要修改被测项目的源码文件
 """
 
 
@@ -115,6 +118,9 @@ agent = create_agent(
     middleware=[
         LiveModelReloadMiddleware(),
         ThinkingEffortMiddleware(),
+        MemoryInjectionMiddleware(),
+        WorkspaceContextMiddleware("code_analyst"),  # 注入工作区路径（绝对路径提示）  # 注入工作区记忆（AGENTS.md/MEMORY.md/…）
+        MonitorMiddleware("code_analyst_agent"),  # 日常链路上报监控 Langfuse
         tool_result_limiter,
         MessageRepairMiddleware(),
         build_permission_middleware(),

@@ -146,16 +146,16 @@ async def check_feishu_status() -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool
-async def save_memory(key: str, content: str, category: str | None = None) -> dict:
-    """保存一条持久记忆（同 key 覆盖更新）。用户明确要求记住、或分享跨会话
-    有价值的上下文（偏好 / 领域知识 / 项目约定）时调用。"""
+async def save_memory(content: str, module: str = "memory", category: str = "") -> dict:
+    """把一条结论追加到工作区记忆（Markdown 文件，默认 MEMORY.md）。
+    用户明确要求记住、或分享了跨会话有价值的上下文时调用。"""
     return await memory_tools.save_memory.ainvoke(
-        {"key": key, "content": content, "category": category})
+        {"content": content, "module": module, "category": category})
 
 
 @mcp.tool
 async def search_memories(query: str, limit: int = 10) -> dict:
-    """按关键词检索已保存的记忆。"""
+    """按关键词检索工作区记忆（返回文件、行号与原文片段）。"""
     return await memory_tools.search_memories.ainvoke({"query": query, "limit": limit})
 
 
@@ -363,42 +363,30 @@ async def analyze_image(image_path: str, prompt: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 记忆（EverOS；平台原生工具同名能力的 MCP 面）
+# 记忆（Markdown 记忆模块；平台原生工具同名能力的 MCP 面）
 # ---------------------------------------------------------------------------
 
 @mcp.tool
-async def memory_save(key: str, content: str, category: str | None = None) -> dict:
-    """把一条信息写入长期记忆（EverOS 持久化，跨会话生效）。
+async def memory_save(content: str, module: str = "memory", category: str = "") -> dict:
+    """把一条信息写进工作区记忆（Markdown 文件，跨会话生效）。
     用户明确要求"记住"或分享了应长期保留的上下文时调用。
     """
-    from src.app.services import everos_service
-
-    try:
-        result = await everos_service.save_fact(key, content, category)
-        return {"success": True, "key": key,
-                "flush_status": (result.get("flush") or {}).get("status")}
-    except Exception as e:  # noqa: BLE001
-        return {"success": False, "error": str(e)}
+    return await memory_tools.save_memory.ainvoke(
+        {"content": content, "module": module, "category": category})
 
 
 @mcp.tool
-async def memory_search(query: str, top_k: int = 8) -> dict:
-    """检索长期记忆（领域规则/用户偏好/历史经验教训），返回主题+摘要列表。"""
-    from src.app.services import everos_service
-
-    try:
-        hits = await everos_service.search_memory(query, top_k=top_k)
-        return {"success": True, "data": hits}
-    except Exception as e:  # noqa: BLE001
-        return {"success": False, "error": str(e)}
+async def memory_search(query: str, limit: int = 8) -> dict:
+    """检索工作区记忆（AGENTS.md/MEMORY.md/USER.md/failures.md…），返回命中片段。"""
+    return await memory_tools.search_memories.ainvoke({"query": query, "limit": limit})
 
 
 @mcp.tool
 async def memory_status() -> dict:
-    """查 EverOS 记忆服务状态（版本/能力/embedding 是否解锁/文件数）。"""
-    from src.app.services import everos_service
+    """查记忆模块状态（模块数/启用数/字符数/目录）。"""
+    from src.app.services import memory_service
 
-    return {"success": True, "data": await everos_service.everos_health()}
+    return {"success": True, "data": memory_service.status()}
 
 
 # ---------------------------------------------------------------------------

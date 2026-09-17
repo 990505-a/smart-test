@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
   ListChecks,
@@ -11,12 +11,13 @@ import {
   Wand2,
   Gamepad2,
   Settings,
-  LogOut,
   Braces,
   Plug,
   BookOpen,
   Network,
   FlaskConical,
+  Gauge,
+  Globe,
   Sun,
   Moon,
   PanelLeftClose,
@@ -24,9 +25,6 @@ import {
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { RequireAuth } from "@/app/components/RequireAuth";
-import { useAuth } from "@/providers/AuthProvider";
-import { toast } from "sonner";
 
 const COLLAPSE_KEY = "stp-nav-collapsed";
 
@@ -42,16 +40,23 @@ const NAV_GROUPS = [
     title: "自动化",
     items: [
       { href: "/api-auto", label: "接口自动化", icon: Braces },
-      { href: "/ui-auto", label: "UI 自动化", icon: Gamepad2 },
+      { href: "/unity-auto", label: "Unity 自动化", icon: Gamepad2 },
+      { href: "/web-ui-auto", label: "Web-UI 自动化", icon: Globe },
     ],
   },
   {
     title: "智能与知识",
     items: [
-      // 自进化已移除（2026-08 记忆系统 EverOS 化）：经验沉淀由 EverOS OME 离线进化接管
+      // 自进化已移除（2026-08）：经验沉淀由记忆模块（AGENTS.md/MEMORY.md/…）接管
       { href: "/skills", label: "技能库", icon: Wand2 },
       { href: "/rag", label: "知识库", icon: BookOpen },
       { href: "/codebase", label: "代码图谱", icon: Network },
+    ],
+  },
+  {
+    title: "质量",
+    items: [
+      { href: "/eval", label: "智能体测评", icon: Gauge },
     ],
   },
   {
@@ -99,8 +104,6 @@ function NavRow({
 }
 
 function NavSidebar() {
-  const router = useRouter();
-  const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(true);
   const [hydrated, setHydrated] = useState(false);
@@ -124,12 +127,6 @@ function NavSidebar() {
       localStorage.setItem(COLLAPSE_KEY, prev ? "0" : "1");
       return !prev;
     });
-  };
-
-  const onLogout = async () => {
-    await logout();
-    toast.success("已退出登录");
-    router.replace("/login");
   };
 
   return (
@@ -207,33 +204,13 @@ function NavSidebar() {
               "flex items-center rounded-lg text-[13px] text-muted-foreground",
               collapsed ? "h-9 justify-center" : "h-9 gap-2 px-2",
             )}
-            title={user?.display_name || user?.username || ""}
+            title="本地单机模式（无登录）"
           >
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary">
               <UserRound className="h-3.5 w-3.5" />
             </span>
-            {!collapsed && (
-              <span className="flex-1 truncate">{user?.display_name || user?.username || "未登录"}</span>
-            )}
-            {!collapsed && (
-              <button
-                onClick={onLogout}
-                title="退出登录"
-                className="text-muted-foreground transition-colors hover:text-destructive"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
-            )}
+            {!collapsed && <span className="flex-1 truncate">本地模式</span>}
           </div>
-        )}
-        {collapsed && hydrated && (
-          <button
-            onClick={onLogout}
-            title="退出登录"
-            className="flex h-8 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
         )}
       </div>
     </aside>
@@ -243,21 +220,13 @@ function NavSidebar() {
 /**
  * Unified application shell: one collapsible navigation rail for every page
  * (chat and management alike), replacing the old split Header/ManagementLayout
- * navigation. The login page renders bare.
+ * navigation. 登录页已移除（2026-09）：平台是本地单机工具，shell 直接渲染。
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-
-  if (pathname === "/login") {
-    return <>{children}</>;
-  }
-
   return (
-    <RequireAuth>
-      <div className="flex h-dvh overflow-hidden">
-        <NavSidebar />
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
-      </div>
-    </RequireAuth>
+    <div className="flex h-dvh overflow-hidden">
+      <NavSidebar />
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
+    </div>
   );
 }

@@ -1,6 +1,18 @@
 "use client";
 
-import { useState } from "react";
+/**
+ * Agent 记忆（harness 风格 Markdown 记忆模块）。
+ *
+ * 记忆不是数据库里的记录，而是工作区里几个**固定名字的 Markdown 文件**：
+ * AGENTS.md（工作区指令）/ MEMORY.md（长期记忆）/ USER.md（用户画像）/
+ * failures.md（失败教训）/ PROJECT.md（项目上下文）/ DECISIONS.md（决策记录），
+ * 外加用户自建的模块。每个模块都能单独启用/停用——停用 = 不再注入提示词，
+ * 文件本身留着（想恢复随时开回来）。
+ *
+ * 页面上的编辑直接写文件：文件是唯一事实源，agent 下一轮就能看到。
+ */
+
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader, EmptyState } from "@/app/components/ui-patterns";
 import { Button } from "@/components/ui/button";
@@ -8,7 +20,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,323 +34,409 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Search, Save, Trash2, Loader2, FileText, Plus } from "lucide-react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Loader2, Plus, Save, Search, Trash2 } from "lucide-react";
 import {
-  useMemoryStatus,
-  useMemoryFiles,
-  useReadMemoryFile,
-  useWriteMemoryFile,
-  useDeleteMemoryFile,
+  appendMemoryEntry,
+  createMemoryModule,
+  deleteMemoryModule,
+  saveMemoryModule,
   searchMemories,
-  saveMemory,
+  setMemoryModuleEnabled,
+  useMemoryModule,
+  useMemoryModules,
+  useMemoryStatus,
   type MemoryHit,
 } from "@/lib/api/useMemories";
 
-function formatSize(size: number): string {
-  if (size < 1024) return `${size} B`;
-  return `${(size / 1024).toFixed(1)} KB`;
+function formatChars(chars: number): string {
+  if (chars < 1024) return `${chars} 字`;
+  return `${(chars / 1024).toFixed(1)}k 字`;
 }
 
 export default function MemoriesPage() {
+  const modules = useMemoryModules();
   const status = useMemoryStatus();
-  const files = useMemoryFiles();
   const [selected, setSelected] = useState<string | null>(null);
-  const file = useReadMemoryFile(selected);
-  const { trigger: writeTrigger, isMutating: writingFile } = useWriteMemoryFile();
-  const { trigger: deleteTrigger } = useDeleteMemoryFile();
+  const detail = useMemoryModule(selected);
   const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newFile, setNewFile] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [hits, setHits] = useState<MemoryHit[] | null>(null);
+  const [entryText, setEntryText] = useState("");
+  const [entryModule, setEntryModule] = useState("memory");
 
-  const [newKey, setNewKey] = useState("");
-  const [newContent, setNewContent] = useState("");
-  const [newCategory, setNewCategory] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+  const rows = useMemo(() => modules.data ?? [], [modules.data]);
 
-  const embedEnabled = status.data?.capabilities?.embed === true;
+  // 首次加载自动选中 AGENTS.md（最重要的那个模块）
+  useEffect(() => {
+    if (selected || rows.length === 0) return;
+    setSelected((rows.find((m) => m.id === "agents") ?? rows[0]).id);
+  }, [rows, selected]);
 
-  const onSearch = async () => {
-    if (!query.trim()) return;
-    setSearching(true);
-    try {
-      setHits(await searchMemories(query.trim()));
-    } catch (e) {
-      toast.error(`检索失败：${e instanceof Error ? e.message : e}`);
-    } finally {
-      setSearching(false);
-    }
-  };
+  useEffect(() => {
+    if (detail.data) setDraft(detail.data.content);
+  }, [detail.data]);
 
-  const onSaveFile = async () => {
-    if (!selected || draft === null) return;
-    try {
-      await writeTrigger({ path: selected, content: draft });
-      setDraft(null);
-      toast.success("已保存，索引将由 EverOS 自动更新");
-    } catch (e) {
-      toast.error(`保存失败：${e instanceof Error ? e.message : e}`);
-    }
-  };
+  const dirty = draft !== null && detail.data != null && draft !== detail.data.content;
 
-  const onDeleteFile = async () => {
-    if (!confirmDelete) return;
-    try {
-      await deleteTrigger(confirmDelete);
-      if (selected === confirmDelete) {
-        setSelected(null);
-        setDraft(null);
-      }
-      setConfirmDelete(null);
-      toast.success("已删除");
-    } catch (e) {
-      toast.error(`删除失败：${e instanceof Error ? e.message : e}`);
-      setConfirmDelete(null);
-    }
-  };
-
-  const onSaveMemory = async () => {
-    if (!newKey.trim() || !newContent.trim()) {
-      toast.error("标识和内容都不能为空");
-      return;
-    }
+  const save = async () => {
+    if (selected === null || draft === null) return;
     setSaving(true);
     try {
-      const result = await saveMemory(
-        newKey.trim(),
-        newContent.trim(),
-        newCategory || undefined
-      );
-      setNewKey("");
-      setNewContent("");
-      toast.success(
-        result?.flush_status === "extracted"
-          ? "已写入并蒸馏为长期记忆"
-          : "已写入记忆"
-      );
-    } catch (e) {
-      toast.error(`写入失败：${e instanceof Error ? e.message : e}`);
+      await saveMemoryModule(selected, draft);
+      toast.success("已保存，agent 下一轮对话即可看到");
+      modules.mutate();
+      status.mutate();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
     }
   };
 
-  const editorValue = draft ?? file.data?.content ?? "";
+  const toggle = async (id: string, enabled: boolean) => {
+    setToggling(id);
+    try {
+      await setMemoryModuleEnabled(id, enabled);
+      toast.success(enabled ? "已启用（重新注入提示词）" : "已停用（文件保留，不再注入）");
+      modules.mutate();
+      status.mutate();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "操作失败");
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const runSearch = async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    try {
+      const result = await searchMemories(query.trim(), 20);
+      setHits(result.hits);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "检索失败");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const submitEntry = async () => {
+    if (!entryText.trim()) return;
+    try {
+      await appendMemoryEntry({ module: entryModule, content: entryText.trim() });
+      toast.success("已写入记忆");
+      setEntryText("");
+      modules.mutate();
+      status.mutate();
+      if (selected === entryModule) detail.mutate();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "写入失败");
+    }
+  };
+
+  const create = async () => {
+    if (!newLabel.trim()) return;
+    setCreating(true);
+    try {
+      const created = await createMemoryModule({
+        label: newLabel.trim(),
+        file: newFile.trim() || undefined,
+        description: newDescription.trim(),
+      });
+      toast.success(`已创建 ${created.file}`);
+      setCreateOpen(false);
+      setNewLabel("");
+      setNewFile("");
+      setNewDescription("");
+      modules.mutate();
+      setSelected(created.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "创建失败");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const confirmRemove = async () => {
+    if (!confirmDelete) return;
+    try {
+      await deleteMemoryModule(confirmDelete);
+      toast.success("已删除");
+      if (selected === confirmDelete) setSelected(null);
+      setConfirmDelete(null);
+      modules.mutate();
+      status.mutate();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    }
+  };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader
-        title="Agent 记忆"
-        description={`EverOS 本地记忆服务${status.data?.version ? ` v${status.data.version}` : ""} — Markdown 单一事实源，人工可直接编辑`}
-      />
-
-      {status.data && !status.data.up && (
-        <div className="mx-6 mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
-          EverOS 服务不可用：{status.data.error ?? "未知原因"}（保存/检索会在使用时自动尝试拉起）
-        </div>
-      )}
-      {status.data?.up && !embedEnabled && (
-        <div className="mx-6 mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-600 dark:text-amber-400">
-          关键词检索模式：在「设置」页填写记忆 Embedding Key 后可解锁向量/混合检索、反思与技能蒸馏（离线进化）。
-        </div>
-      )}
-
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden px-6 pb-6 lg:grid-cols-[380px_1fr]">
-        {/* 左列：检索 + 文件列表 + 手动写入 */}
-        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Search className="h-4 w-4" /> 记忆检索
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex gap-2">
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && onSearch()}
-                  placeholder="关键词，如：联赛 结算 边界"
-                />
-                <Button size="sm" onClick={onSearch} disabled={searching}>
-                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : "检索"}
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-6xl px-6 py-8 lg:px-8">
+        <div className="flex flex-col gap-5">
+          <PageHeader
+            title="Agent 记忆"
+            description={
+              <>
+                harness 风格的 Markdown 记忆：<code className="text-xs">AGENTS.md</code>（工作区指令）、
+                <code className="text-xs">MEMORY.md</code>（长期记忆）、
+                <code className="text-xs">USER.md</code>（用户画像）、
+                <code className="text-xs">failures.md</code>（失败教训）等。
+                模块可单独启用/停用，文件就在工作区里，agent 与人都能改。
+              </>
+            }
+            actions={
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+                  <Plus className="mr-1.5 h-4 w-4" />新建模块
                 </Button>
               </div>
-              {hits && (
-                <div className="space-y-2">
-                  {hits.length === 0 && (
-                    <p className="text-[13px] text-muted-foreground">没有命中的记忆</p>
-                  )}
-                  {hits.map((h) => (
-                    <div key={h.id ?? h.subject} className="rounded-lg border px-3 py-2">
-                      <p className="text-[13px] font-medium">{h.subject}</p>
-                      {h.summary && (
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {h.summary}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
+            }
+          />
+
+          <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 p-3 text-sm">
+            <span className="text-muted-foreground">
+              启用 <span className="font-mono">{status.data?.enabled_modules ?? "-"}</span>
+              /{status.data?.total_modules ?? "-"} 个模块 ·
+              注入 <span className="font-mono">{formatChars(status.data?.chars ?? 0)}</span>
+            </span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">
+              目录：<span className="font-mono text-xs">{status.data?.root ?? "-"}</span>
+            </span>
           </Card>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <FileText className="h-4 w-4" /> 记忆文件（{files.data?.length ?? "…"}）
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {files.isLoading && <Skeleton className="h-40 w-full" />}
-              {files.data?.length === 0 && (
-                <p className="text-[13px] text-muted-foreground">
-                  暂无记忆文件：与 Agent 对话中让它「记住…」，或用下方表单手动写入
-                </p>
-              )}
-              {files.data?.map((f) => (
-                <button
-                  key={f.path}
-                  onClick={() => {
-                    setSelected(f.path);
-                    setDraft(null);
-                    setHits(null);
-                  }}
-                  className={`w-full rounded-lg border px-3 py-2 text-left transition-colors hover:bg-accent ${
-                    selected === f.path ? "border-primary bg-accent" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[13px] font-medium">
-                      {f.path.split("/").pop()}
-                    </span>
-                    <Badge variant={f.track === "agent" ? "secondary" : "outline"}>
-                      {f.track === "agent" ? "技能" : "经历"}
-                    </Badge>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+            {/* 左：模块列表 + 手动沉淀 + 检索 */}
+            <div className="flex flex-col gap-4">
+              <Card className="p-0">
+                <div className="border-b px-3 py-2 text-sm font-medium">记忆模块</div>
+                {modules.isLoading ? (
+                  <div className="flex flex-col gap-2 p-3">
+                    <Skeleton className="h-12 w-full" />
+                    <Skeleton className="h-12 w-full" />
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {f.path} · {formatSize(f.size)} · {f.modified_at}
-                  </p>
-                </button>
-              ))}
-            </CardContent>
-          </Card>
+                ) : rows.length === 0 ? (
+                  <EmptyState title="还没有记忆模块"
+                              description="点击右上角「新建模块」，平台首次启动也会自动落盘内置模块" />
+                ) : (
+                  <ul className="divide-y">
+                    {rows.map((module) => (
+                      <li key={module.id}
+                          className={`flex items-start gap-2 px-3 py-2.5 ${
+                            selected === module.id ? "bg-muted/50" : ""}`}>
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left"
+                          onClick={() => setSelected(module.id)}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-medium">{module.label}</span>
+                            {module.builtin && (
+                              <Badge variant="outline" className="shrink-0 font-normal text-[10px]">
+                                内置
+                              </Badge>
+                            )}
+                            {!module.enabled && (
+                              <Badge variant="secondary" className="shrink-0 font-normal text-[10px]">
+                                已停用
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="truncate font-mono text-[11px] text-muted-foreground">
+                            {module.file} · {formatChars(module.chars)}
+                          </div>
+                        </button>
+                        <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                          <Switch
+                            checked={module.enabled}
+                            disabled={toggling === module.id}
+                            onCheckedChange={(next) => toggle(module.id, next)}
+                            aria-label={`${module.enabled ? "停用" : "启用"} ${module.file}`}
+                          />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Plus className="h-4 w-4" /> 手动写入长期记忆
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex gap-2">
-                <Input
-                  value={newKey}
-                  onChange={(e) => setNewKey(e.target.value)}
-                  placeholder="标识，如 settlement_rule"
-                />
-                <Select value={newCategory} onValueChange={(v) => setNewCategory(v ?? "")}>
-                  <SelectTrigger className="w-32">
-                    <SelectValue placeholder="分类" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="preference">偏好</SelectItem>
-                    <SelectItem value="domain_knowledge">领域知识</SelectItem>
-                    <SelectItem value="project_context">项目上下文</SelectItem>
-                    <SelectItem value="convention">约定</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Textarea
-                value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                placeholder="要长期记住的内容（将经 LLM 蒸馏固化为 episode）"
-                rows={3}
-              />
-              <Button size="sm" onClick={onSaveMemory} disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "写入"}
-              </Button>
-            </CardContent>
+              <Card className="flex flex-col gap-2 p-3">
+                <span className="text-sm font-medium">手动沉淀一条记忆</span>
+                <div className="flex gap-2">
+                  <select
+                    className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                    value={entryModule}
+                    onChange={(e) => setEntryModule(e.target.value)}
+                  >
+                    {rows.map((m) => (
+                      <option key={m.id} value={m.id}>{m.file}</option>
+                    ))}
+                  </select>
+                  <Input
+                    value={entryText}
+                    placeholder="要记住的结论（会带时间戳追加）"
+                    onChange={(e) => setEntryText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void submitEntry();
+                    }}
+                  />
+                  <Button size="sm" onClick={submitEntry} disabled={!entryText.trim()}>写入</Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  agent 也会用 save_memory / record_failure 工具往这里写；这里适合你直接补一条。
+                </p>
+              </Card>
+
+              <Card className="flex flex-col gap-2 p-3">
+                <span className="text-sm font-medium">检索</span>
+                <div className="flex gap-2">
+                  <Input
+                    value={query}
+                    placeholder="关键词，如「跨天重置」"
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void runSearch();
+                    }}
+                  />
+                  <Button size="sm" variant="outline" onClick={runSearch} disabled={searching}>
+                    {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Search className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+                {hits && (
+                  hits.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">没有命中（只检索启用中的模块）</p>
+                  ) : (
+                    <ul className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+                      {hits.map((hit) => (
+                        <li key={`${hit.file}-${hit.line}`} className="text-xs">
+                          <button
+                            type="button"
+                            className="text-left hover:underline"
+                            onClick={() => setSelected(hit.module_id)}
+                          >
+                            <span className="font-mono text-muted-foreground">
+                              {hit.file}:{hit.line}
+                            </span>
+                            <span className="ml-1">{hit.text}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                )}
+              </Card>
+            </div>
+
+            {/* 右：编辑器 */}
+            <Card className="flex min-h-[520px] flex-col p-0">
+              {selected === null ? (
+                <EmptyState title="选择一个记忆模块" description="左侧列表里点一个模块来查看/编辑内容" />
+              ) : detail.isLoading ? (
+                <div className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />读取中…
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                    <span className="font-mono text-sm">{detail.data?.file}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                      {detail.data?.description}
+                    </span>
+                    <Button size="sm" onClick={save} disabled={!dirty || saving}>
+                      {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                      保存
+                    </Button>
+                    {detail.data && !detail.data.builtin && (
+                      <Button size="sm" variant="ghost"
+                              onClick={() => setConfirmDelete(selected)}
+                              aria-label="删除模块">
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                  <Textarea
+                    value={draft ?? ""}
+                    onChange={(e) => setDraft(e.target.value)}
+                    spellCheck={false}
+                    className="min-h-[440px] flex-1 resize-none rounded-none border-0 font-mono text-[13px] leading-6 focus-visible:ring-0"
+                  />
+                  <div className="flex items-center justify-between border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+                    <span>{dirty ? "有未保存的改动" : "已与磁盘一致"}</span>
+                    <span>
+                      停用的模块不会注入提示词，但内容照旧保存在文件里
+                    </span>
+                  </div>
+                </>
+              )}
+            </Card>
+          </div>
+
+          <Card className="p-3 text-xs leading-5 text-muted-foreground">
+            注入规则：所有**启用中**的模块会按顺序拼进系统提示词（AGENTS.md 在最前、标注为必须遵守的规则；
+            超长按预算截断，agent 可用 read_memory_module 读全文）。记忆是提示词的一部分，
+            所以改完**下一轮对话立即生效**，不需要重启服务。
           </Card>
         </div>
-
-        {/* 右列：文件查看/编辑器 */}
-        <Card className="flex min-h-0 flex-col">
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="truncate text-sm">
-              {selected ?? "选择左侧文件查看 / 编辑"}
-            </CardTitle>
-            {selected && (
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onSaveFile}
-                  disabled={draft === null || writingFile}
-                >
-                  {writingFile ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  保存
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => setConfirmDelete(selected)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-          </CardHeader>
-          <CardContent className="min-h-0 flex-1">
-            {!selected ? (
-              <EmptyState
-                title="未选择文件"
-                description="记忆以 Markdown 文件存储（episodes=经历、user.md=画像、agents/=技能）。编辑保存后 EverOS 会自动重建索引。"
-              />
-            ) : file.isLoading ? (
-              <Skeleton className="h-full w-full" />
-            ) : file.error ? (
-              <p className="text-[13px] text-destructive">
-                读取失败：{file.error instanceof Error ? file.error.message : "未知错误"}
-              </p>
-            ) : (
-              <Textarea
-                value={editorValue}
-                onChange={(e) => setDraft(e.target.value)}
-                className="h-full min-h-[420px] resize-none font-mono text-xs"
-              />
-            )}
-          </CardContent>
-        </Card>
       </div>
 
-      <AlertDialog open={!!confirmDelete} onOpenChange={(v) => !v && setConfirmDelete(null)}>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>新建记忆模块</DialogTitle></DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="mem-label">显示名 *</Label>
+              <Input id="mem-label" value={newLabel} placeholder="例如：环境速查"
+                     onChange={(e) => setNewLabel(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="mem-file">文件名（留空按显示名生成）</Label>
+              <Input id="mem-file" value={newFile} placeholder="TOOLS.md" className="font-mono"
+                     onChange={(e) => setNewFile(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="mem-desc">说明</Label>
+              <Input id="mem-desc" value={newDescription} placeholder="这个模块放什么"
+                     onChange={(e) => setNewDescription(e.target.value)} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setCreateOpen(false)}>取消</Button>
+              <Button onClick={create} disabled={creating || !newLabel.trim()}>
+                {creating && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}创建
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={confirmDelete !== null}
+                   onOpenChange={(open) => !open && setConfirmDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除记忆文件？</AlertDialogTitle>
+            <AlertDialogTitle>删除这个记忆模块？</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirmDelete}
-              <br />
-              删除后不可恢复（如需保留请先复制内容），索引会自动同步。
+              会连同 Markdown 文件一起删除，不可恢复。内置模块不能删除（可以停用）。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={onDeleteFile}>删除</AlertDialogAction>
+            <AlertDialogAction onClick={confirmRemove}>删除</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

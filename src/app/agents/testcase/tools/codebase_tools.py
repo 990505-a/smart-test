@@ -1,8 +1,12 @@
 """Codebase graph search tools for TestCase Agent.
 
 Wraps the codebase-memory MCP exe (via services.codebase_service.cbm_call)
-so the agent can query the indexed code knowledge graph of the repo mounted
-for the current conversation (/repo/, configurable.repo_path).
+so the agent can query the indexed code knowledge graph of the code目录 the
+user mounted as this conversation's workspace (configurable.workspace_path，
+旧字段 repo_path 兼容)。
+
+工作区只是"目录"，与代码仓库不再是同一个概念：挂了目录就能查它的图谱；挂了
+一个非代码目录时图谱查不到东西，直接降级文件工具即可（提示词里已写清）。
 
 Project naming rule matches codebase-memory's default (drive + path
 segments joined by '-'): "E:/m72-publish/m72" -> "E-m72-publish-m72".
@@ -11,18 +15,15 @@ segments joined by '-'): "E:/m72-publish/m72" -> "E-m72-publish-m72".
 import json
 
 from langchain.tools import tool
-from langgraph.config import get_config
+
+from src.app.agents.workspace_backend import mounted_workspace_path
 
 _MAX_RESULT_CHARS = 12000
 
 
 def _project_and_repo() -> tuple[str, str]:
-    """Return (project, repo_path) for the repo mounted on this run."""
-    try:
-        config = get_config()
-    except RuntimeError:
-        return "", ""
-    repo = (config.get("configurable") or {}).get("repo_path", "") or ""
+    """Return (project, workspace_path) for the directory mounted on this run."""
+    repo = mounted_workspace_path()
     if not repo:
         return "", ""
     project = repo.replace(":/", "-").replace("/", "-")
@@ -44,8 +45,9 @@ async def search_codebase(pattern: str, file_pattern: str = "", semantic: bool =
     definitions, callers and structural ranking — much better than plain grep
     when you need "where is this defined / who calls this".
 
-    Requires the repo to be indexed first (代码图谱页); if not indexed, an
-    error will tell you — fall back to grep/glob/read_file on /repo/ instead.
+    Requires the mounted directory to be indexed first (代码图谱页); if not
+    indexed, an error will tell you — fall back to grep/glob/read_file on the
+    workspace / absolute paths instead.
 
     Args:
         pattern: Search pattern (function/class/keyword name).
@@ -57,8 +59,8 @@ async def search_codebase(pattern: str, file_pattern: str = "", semantic: bool =
 
     project, repo = _project_and_repo()
     if not repo:
-        return ("Error: 未挂载代码仓库，无法查询代码图谱。"
-                "请让用户在聊天页选择仓库后重新发送。")
+        return ("Error: 本次对话没有挂载工作区目录，无法查询代码图谱。"
+                "请让用户在聊天页选择工作区后重新发送，或改用 grep/glob/read_file。")
 
     if semantic:
         keywords = [k for k in pattern.replace(",", " ").split() if k]
@@ -73,7 +75,7 @@ async def search_codebase(pattern: str, file_pattern: str = "", semantic: bool =
         result = await codebase_service.cbm_call("search_code", args)
 
     if not result.get("success"):
-        return (f"Error: 代码图谱查询失败（仓库 {repo}）：{result.get('error')}\n"
-                "可能原因：该仓库尚未建立索引。请改用 grep/glob/read_file 直接检索 /repo/，"
-                "并建议用户在「代码图谱」页为该仓库建库。")
+        return (f"Error: 代码图谱查询失败（目录 {repo}）：{result.get('error')}\n"
+                "可能原因：该目录尚未建立索引。请改用 grep/glob/read_file 按真实路径检索，"
+                "并建议用户在「代码图谱」页为该目录建库。")
     return _format(result.get("data", {}))

@@ -89,7 +89,7 @@ npx @deepseek-ai/dsh --profile web --patch E:/test_agent/smart-test-platform/dsh
 | 原 deepagents 侧 | dsh 侧 |
 |---|---|
 | SkillsMiddleware + `/skills/` FilesystemBackend | skill-filesystem `customSkillDirs` 直挂（SKILL.md 格式同源） |
-| RepoProxyBackend（/repo/ 只读挂载 + ripgrep 看门狗） | 会话 cwd 即仓库；原生 grep/glob/read（自带 ripgrep） |
+| （已删除 2026-09-17）平台改为工作区模型：会话 cwd = 挂载目录，真实路径 | 会话 cwd 即仓库；原生 grep/glob/read（自带 ripgrep） |
 | SubAgentMiddleware（task 工具） | 原生 `subagent` / `subagent_fork`（后台可持续对话） |
 | SummarizationMiddleware + MessageRepair 修复 | 原生 compaction（append-only 会话日志不变式，不会切散 tool_calls） |
 | ToolResultLimiterMiddleware | 原生 tool-result-pruner（8k 阈值裁剪） |

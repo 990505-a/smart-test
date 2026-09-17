@@ -59,6 +59,26 @@ class AuthService:
         self.db.add(admin)
         await self.db.flush()
 
+    async def local_user(self) -> User:
+        """本地单机模式的内置用户（不存在就建）。
+
+        平台已去掉登录：没有 token 的请求一律以这个用户身份执行。保留 User 表
+        与 token 机制只是为了兼容外部脚本（接口自动化/验收测试仍可登录拿 token），
+        界面侧不再有登录入口。
+        """
+        await self.ensure_default_admin()
+        user = await self.get_by_username(settings.auth_default_admin_username)
+        if user is None:  # 用户名被改过（旧版本有改名接口）→ 退回任意一个 admin
+            result = await self.db.execute(select(User).where(User.role == "admin").limit(1))
+            user = result.scalars().first()
+        if user is None:
+            result = await self.db.execute(select(User).limit(1))
+            user = result.scalars().first()
+        if user is None:
+            raise RuntimeError("本地用户初始化失败")
+        await self.db.commit()
+        return user
+
     async def get_by_username(self, username: str) -> User | None:
         result = await self.db.execute(select(User).where(User.username == username))
         return result.scalars().first()

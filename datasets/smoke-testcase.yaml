@@ -1,0 +1,36 @@
+# 冒烟评测集：先验证「测评链路」本身通不通，再跑真业务集。
+#
+# 用 testcase_agent（用例生成智能体）——它的输入/输出都是纯文本，没有外部依赖，
+# 适合当作 eval 机制的探针：LangGraph 流式采集 → trace 树 → 确定性打分 →
+# LLM judge → Langfuse 上报 → 门禁。
+#
+#   .venv/bin/python -m src.app.eval.cli --dataset datasets/smoke-testcase.yaml \
+#     --agent testcase_agent --release smoke --gate "avg(llm_judge)>=0.6" --verify-trace
+
+name: smoke-testcase
+description: 测评链路自检集（用例生成智能体，纯文本任务，无外部依赖）
+agent: testcase_agent
+
+items:
+  - id: plan-001
+    input: >-
+      请为一个「用户登录」功能列出 3 条最关键的测试点，每条一行，不要写用例细节。
+      输出用中文，格式为「1. …」这样的编号列表。
+    expected:
+      contains: ['登录']
+    judge:
+      criteria: >-
+        回答必须恰好给出 3 条测试点，每条一行且编号，内容与登录功能相关
+        （如正确密码登录、错误密码、账号锁定/为空等）。多于或少于 3 条判不通过。
+      pass: 0.7
+
+  - id: concise-002
+    input: >-
+      用一句话说明「边界值分析」在测试用例设计里的作用。只回答一句话，不要展开。
+    expected:
+      contains: ['边界']
+    judge:
+      criteria: >-
+        回答必须是一句话，且正确指出边界值分析的作用是检查输入/输出取值范围的
+        临界点（最小值、最大值、刚好越界）容易出错的场景。答非所问或明显跑题判不通过。
+      pass: 0.7

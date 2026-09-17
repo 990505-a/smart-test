@@ -1,15 +1,52 @@
-export type AgentKey = "testcase" | "unity" | "codeanalyst";
+import type { ComponentType } from "react";
+import { Bug, CodeXml, Gamepad2, Globe } from "lucide-react";
+
+export type AgentKey = "testcase" | "unity" | "webui" | "codeanalyst";
 
 export interface AgentConfig {
   key: string;
   label: string;
   graphKey: string;
+  /** 选择器里的一句话说明：这个模式挂载了哪些工具/技能 */
+  description: string;
 }
 
 export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
-  testcase: { key: "testcase", label: "用例生成", graphKey: "testcase_agent" },
-  unity: { key: "unity", label: "UI自动化", graphKey: "unity_agent" },
-  codeanalyst: { key: "codeanalyst", label: "代码分析", graphKey: "code_analyst_agent" },
+  testcase: {
+    key: "testcase",
+    label: "用例生成",
+    graphKey: "testcase_agent",
+    description: "需求澄清 → 用例 MD 文档 → Lint/复核/人工批准；挂飞书导图、代码图谱与记忆工具。",
+  },
+  unity: {
+    key: "unity",
+    label: "Unity 自动化",
+    graphKey: "unity_agent",
+    description: "经 Unity Editor 的 LuaTestTool 执行客户端 UI 用例：Lua 执行、截图、窗口检查。",
+  },
+  webui: {
+    key: "webui",
+    label: "Web-UI 自动化",
+    graphKey: "webui_agent",
+    description: "用 Playwright CLI 写并跑浏览器 UI 用例，失败自动修复，产物落工作区。",
+  },
+  codeanalyst: {
+    key: "codeanalyst",
+    label: "代码分析",
+    graphKey: "code_analyst_agent",
+    description: "只读代码问答：功能定位、调用链、影响面；图谱优先，缺失时降级文件检索。",
+  },
+};
+
+/** 下拉里的展示顺序（与智能体在平台里的常用度一致） */
+export const AGENT_ORDER: AgentKey[] = ["testcase", "unity", "webui", "codeanalyst"];
+
+/** 智能体图标（选择器与列表共用；之前放在 AgentTabs 里，那个组件已删除） */
+export const AGENT_ICONS: Record<AgentKey, ComponentType<{ className?: string }>> = {
+  testcase: Bug,
+  unity: Gamepad2,
+  webui: Globe,
+  codeanalyst: CodeXml,
 };
 
 export interface ContentBlock {
@@ -21,9 +58,9 @@ export interface ContentBlock {
     filename?: string;
     /** @deprecated Use workspacePath instead. Full text embedding causes thread state bloat. */
     extractedText?: string;
-    /** Virtual absolute path where file is saved (e.g., /uploads/abc_doc.pdf). Agent reads via read_file tool. */
+    /** Absolute path where the file is saved. The agent reads it with read_file. */
     workspacePath?: string;
-    /** Virtual absolute path to extracted text file (e.g., /uploads/abc_doc_extracted.txt). */
+    /** Absolute path to the extracted text file. */
     textFilePath?: string;
     /** Preview of extracted text (first 200 chars) for display. */
     textPreview?: string;
