@@ -62,6 +62,37 @@ class TestSeedAndManifest:
         assert memory_service.delete_module(module.id) is True
         assert not (memory_root / "ENV.md").exists()
 
+    def test_legacy_profile_migration_is_idempotent(self, memory_root: Path):
+        """旧 EverOS user.md 只搬一次。
+
+        这里踩过：迁移的判据是"USER.md 还是种子内容"，而迁移是**追加**——
+        种子文字永远还在，于是每次启动都再追加一份（实测涨到 161KB / 32 份）。
+        现在以迁移标记为准。
+        """
+        legacy_dir = memory_root / "smart-test" / "default_project" / "users" / "platform"
+        legacy_dir.mkdir(parents=True)
+        (legacy_dir / "user.md").write_text(
+            "用户偏好：结论先给答案，再给依据；输出一律中文；产物落工作区，"
+            "不改动被测仓库；不确定的需求逐条列出来问，不要猜。\n", encoding="utf-8")
+        for _ in range(3):
+            memory_service.ensure_seeded()
+            memory_service.invalidate_cache()
+        body = (memory_root / "USER.md").read_text(encoding="utf-8")
+        assert body.count("从旧版记忆迁移（画像）") == 1
+        assert body.count("用户偏好：结论先给答案") == 1
+
+    def test_legacy_episodes_migration_is_idempotent(self, memory_root: Path):
+        episode_dir = memory_root / "smart-test" / "default_project" / "users" / "platform" / "episodes"
+        episode_dir.mkdir(parents=True)
+        (episode_dir / "episode-2026-09-01.md").write_text(
+            "### Subject\n跨天重置必须覆盖 04:59/05:00/05:01\n", encoding="utf-8")
+        for _ in range(3):
+            memory_service.ensure_seeded()
+            memory_service.invalidate_cache()
+        body = (memory_root / "MEMORY.md").read_text(encoding="utf-8")
+        assert body.count("从旧版记忆迁移（经历）") == 1
+        assert body.count("04:59/05:00/05:01") == 1
+
     def test_builtin_module_cannot_be_deleted(self, memory_root: Path):
         memory_service.ensure_seeded()
         with pytest.raises(PermissionError):

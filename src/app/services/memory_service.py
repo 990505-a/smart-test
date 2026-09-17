@@ -229,6 +229,8 @@ def _migrate_legacy_profile(space_id: str = "default") -> None:
     body = target.read_text(encoding="utf-8", errors="replace")
     if "只写用户明确表达过的偏好" not in body:  # 已被编辑过，不动
         return
+    if _LEGACY_MARKER in body:  # 已经迁过：种子文字还在，标记才是"迁过了"的证据
+        return
     for legacy in root.glob(_LEGACY_PROFILE_GLOB[0]):
         if legacy.name.lower() == "user.md" and "users" in legacy.parts:
             text = legacy.read_text(encoding="utf-8", errors="replace").strip()
