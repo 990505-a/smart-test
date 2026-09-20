@@ -38,15 +38,32 @@ function KindBadge({ item }: { item: IntegrationItem }) {
   );
 }
 
-function IntegrationRow({ item, onChanged }: { item: IntegrationItem; onChanged: () => void }) {
+function IntegrationRow({ item, onChanged, waitReady }: {
+  item: IntegrationItem;
+  onChanged: () => void;
+  /** 轮询到该项就绪为止（或超时）；返回是否就绪。见 ReadinessCenter 里的说明。 */
+  waitReady: (key: string) => Promise<boolean>;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label);
     try {
       await fn();
-      toast.success(`${item.label}：${label}已发起`);
-      setTimeout(onChanged, 1500);
+      if (label === "启动") {
+        // 「启动」不能只报"已发起"：启动器 start 只 sleep 0.5s 就返回，它不等服务
+        // 就绪（LightRAG 要起 uvicorn、unity-mcp 走 uvx 首次还得下包）。固定 1.5s
+        // 刷一次的话，用户看到的是"点了没反应"然后要等 30 秒轮询。这里轮询到就绪。
+        setBusy("等待就绪");
+        const ok = await waitReady(item.key);
+        if (ok) toast.success(`${item.label}：已就绪`);
+        else toast.warning(`${item.label}：已发起，但还没就绪`, {
+          description: "服务可能需要更久（首次运行要下载依赖）。可稍后点「重新探活」，或看启动器(:5010)的日志。",
+        });
+      } else {
+        toast.success(`${item.label}：${label}已发起`);
+        setTimeout(onChanged, 1500);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `${label}失败`);
     } finally {
@@ -132,9 +149,9 @@ function IntegrationRow({ item, onChanged }: { item: IntegrationItem; onChanged:
           <Button size="sm" variant="outline"
                   disabled={busy !== null}
                   onClick={() => run("启动", () => startIntegration(item.key))}>
-            {busy === "启动" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                            : <Play className="mr-1 h-3.5 w-3.5" />}
-            启动
+            {busy !== null ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                           : <Play className="mr-1 h-3.5 w-3.5" />}
+            {busy === "等待就绪" ? "等待就绪…" : "启动"}
           </Button>
         )}
         {item.install && (!item.ready || upgradable) && !na && (
@@ -182,6 +199,26 @@ export function ReadinessCenter() {
   const naCount = items.length - applicable.length;
   const readyCount = applicable.filter((i) => i.ready).length;
 
+  /**
+   * 轮询到某一项就绪为止（或超时），返回是否就绪。
+   *
+   * 为什么需要：启动器 `start_service` 只 `sleep(0.5)` 就返回，它**不等服务就绪**；
+   * 而 LightRAG 要起 uvicorn、unity-mcp 走 uvx 首次还要从 PyPI 下包。只刷一次的话
+   * 用户看到的是"点了没反应"，再等 30 秒轮询才发现好了——很容易误判成按钮坏了。
+   *
+   * 用 `mutate()` 拿**新鲜数据**判断，而不是读闭包里的 `item`：后者是这次渲染时的
+   * 快照，永远停在"未就绪"。
+   */
+  const waitReady = async (key: string, timeoutMs = 90_000): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const fresh = await mutate();
+      if ((fresh?.items ?? []).find((i) => i.key === key)?.ready) return true;
+    }
+    return false;
+  };
+
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between">
@@ -204,7 +241,7 @@ export function ReadinessCenter() {
       {items.length > 0 && (
         <div className="mt-3">
           {required.map((item) => (
-            <IntegrationRow key={item.key} item={item} onChanged={() => mutate()} />
+            <IntegrationRow key={item.key} item={item} onChanged={() => mutate()} waitReady={waitReady} />
           ))}
           <div className="border-t pt-3">
             <p className="text-xs font-medium text-muted-foreground">
@@ -212,7 +249,7 @@ export function ReadinessCenter() {
             </p>
           </div>
           {optionalItems.map((item) => (
-            <IntegrationRow key={item.key} item={item} onChanged={() => mutate()} />
+            <IntegrationRow key={item.key} item={item} onChanged={() => mutate()} waitReady={waitReady} />
           ))}
         </div>
       )}
