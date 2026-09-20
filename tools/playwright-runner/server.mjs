@@ -41,7 +41,31 @@ const PORT = Number(process.env.PORT ?? 5015)
 const HOST = process.env.HOST ?? '0.0.0.0'
 /** Directory holding the installed `@playwright/test` + browsers. */
 const PW_HOME = process.env.PW_HOME ?? '/opt/pw'
-const PW_CLI = join(PW_HOME, 'node_modules', '.bin', 'playwright')
+
+/**
+ * `playwright` CLI 的可执行路径。
+ *
+ * Windows 上 npm 在 `node_modules/.bin/` 生成三个文件：`playwright`（sh 脚本）、
+ * `playwright.cmd`、`playwright.ps1`。而 `spawn` 不走 shell，CreateProcess 只认
+ * `.exe/.cmd/.bat` —— 指向那个无扩展名的 sh 脚本必然失败（经典的 "spawn npm
+ * ENOENT" 同款）。症状具有误导性：`/health` 报 `available:false`，看起来像
+ * "浏览器没装"，实际是 CLI 根本没起来；`install-browsers` 也会一并失败。
+ */
+function resolvePwCli() {
+  if (process.env.PW_CLI) return process.env.PW_CLI
+  const bin = join(PW_HOME, 'node_modules', '.bin')
+  const candidates = process.platform === 'win32'
+    ? ['playwright.cmd', 'playwright.exe', 'playwright']
+    : ['playwright']
+  for (const name of candidates) {
+    const candidate = join(bin, name)
+    if (existsSync(candidate)) return candidate
+  }
+  // 一个都不在时回候选里的第一个：让后续报错带上"期望在哪儿"，而不是一句 ENOENT
+  return join(bin, candidates[0])
+}
+
+const PW_CLI = resolvePwCli()
 const RUNS_ROOT = process.env.RUNS_ROOT ?? '/work/runs'
 const DEFAULT_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS ?? 300_000)
 /** Serve artifact bytes up to this size; larger files are listed but not inlined. */
