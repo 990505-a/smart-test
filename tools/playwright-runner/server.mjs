@@ -54,6 +54,13 @@ const PW_HOME = process.env.PW_HOME ?? '/opt/pw'
 function resolvePwCli() {
   if (process.env.PW_CLI) return process.env.PW_CLI
   const bin = join(PW_HOME, 'node_modules', '.bin')
+  if (process.platform === 'win32') {
+    // Node 24 在 Windows 上 spawn `.cmd`/`.bat`（不带 shell）会同步抛 EINVAL
+    // （回归，npm.cmd / playwright.cmd 均如此）。直接返回 playwright 的 JS 入口，
+    // run() 会把它交给 node 执行，绕开 cmd 垫片。
+    const cliJs = join(PW_HOME, 'node_modules', 'playwright', 'cli.js')
+    if (existsSync(cliJs)) return cliJs
+  }
   const candidates = process.platform === 'win32'
     ? ['playwright.cmd', 'playwright.exe', 'playwright']
     : ['playwright']
@@ -83,7 +90,9 @@ const INSTALL_TIMEOUT_MS = Number(process.env.INSTALL_TIMEOUT_MS ?? 900_000)
 function run(cmd, args, { cwd, env, timeoutMs, logFile }) {
   return new Promise((resolvePromise) => {
     const started = Date.now()
-    const child = spawn(cmd, args, { cwd, env: { ...process.env, ...env } })
+    // Windows 上 resolvePwCli 可能返回 cli.js（绕开 .cmd spawn EINVAL）：JS 入口交给 node 跑。
+    const jsEntry = /\.js$/i.test(cmd)
+    const child = spawn(jsEntry ? process.execPath : cmd, jsEntry ? [cmd, ...args] : args, { cwd, env: { ...process.env, ...env } })
     let stdout = ''
     let stderr = ''
     let timedOut = false
