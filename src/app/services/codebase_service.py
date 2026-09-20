@@ -562,14 +562,23 @@ async def graph_subgraph(project: str, mode: str, value: str) -> dict:
             except Exception:  # noqa: BLE001 — 单标签失败不阻断
                 rows = []
             node_rows.extend(rows)
-        try:
-            edge_rows = await _run_query(
-                project,
-                f"MATCH (a:Function)-[r:CALLS]->(b:Function) "
-                f"WHERE a.file_path =~ '{rx}' AND b.file_path =~ '{rx}' "
-                f"RETURN a.qualified_name AS s, b.qualified_name AS t, type(r) AS rel LIMIT 200")
-        except Exception as exc:  # noqa: BLE001
-            return {"success": False, "error": f"目录子图查询失败: {exc}"}
+        # 边:标签必须跟节点查询同一套。**不能写死 :Function** —— 调用关系的主力标签
+        # 随语言而变，实测 ruoyi(Java) 的 CALLS 有 64588 条在 (Method)->(Method)、
+        # (Function)->(Function) 只有 17 条；jynew(C#) 是 33965 对 249。写死 Function
+        # 会让目录子图取到节点却一条边都没有，前端"不画度数为 0 的节点"于是画布空白。
+        edge_rows: list[list] = []
+        for label in ("Method", "Function", "Class"):
+            if len(edge_rows) >= 200:
+                break
+            try:
+                rows = await _run_query(
+                    project,
+                    f"MATCH (a:{label})-[r:CALLS]->(b:{label}) "
+                    f"WHERE a.file_path =~ '{rx}' AND b.file_path =~ '{rx}' "
+                    f"RETURN a.qualified_name AS s, b.qualified_name AS t, type(r) AS rel LIMIT 200")
+            except Exception:  # noqa: BLE001 — 单标签失败不阻断（与节点查询同款）
+                rows = []
+            edge_rows.extend(rows)
         data = _compose_graph(node_rows, edge_rows,
                               ["name", "label", "fp", "qn", "line"], ["s", "t", "rel"])
 

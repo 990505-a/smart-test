@@ -484,6 +484,15 @@ function GraphTab({ repo, indexing }: { repo: CbmRepo | null; indexing: boolean 
         <Card className="border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">{error}</Card>
       )}
 
+      {/* 范围视图不会自动加载（取子图必须先给范围），空着会让人以为图坏了 —— 说清楚下一步 */}
+      {useScope && !data && !loading && !error && (
+        <Card className="p-3 text-xs text-muted-foreground">
+          这是 {nodesKnown ? `${repo.nodes} 节点` : "未知规模"}的大图，随机采样看不出结构，所以按范围取真实子图：
+          选「目录范围」填一个目录前缀（如 <code className="font-mono">yudao-module-system</code>），
+          或选「符号邻域」填一个函数/类名（如 <code className="font-mono">create</code>），再点「加载范围」。
+        </Card>
+      )}
+
       {/* 图例 + 过滤(一行) */}
       {data && (
         <Card className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1.5 p-2.5 text-[11px]">
@@ -523,7 +532,7 @@ function GraphTab({ repo, indexing }: { repo: CbmRepo | null; indexing: boolean 
             </div>
           )}
           <GraphView data={data} edgeFilter={edgeFilter} search={search}
-                     showStructural={showStructural} onNodeClick={setSelected} />
+                     showStructural={showStructural} scopeView={useScope} onNodeClick={setSelected} />
         </div>
         {selected && (
           <Card className="h-fit p-4 text-sm">

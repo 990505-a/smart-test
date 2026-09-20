@@ -47,11 +47,13 @@ interface GraphViewProps {
   search?: string;
   /** 是否显示 File/Folder/Module 等结构节点 */
   showStructural?: boolean;
+  /** 数据来自范围视图（子图）而非全量采样：空图提示要给不同的建议 */
+  scopeView?: boolean;
   onNodeClick?: (node: GraphNodeInfo) => void;
 }
 
 export default function GraphView({ data, edgeFilter, search, showStructural = false,
-                                    onNodeClick }: GraphViewProps) {
+                                    scopeView = false, onNodeClick }: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<SigmaLib | null>(null);
   const hoverRef = useRef<string | null>(null);
@@ -117,12 +119,14 @@ export default function GraphView({ data, edgeFilter, search, showStructural = f
     if (!data || !graph || graph.order > 0) return null;
     if (data.nodes.length === 0) return "这个范围里没有任何节点，换个目录前缀或符号名试试。";
     if (data.edges.length === 0) {
-      return `取到 ${data.nodes.length} 个节点但一条连线都没有 —— 超大图的随机采样会得到互不相连的散点。`
-        + "请改用「范围视图」（按目录或符号名取真实子图），或调大上限后重试。";
+      return scopeView
+        ? `这个范围内取到 ${data.nodes.length} 个节点但没有连线 —— 换个更内聚的目录，或改用「符号邻域」看某个函数的直接上下游。`
+        : `取到 ${data.nodes.length} 个节点但一条连线都没有 —— 超大图的随机采样会得到互不相连的散点。`
+          + "请改用「范围视图」（按目录或符号名取真实子图），或调大上限后重试。";
     }
     return `取到 ${data.nodes.length} 个节点、${data.edges.length} 条边，但过滤后没有可见节点：`
       + "试试打开「结构节点」开关，或清空上方的连线过滤。";
-  }, [data, graph]);
+  }, [data, graph, scopeView]);
 
   // 布局 + 渲染(每次数据/过滤变化重建)
   useEffect(() => {
