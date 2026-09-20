@@ -450,6 +450,75 @@ def test_every_integration_has_probe_and_fix_hint():
     assert not broken, f"这些依赖缺 probe/fix_hint/absent_effect：{broken}"
 
 
+def test_every_install_key_has_an_installer():
+    """注册表声明的 ``install`` 键，API 的分派表里必须有同名实现。
+
+    反例就是这次修掉的：注册表给 playwright 填了 ``install="playwright"``，而 API 里
+    还是 ``if item.install != "codebase-memory"`` 的写死判断 —— 前端按钮**会出现**
+    （它只看 ``item.install`` 有没有值），点下去却回"不支持平台内安装"。用户看到的是
+    "有个按钮，点了没用"，比没有按钮更糟。这条把它变成硬失败。
+    """
+    from src.app.api.v2.integrations import INSTALLERS
+    from src.app.core import integrations
+
+    declared = {i.install for i in integrations.INTEGRATIONS if i.install}
+    missing = sorted(declared - set(INSTALLERS))
+    assert not missing, (
+        f"注册表声明了平台内安装但 API 没有实现：{missing}\n"
+        "修法：在 api/v2/integrations.py 的 INSTALLERS 里加一条，或去掉注册表的 install。"
+    )
+    orphan = sorted(set(INSTALLERS) - declared)
+    assert not orphan, f"INSTALLERS 里有注册表没声明的键（永远不会被调到）：{orphan}"
+
+
+def test_not_applicable_setting_key_roundtrip():
+    """「不适用」标记的键名规则与真值解析。
+
+    这个标记决定"这一项算不算缺失"，写错键名会让标记静默失效（用户点了按钮、
+    刷新后还是红的），所以把规则本身钉住。
+    """
+    from src.app.core import integrations
+
+    assert integrations.na_setting_key("unity") == "na_unity"
+    for truthy in ("1", "true", "ON", "yes", " Yes "):
+        assert integrations._is_truthy(truthy), f"{truthy!r} 应判为真"
+    for falsy in ("", "0", "false", "off", None, "no"):
+        assert not integrations._is_truthy(falsy), f"{falsy!r} 应判为假"
+
+
+def test_not_applicable_is_fail_open_on_db_error(monkeypatch):
+    """读标记失败时按"没有标记"处理（fail-open）。
+
+    反过来的话（读不到就当全部不适用），一次读库抖动会把用户真正的故障悄悄藏起来
+    —— 就绪中心宁可多显示一个待办，也不能瞒报。
+    """
+    import asyncio
+
+    from src.app.core import integrations
+
+    class Boom:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("库连不上")
+
+    monkeypatch.setattr("src.app.db.database.async_session_factory", Boom)
+    assert asyncio.run(integrations.not_applicable_keys()) == set()
+
+
+def test_optional_dependencies_are_the_only_ones_markable_na():
+    """必选依赖不该出现在"可标记不适用"的范围内（前端按钮的判据）。
+
+    必选件缺了就是真故障，给它一条"标记为不适用"的逃避路径等于允许把故障藏起来。
+    这条锁定判据本身：markable = 未就绪 + optional。
+    """
+    from src.app.core import integrations
+
+    required = [i.key for i in integrations.INTEGRATIONS if not i.optional]
+    assert required, "至少应有一个必选依赖（对话模型）"
+    # 前端 ReadinessCenter 的按钮条件是 `!ready && optional && !na`，
+    # 这里只钉住"必选件存在且不该被标记"这个前提，避免有人把 optional 全改 True
+    assert "llm" in required, "对话模型必须是必选（缺了所有智能体都不工作）"
+
+
 def test_unity_capability_is_lua_free():
     """Unity 能力不能再依赖游戏侧的 Lua 桥（2026-09 换成了通用 MCP 桥）。
 

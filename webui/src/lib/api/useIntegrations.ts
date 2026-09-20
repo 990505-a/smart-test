@@ -32,6 +32,14 @@ export interface IntegrationItem {
   /** 未配置（而非故障）时的说明，例如"选填：不配则只落本地" */
   reason?: string;
   configured?: boolean;
+  /**
+   * 这台机器不跑它（用户标记）。降级成中性状态：不计入 blocking、不报警、不给动作，
+   * 只留一个「恢复」。远端服务器上永远不会有 Unity 编辑器，那种"修不好的红项"
+   * 会让用户怀疑整页的可信度。
+   */
+  not_applicable?: boolean;
+  /** 探针给的"要不要提醒用户可以标记为不适用"的提示（如本机未检测到 Unity） */
+  na_hint?: string | null;
   install_state?: {
     managed_dir?: string;
     installed_version?: string | null;
@@ -92,6 +100,18 @@ function unwrapAction<T extends { error?: string; hint?: string }>(
     throw new Error([d.error, d.hint].filter(Boolean).join(" —— ") || `${label}失败`);
   }
   return r.data;
+}
+
+/**
+ * 标记/取消「这台机器不跑它」。
+ *
+ * 用于远端服务器这类"某项能力天生不可能可用"的场景：标记后该项降级成中性状态，
+ * 不再以未就绪的形式长期报警。applicable=false 即标记为不适用。
+ */
+export async function setApplicability(key: string, applicable: boolean) {
+  const r = await apiClient.post<{ error?: string; applicable?: boolean }>(
+    `/integrations/${key}/applicability`, { applicable });
+  return unwrapAction(r, applicable ? "恢复" : "标记");
 }
 
 /**

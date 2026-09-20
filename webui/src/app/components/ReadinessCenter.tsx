@@ -19,11 +19,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
-  CheckCircle2, CircleDashed, Loader2, RefreshCw, Play, Download, AlertTriangle,
+  CheckCircle2, CircleDashed, CircleSlash, Loader2, RefreshCw, Play, Download,
+  AlertTriangle,
 } from "lucide-react";
 import {
   useIntegrations, startIntegration, installIntegration, clearPlatformSetting,
-  type IntegrationItem,
+  setApplicability, type IntegrationItem,
 } from "@/lib/api/useIntegrations";
 
 function KindBadge({ item }: { item: IntegrationItem }) {
@@ -53,19 +54,24 @@ function IntegrationRow({ item, onChanged }: { item: IntegrationItem; onChanged:
     }
   };
 
-  // 三态：就绪 / 未配置（选填件，不是故障） / 未就绪
+  // 四态：就绪 / 不适用（这台机器不跑它） / 未配置（选填件，不是故障） / 未就绪
   const unconfigured = item.configured === false;
-  const tone = item.ready
-    ? "text-success"
+  const na = item.not_applicable === true;
+  const tone = na ? "text-muted-foreground"
+    : item.ready ? "text-success"
     : unconfigured ? "text-muted-foreground"
     : item.optional ? "text-warning" : "text-destructive";
 
-  const icon = item.ready
+  const icon = na
+    ? <CircleSlash className={`mt-0.5 h-4 w-4 shrink-0 ${tone}`} />
+    : item.ready
     ? <CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${tone}`} />
     : unconfigured ? <CircleDashed className={`mt-0.5 h-4 w-4 shrink-0 ${tone}`} />
     : <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${tone}`} />;
 
-  const state = item.ready
+  const state = na
+    ? "已标记为不适用（这台机器不跑它，不计入缺失）"
+    : item.ready
     ? (item.detail || "就绪")
     : unconfigured ? (item.reason || "未配置")
     : (item.error || item.reason || "未就绪");
@@ -83,14 +89,20 @@ function IntegrationRow({ item, onChanged }: { item: IntegrationItem; onChanged:
             ? <span className="text-[10px] text-muted-foreground">选填</span>
             : <span className="text-[10px] text-destructive">必选</span>}
         </div>
-        <p className={`mt-0.5 text-xs ${item.ready ? "text-muted-foreground" : tone}`}>{state}</p>
-        {/* 缺了会失去什么 + 怎么补：两句话都来自后端注册表，页面不自己编 */}
-        {!item.ready && (
+        <p className={`mt-0.5 text-xs ${item.ready || na ? "text-muted-foreground" : tone}`}>{state}</p>
+        {/* 缺了会失去什么 + 怎么补：两句话都来自后端注册表，页面不自己编。
+            已标记「不适用」的不再重复这些——那是待办清单，不是故障说明。 */}
+        {!item.ready && !na && (
           <p className="mt-1 text-xs text-muted-foreground">
             {item.absent_effect}
             <span className="mx-1 text-border">|</span>
             <span className="text-foreground/80">{item.fix_hint}</span>
           </p>
+        )}
+        {/* 探针给的"要不要提醒用户可以标记不适用"（如本机未检测到 Unity）：
+            决定权在用户，这里只负责让他知道有这个开关 */}
+        {!item.ready && !na && item.na_hint && (
+          <p className="mt-1 text-xs text-muted-foreground/80">{item.na_hint}</p>
         )}
         {upgradable && (
           <p className="mt-1 text-xs text-warning">
@@ -116,7 +128,7 @@ function IntegrationRow({ item, onChanged }: { item: IntegrationItem; onChanged:
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        {item.launch && !item.ready && (
+        {item.launch && !item.ready && !na && (
           <Button size="sm" variant="outline"
                   disabled={busy !== null}
                   onClick={() => run("启动", () => startIntegration(item.key))}>
@@ -125,7 +137,7 @@ function IntegrationRow({ item, onChanged }: { item: IntegrationItem; onChanged:
             启动
           </Button>
         )}
-        {item.install && (!item.ready || upgradable) && (
+        {item.install && (!item.ready || upgradable) && !na && (
           <Button size="sm" variant="outline"
                   disabled={busy !== null}
                   onClick={() => run(upgradable ? "升级" : "安装",
@@ -133,6 +145,24 @@ function IntegrationRow({ item, onChanged }: { item: IntegrationItem; onChanged:
             {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                    : <Download className="mr-1 h-3.5 w-3.5" />}
             {upgradable ? "升级" : "安装"}
+          </Button>
+        )}
+        {/* 只给选填件：必选件缺了就是真故障，不该提供"标记为不适用"这条逃避路径 */}
+        {!item.ready && item.optional && !na && (
+          <Button size="sm" variant="ghost" className="text-xs text-muted-foreground"
+                  disabled={busy !== null}
+                  title="这台机器不跑它（如服务端没有 Unity 编辑器）——降级成中性状态，不再长期报警"
+                  onClick={() => run("标记为不适用", () => setApplicability(item.key, false))}>
+            {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            标记为不适用
+          </Button>
+        )}
+        {na && (
+          <Button size="sm" variant="ghost" className="text-xs"
+                  disabled={busy !== null}
+                  onClick={() => run("恢复", () => setApplicability(item.key, true))}>
+            {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            恢复
           </Button>
         )}
       </div>
@@ -147,6 +177,10 @@ export function ReadinessCenter() {
   const blocking = data?.blocking ?? [];
   const required = items.filter((i) => !i.optional);
   const optionalItems = items.filter((i) => i.optional);
+  // 已标记「不适用」的不计入分母：这台机器不跑它，算进"x/y 就绪"只会让数字永远不满
+  const applicable = items.filter((i) => !i.not_applicable);
+  const naCount = items.length - applicable.length;
+  const readyCount = applicable.filter((i) => i.ready).length;
 
   return (
     <Card className="p-5">
@@ -157,7 +191,8 @@ export function ReadinessCenter() {
             {isLoading ? "正在探活…"
               : blocking.length > 0
                 ? `必选依赖缺失：${blocking.join("、")} —— 平台功能不完整`
-                : `${data?.ready ?? 0}/${data?.total ?? 0} 就绪，必选依赖全部就绪`}
+                : `${readyCount}/${applicable.length} 就绪，必选依赖全部就绪`
+                  + (naCount > 0 ? `（另有 ${naCount} 项已标记为不适用）` : "")}
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={() => mutate()} disabled={isLoading}>

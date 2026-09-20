@@ -66,13 +66,40 @@ async def _probe_playwright() -> dict:
             "url": settings.playwright_runner_url}
 
 
+def unity_looks_absent() -> bool:
+    """本机看起来没装 Unity（Hub / 编辑器都没找到）。
+
+    **只用来生成提示**，不参与状态判定：部署形态太杂（容器里的平台看不到宿主装没装
+    Unity、Unity 也可能装在另一台机器上），判错的代价是把真问题藏起来。所以这里
+    只是"要不要提醒用户可以标记为不适用"的依据。
+    """
+    import os
+    import sys
+    from pathlib import Path
+
+    if sys.platform == "darwin":
+        candidates = ["/Applications/Unity Hub.app", "/Applications/Unity/Hub/Editor"]
+    elif sys.platform.startswith("win"):
+        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+        candidates = [os.path.join(pf, "Unity Hub"),
+                      os.path.join(pf, "Unity", "Hub", "Editor")]
+    else:
+        candidates = [os.path.expanduser("~/Unity/Hub/Editor"), "/opt/unity"]
+    return not any(Path(c).exists() for c in candidates)
+
+
 async def _probe_unity() -> dict:
     from src.app.services import unity_bridge
 
     st = await unity_bridge.status()
+    # 这台机器上没 Unity 时，附一句"可以标记为不适用"——否则用户只能一直看着
+    # 一个修不好的未就绪项，而不知道有个开关能把它降级成中性状态。
+    na_hint = ("这台机器未检测到 Unity（Hub/编辑器）；如果它只当服务端用、不跑 Unity 自动化，"
+               "可以点本行右侧「标记为不适用」"
+               ) if unity_looks_absent() else None
     if not st.get("available"):
         return {"ready": False, "detail": "", "error": st.get("error") or st.get("hint"),
-                "endpoint": settings.unity_mcp_url}
+                "endpoint": settings.unity_mcp_url, "na_hint": na_hint}
     server = st.get("server") or {}
     editor = st.get("editor") or {}
     summary = (f"{server.get('name') or 'Unity MCP'} {server.get('version') or ''}".strip()
@@ -82,7 +109,7 @@ async def _probe_unity() -> dict:
         # "Unity session not available"。这时报"就绪"是骗人的，标成未就绪并说清原因。
         return {"ready": False, "detail": summary,
                 "error": "桥在线，但 Unity 编辑器未连接（工程里装「MCP for Unity」包并连上它）",
-                "endpoint": settings.unity_mcp_url}
+                "endpoint": settings.unity_mcp_url, "na_hint": na_hint}
     instances = st.get("instances") or []
     who = ""
     if instances:
@@ -318,8 +345,74 @@ async def probe_all() -> list[dict]:
     """所有依赖的就绪状态（并发探活；页面一屏看完）。"""
     import asyncio
 
-    results = await asyncio.gather(*(probe(i.key) for i in INTEGRATIONS))
-    return list(results)
+    na_keys, results = await asyncio.gather(
+        not_applicable_keys(),
+        asyncio.gather(*(probe(i.key) for i in INTEGRATIONS)))
+    return [{**item, "not_applicable": True} if item.get("key") in na_keys else item
+            for item in results]
+
+
+# ===========================================================================
+# 「这台机器不跑它」——不适用标记
+# ===========================================================================
+# 为什么需要：远端服务器上永远不会有 Unity 编辑器，那条依赖就永远挂在"未就绪"。
+# 一个修不好的红项会让用户怀疑整页的可信度（"其他绿的是不是也不准"）。
+# 标记后降级成中性的「不适用」：不进 blocking、不给动作按钮、随时可恢复。
+#
+# 存 settings_kv(platform, na_<key>)="1"：这是**按部署**的事实（哪台机器跑什么），
+# 与 .env 无关，所以只写库、不同步 .env。
+#
+# 刻意不自动判定："本机没装 Unity"这种推断一旦判错，代价是把真问题藏起来；
+# 只把它当**提示**（见 _probe_unity 的 na_hint），决定权留给用户。
+
+_NA_NAMESPACE = "platform"
+_NA_PREFIX = "na_"
+
+
+def na_setting_key(key: str) -> str:
+    """该依赖的「不适用」标记在 settings_kv 里的键名。"""
+    return f"{_NA_PREFIX}{key}"
+
+
+def _is_truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "on", "yes")
+
+
+async def not_applicable_keys() -> set[str]:
+    """已标记为「不适用」的依赖 key。
+
+    读不到就当空集（fail-open）：宁可多显示一个待办，也不要因为一次读库失败
+    把用户真正的故障悄悄藏起来。
+    """
+    try:
+        from src.app.db.database import async_session_factory
+        from src.app.services.settings_service import SettingsService
+
+        defaults = {na_setting_key(i.key): "" for i in INTEGRATIONS}
+        async with async_session_factory() as db:
+            values = await SettingsService(db).get_namespace(_NA_NAMESPACE, defaults)
+        return {k[len(_NA_PREFIX):] for k, v in values.items()
+                if k.startswith(_NA_PREFIX) and _is_truthy(v)}
+    except Exception as exc:  # noqa: BLE001 — 就绪中心不该因为读库失败整页报错
+        logger.warning("读取「不适用」标记失败: %s", exc)
+        return set()
+
+
+async def set_applicability(key: str, applicable: bool) -> dict:
+    """标记/取消某个依赖的「不适用」。返回更新后的单条状态。"""
+    if key not in BY_KEY:
+        return {"success": False, "error": f"未登记的外部依赖: {key}"}
+    try:
+        from src.app.db.database import async_session_factory
+        from src.app.services.settings_service import SettingsService
+
+        async with async_session_factory() as db:
+            await SettingsService(db).set(
+                _NA_NAMESPACE, na_setting_key(key), None if applicable else "1")
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": f"写入标记失败: {exc}"}
+    return {"success": True, "item": await probe(key), "applicable": applicable}
 
 
 # ===========================================================================
