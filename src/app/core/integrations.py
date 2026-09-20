@@ -117,7 +117,11 @@ async def _probe_codebase() -> dict:
             "error": error,
             "exe": st.get("exe"),
             "exe_present": st.get("exe_present"),
-            "install": install}
+            # 键名必须是 install_state：probe_all 会把探针结果 update 进 payload，
+            # 而 "install" 那个位置放的是**安装器键名**（codebase-memory / playwright）。
+            # 这里叫 install 的话会把键名覆盖成这个字典，前端读的 install_state
+            # 永远是空 —— 「升级」按钮与"自备 exe 覆盖了自管安装"的提示都不会出现。
+            "install_state": install}
 
 
 async def _probe_lightrag() -> dict:
@@ -200,9 +204,11 @@ INTEGRATIONS: tuple[Integration, ...] = (
         optional=False,
         summary="Web-UI 自动化的浏览器侧执行器（仓库自带 tools/playwright-runner）",
         absent_effect="Web-UI 自动化能力整体不可用（网页测试/回归跑不了）",
-        fix_hint="在启动器(:5010)启动 playwright 服务；首次需装 chromium（start-local.sh 会做）",
+        fix_hint="在启动器(:5010)启动 playwright 服务，再点本行「安装」装 chromium；"
+                 "Linux 宿主机的系统依赖需 root（安装失败时会给可复制的 sudo 命令）",
         probe=_probe_playwright,
         launch="playwright",
+        install="playwright",
     ),
     Integration(
         key="unity",

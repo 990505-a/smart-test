@@ -13,6 +13,9 @@
  *   POST /screenshot   → run `playwright screenshot <url> <file>` (one-shot
  *                        visual evidence, no spec needed)
  *   POST /cli          → allow-listed `playwright <subcommand>` passthrough (install / pdf / cr)
+ *   POST /install-browsers → install browsers into THIS process's filesystem
+ *                        (the platform can't: in container mode the runner lives
+ *                        in a different container and would install into its own)
  *
  * Each `/run` gets a fresh directory under RUNS_ROOT, so items are isolated
  * exactly like the eval runner isolates harness processes. Artifacts (traces,
@@ -43,6 +46,8 @@ const RUNS_ROOT = process.env.RUNS_ROOT ?? '/work/runs'
 const DEFAULT_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS ?? 300_000)
 /** Serve artifact bytes up to this size; larger files are listed but not inlined. */
 const INLINE_ARTIFACT_LIMIT = Number(process.env.INLINE_ARTIFACT_LIMIT ?? 2_000_000)
+/** 装浏览器是几十到上百 MB 的下载 + 解包，给足时间（默认 15 分钟）。 */
+const INSTALL_TIMEOUT_MS = Number(process.env.INSTALL_TIMEOUT_MS ?? 900_000)
 
 // ── small helpers ─────────────────────────────────────────────────────────
 
@@ -568,6 +573,57 @@ function tail(text, limit) {
   return text.length <= limit ? text : `…\n${text.slice(-limit)}`
 }
 
+/**
+ * `POST /install-browsers` — 在 **runner 自己的文件系统**里装浏览器。
+ *
+ * 为什么由 runner 装、而不是平台跑一条命令：容器形态下 runner 在独立容器里，
+ * 平台去执行 `playwright install` 会装进平台自己的文件系统（runner 根本看不到），
+ * 而 `/health` 报的是 runner 这边的 `browsersRoot()`。让 runner 装自己，
+ * 原生与容器两种形态共用同一套代码。
+ *
+ * 系统依赖（Linux 上那批 apt 包）需要 root：容器里本来就是 root，直接带
+ * `--with-deps`；宿主机上的普通用户装不了，就不带，改由调用方把「需要 root 的
+ * 那条命令」交给用户复制 —— 比让用户去猜 `--with-deps` 是什么强。
+ */
+async function opInstallBrowsers(body = {}) {
+  const wanted = Array.isArray(body.browsers) && body.browsers.length > 0
+    ? body.browsers.filter((name) => typeof name === 'string' && name.length > 0)
+    : ['chromium']
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
+  const withDeps = typeof body.withDeps === 'boolean' ? body.withDeps : isRoot
+  const args = ['install']
+  if (withDeps) args.push('--with-deps')
+  args.push(...wanted)
+
+  await mkdir(RUNS_ROOT, { recursive: true })
+  const logFile = join(RUNS_ROOT, 'install-browsers.log')
+  const result = await run(PW_CLI, args, {
+    cwd: PW_HOME, timeoutMs: INSTALL_TIMEOUT_MS, logFile,
+  })
+  const command = `${PW_CLI} ${args.join(' ')}`
+  const browsers = await listBrowsers()
+  const root = browsersRoot()
+
+  if (result.code !== 0) {
+    const detail = tail((result.stderr || result.stdout || '').trim(), 2000)
+    return {
+      ok: false,
+      command,
+      browsersRoot: root,
+      browsers,
+      durationMs: result.durationMs,
+      error: detail || `退出码 ${result.code}${result.timedOut ? '（超时）' : ''}`,
+      hint: withDeps
+        ? '若为网络问题，设 PLAYWRIGHT_DOWNLOAD_HOST 指向镜像后重试（国内可用 https://cdn.npmmirror.com/binaries/playwright）'
+        : `系统依赖需要 root，在宿主机上执行：sudo ${PW_CLI} install --with-deps ${wanted.join(' ')}`,
+    }
+  }
+  return {
+    ok: true, command, browsersRoot: root, browsers,
+    durationMs: result.durationMs, log: logFile,
+  }
+}
+
 // ── routing ───────────────────────────────────────────────────────────────
 
 const ROUTES = {
@@ -575,6 +631,7 @@ const ROUTES = {
   'POST /run': opRun,
   'POST /screenshot': opScreenshot,
   'POST /cli': opCli,
+  'POST /install-browsers': opInstallBrowsers,
 }
 
 const server = createServer(async (request, response) => {

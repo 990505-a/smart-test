@@ -95,6 +95,45 @@ async def status() -> dict:
         }
 
 
+async def install_browsers(*, browsers: list[str] | None = None,
+                           with_deps: bool | None = None,
+                           timeout: float = 900.0) -> dict:
+    """让 runner 在**它自己的文件系统**里装浏览器（平台内一键安装）。
+
+    为什么不在这里直接跑 `playwright install`：容器形态下 runner 在独立容器里，
+    平台执行只会装进平台自己的文件系统，而 ``/health`` 查的是 runner 那边 ——
+    安装必须发生在**将要使用浏览器的那个进程**里，否则装完照样报"不可用"。
+
+    系统依赖（Linux 上那批 apt 包）需要 root，由 runner 按自己是不是 root 决定
+    带不带 ``--with-deps``；宿主机上的普通用户装不了，runner 会回一条可复制的
+    sudo 命令，这里原样透传给用户。
+    """
+    payload: dict = {}
+    if browsers:
+        payload["browsers"] = browsers
+    if with_deps is not None:
+        payload["withDeps"] = with_deps
+    try:
+        async with local_client(timeout=timeout + 30) as client:
+            response = await client.post(_runner_url("/install-browsers"), json=payload)
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:  # noqa: BLE001 — 与其他服务层同款：降级不抛
+        return {"success": False, "error": f"无法连接 playwright runner: {exc}",
+                "hint": "先在启动器(:5010)启动 playwright 服务，再点一次安装"}
+    if not data.get("ok"):
+        return {"success": False,
+                "error": data.get("error") or "浏览器安装失败",
+                "hint": data.get("hint"),
+                "command": data.get("command"),
+                "browsers": data.get("browsers") or []}
+    return {"success": True,
+            "browsers": data.get("browsers") or [],
+            "browsers_root": data.get("browsersRoot"),
+            "command": data.get("command"),
+            "duration_ms": data.get("durationMs")}
+
+
 async def run_cli(args: list[str], *, timeout: float = 120.0) -> dict:
     """Raw allow-listed ``playwright <subcommand>`` passthrough."""
     async with local_client(timeout=timeout) as client:

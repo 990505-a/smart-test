@@ -32,21 +32,41 @@ async def list_integrations(user: CurrentUserDep):
 class InstallRequest(BaseModel):
     force: bool = False
     version: str | None = None
+    #: 仅 playwright 用：要装哪些浏览器（留空 = chromium）与是否带系统依赖
+    browsers: list[str] | None = None
+    with_deps: bool | None = None
+
+
+async def _run_installer(name: str, body: InstallRequest) -> dict:
+    """把注册表里的 ``install`` 键分派到具体安装器。
+
+    分派表而不是一串 if：注册表那边声明 ``install="xxx"``，这里就必须有对应实现，
+    否则用户点按钮只会拿到"不支持"——那种"UI 上有按钮、后端没接线"的错位正是
+    这个模块要消灭的东西。
+    """
+    if name == "codebase-memory":
+        from src.app.services import cbm_install
+
+        return await cbm_install.install_async(body.version, force=body.force)
+    if name == "playwright":
+        from src.app.services import playwright_service
+
+        return await playwright_service.install_browsers(
+            browsers=body.browsers, with_deps=body.with_deps)
+    return {"success": False, "error": f"未实现的安装器: {name}"}
 
 
 @router.post("/{key}/install", response_model=SuccessResponse,
-             summary="平台自管安装/升级（目前仅 codebase-memory）")
+             summary="平台自管安装/升级（codebase-memory 二进制 / playwright 浏览器）")
 async def install_integration(key: str, body: InstallRequest, user: CurrentUserDep):
     item = integrations.BY_KEY.get(key)
     if item is None:
         raise HTTPException(status_code=404, detail=f"未知的外部依赖: {key}")
-    if item.install != "codebase-memory":
+    if not item.install:
         return SuccessResponse(success=False, data={
             "error": f"{item.label} 不支持平台内安装",
             "hint": item.fix_hint})
-    from src.app.services import cbm_install
-
-    result = await cbm_install.install_async(body.version, force=body.force)
+    result = await _run_installer(item.install, body)
     if result.get("success") is False:
         return SuccessResponse(success=False, data=result)
     return SuccessResponse(success=True, data=result)

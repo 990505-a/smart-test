@@ -10,6 +10,7 @@
 
 import useSWR from "swr";
 import { apiClient } from "@/lib/api-client";
+import type { SuccessResponse } from "@/app/types/api";
 
 export type IntegrationKind = "bundled" | "local_service" | "external";
 
@@ -63,17 +64,34 @@ export function useIntegrations(options?: { refreshInterval?: number }) {
 
 /** 让启动器启动这个依赖（本机模式） */
 export async function startIntegration(key: string) {
-  return apiClient.post<{ service?: string }>(`/integrations/${key}/start`, {}).then((r) => r.data);
+  const r = await apiClient.post<{ error?: string; hint?: string; service?: string }>(
+    `/integrations/${key}/start`, {});
+  return unwrapAction(r, "启动");
 }
 
-/** 平台自管安装/升级（codebase-memory） */
+/**
+ * 平台自管安装/升级（codebase-memory 二进制 / playwright 浏览器）。
+ *
+ * 失败必须抛：后端约定「API 边界不抛异常」，失败是 HTTP 200 + `success:false`，
+ * 错误与修复提示都装在 data 里。不检查的话调用方会把"失败"当"已发起"——用户
+ * 看到成功提示、界面却毫无变化（Linux 宿主机缺 root、装不上系统依赖就是这种情形，
+ * 而那条 sudo 命令正是要给他看的）。
+ */
 export async function installIntegration(key: string, force = false) {
-  return apiClient
-    .post<{ version?: string; message?: string }>(`/integrations/${key}/install`, {
-      force,
-      version: null,
-    })
-    .then((r) => r.data);
+  const r = await apiClient.post<{ error?: string; hint?: string; version?: string }>(
+    `/integrations/${key}/install`, { force, version: null });
+  return unwrapAction(r, "安装");
+}
+
+/** 把 `{success, data:{error,hint}}` 信封解成"成功返回值"或"带提示的异常"。 */
+function unwrapAction<T extends { error?: string; hint?: string }>(
+  r: SuccessResponse<T>, label: string,
+): T {
+  if (r.success === false) {
+    const d = (r.data ?? {}) as { error?: string; hint?: string };
+    throw new Error([d.error, d.hint].filter(Boolean).join(" —— ") || `${label}失败`);
+  }
+  return r.data;
 }
 
 /**
