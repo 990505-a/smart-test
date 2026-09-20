@@ -206,8 +206,40 @@ LIGHTRAG_BASE_URL_IN_DOCKER=http://lightrag:5014 \
   `tools/codebase-memory/` 挂进容器（或让 `CODEBASE_MEMORY_EXE` 指向容器内路径）；
   索引存储写在 `workspace/`，与宿主实例共享同一份时**不要同时跑两个索引进程**。
 - **Langfuse（测评追踪）**：**不在本 compose 里**——它是独立一套栈（本机跑在
-  `~/Documents/eval-platform` 的 docker，:3000；官方也给了一键自建：
-  `git clone --depth=1 https://github.com/langfuse/langfuse.git && cd langfuse && docker compose up`）。
+  `~/Documents/eval-platform` 的 docker，:3000）。
+  想自己起一套的话，推荐直接用**配套的汉化版**（界面中英切换，本平台配套 fork，
+  基线 v4.36.1；v3 汉化版在同仓库的 `main` 分支）：
+
+  ```bash
+  git clone -b v4-zh https://github.com/990505-a/eval_puls.git
+  cd eval_puls
+  docker build -f web/Dockerfile -t langfuse/langfuse:4.36.1-zh \
+    --build-arg http_proxy= --build-arg https_proxy= \
+    --build-arg HTTP_PROXY= --build-arg HTTPS_PROXY= .
+  ```
+
+  它**只替换 web 一个镜像**，postgres / clickhouse / minio / redis 与数据卷都不动，
+  所以是在官方 compose 上换一行 `image:` 的事，不是另一套部署方式。注意 worker 必须
+  与 web 同主版本，**不要退回 `:3`**：
+
+  ```yaml
+  langfuse-web:
+    image: langfuse/langfuse:4.36.1-zh                  # 原为 docker.io/langfuse/langfuse:4
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:4
+  ```
+
+  注意这个 tag **没有发布到任何 registry**（它挂在官方 Docker Hub 组织名下，
+  `docker pull` 会拿到官方原版或 not found），所以要按上面那样本地构建。
+  不想要汉化就用官方一键自建：
+  `git clone --depth=1 https://github.com/langfuse/langfuse.git && cd langfuse && docker compose up`。
+
+  **v4 的写模式必须留 `dual`**。平台的测评上报是手写 ingestion 事件
+  （`eval/langfuse_client.py` 自己拼 `trace-create`/`span-create` 走
+  `POST /api/public/ingestion`），而 v4 的 `LANGFUSE_MIGRATION_V4_WRITE_MODE=events_only`
+  会对这类事件返回 400（`score-create` 除外）。症状很难查：批次页看着正常、分数也在，
+  但轨迹一条没有、trace 直链全是空的。将来上报迁到 OTel 或官方 SDK 后再切 `events_only`。
+
   容器内的平台要访问它，用 `LANGFUSE_BASE_URL_IN_DOCKER=http://host.docker.internal:3000`。
   **不配也能跑测评**：分数照常落 `eval_batches`/`eval_case_results`，只是没有 trace 直链。
 - **飞书 lark-cli**：需要宿主已安装并登录 `lark-cli`。

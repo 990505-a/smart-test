@@ -286,13 +286,31 @@ INTEGRATIONS: tuple[Integration, ...] = (
         label="Langfuse（测评追踪）",
         kind="external",
         optional=True,
-        summary="测评 trace 与分数的可视化面板（自建 docker 栈，默认 :3000）",
+        summary="测评 trace 与分数的可视化面板（自建 docker 栈，默认 :3000；有中文汉化版）",
         absent_effect="测评照常跑、分数照常落本地，只是少一条 trace 直链与远端数据集",
         # 平台不自带这套栈：本机已经有一份（~/Documents/eval-platform 的 docker 栈，
-        # :3000），再在本仓库 compose 里起一份会撞端口、还得多养 6 个容器。官方给了
-        # 五分钟起好的路子，指向它比我们自己维护一份 YAML 更实在。
-        fix_hint="自建：git clone --depth=1 https://github.com/langfuse/langfuse.git && "
-                 "cd langfuse && docker compose up（默认 :3000）；起好后在设置页填 key",
+        # :3000），再在本仓库 compose 里起一份会撞端口、还得多养 6 个容器。所以这一行
+        # 只需回答「去哪拿」，而不是自己维护一份 YAML。
+        #
+        # 汉化版是配套的 fork（eval_puls，界面中英切换）。它**只换 web 一个镜像**，
+        # worker/postgres/clickhouse/minio/redis 与数据卷都不动——是替换件，不是另一套
+        # 部署方式，因此值得写在原版前面：中文用户拿到手就能读。
+        #
+        # 「未发布镜像」四个字是必要的：tag 挂在官方 Docker Hub 组织名下
+        # （langfuse/langfuse:*-zh），但没有推上去，`docker pull` 会拿到官方原版或
+        # not found。不写清楚，用户会先在 pull 上撞一次墙才回来找构建命令。
+        #
+        # 后半句的 dual 写模式是给 v4 打的补丁，值得占这一行：本平台的测评上报是
+        # **手写 ingestion 事件**（langfuse_client.py，自己拼 trace-create/span-create
+        # 走 POST /api/public/ingestion），而 v4 的 events_only 模式会对这类事件
+        # 返回 400。症状是「分数上得去、轨迹上不去、批次页看着正常但 trace 直链是空的」
+        # ——正是这个仓库最想避免的那种静默失败，所以在配置入口就说破。
+        fix_hint="汉化版（配套 fork，界面中英切换，基线 v4.36.1）：git clone -b v4-zh "
+                 "https://github.com/990505-a/eval_puls，再 docker build -f web/Dockerfile "
+                 "-t langfuse/langfuse:4.36.1-zh .，compose 里只换 langfuse-web 的 image"
+                 "（未发布镜像，需本地构建；worker 留在官方 :4）。v4 的写模式要留 "
+                 "dual：本平台手写 ingestion 事件，events_only 会让轨迹静默丢失。"
+                 "起好后在设置页填 key",
         probe=_probe_langfuse,
         settings_keys=("langfuse_enabled", "langfuse_base_url", "langfuse_public_key",
                        "langfuse_secret_key", "langfuse_environment"),
