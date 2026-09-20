@@ -843,10 +843,13 @@ async def delete_repo(repo_id: str, delete_index: bool = False) -> dict:
     except Exception:  # noqa: BLE001
         pass
     if delete_index:
-        await cbm_cli("delete_project", {"project": project_name(path)})
+        result = await cbm_cli("delete_project", {"project": project_name(path)})
+        if not result.get("success"):
+            return {"success": True, "index_deleted": False,
+                    "index_error": result.get("error") or "索引删除失败"}
     # 索引没了，探测缓存里那条「已建库 + 计数」立刻作废
     invalidate_probe_cache(project_name(path))
-    return {"success": True}
+    return {"success": True, "index_deleted": True}
 
 
 # ===========================================================================

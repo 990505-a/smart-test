@@ -647,6 +647,26 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
     } finally { setBusy(false); }
   };
 
+  const removeAll = async () => {
+    if (!window.confirm(
+      "确定全量删除该仓库？\n将同时删除：受管记录、图谱索引、影响报告与增量基线。\n图谱如需继续使用必须重新索引。")) return;
+    setBusy(true);
+    try {
+      const res = await apiClient.delete<{ success: boolean; index_deleted?: boolean; index_error?: string }>(
+        `/codebase/repos/${repo.id}?delete_index=true`);
+      if (res.data?.success === false) {
+        toast.error(res.data.error ?? "全量删除失败");
+      } else if (res.data?.index_deleted === false) {
+        toast.warning(`仓库已移除，但图谱索引删除失败：${res.data.index_error ?? "未知原因"}（可在对话页确认或稍后手动清理）`);
+      } else {
+        toast.success("已全量删除（含图谱索引）");
+      }
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败");
+    } finally { setBusy(false); }
+  };
+
   const loadIgnore = async () => {
     if (showIgnore) { setShowIgnore(false); return; }
     try {
@@ -686,6 +706,10 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
           </Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={remove} title="移除受管（不删图谱索引）">
             <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
+          <Button size="sm" variant="destructive" disabled={busy} onClick={removeAll}
+                  title="全量删除：受管记录 + 图谱索引 + 影响报告 + 增量基线">
+            全量删除
           </Button>
         </div>
       </Card>
