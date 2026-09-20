@@ -340,36 +340,26 @@ async def delete_model_preset(name: str, user: CurrentUserDep, db: DbSessionDep)
 
 @router.post("/model/test", response_model=SuccessResponse, summary="Test model connectivity")
 async def test_model_settings(data: SettingsUpdate, user: CurrentUserDep, db: DbSessionDep):
-    from src.app.agents.testcase.model_factory import build_test_models
+    from src.app.agents.testcase.model_factory import build_test_model
 
     svc = SettingsService(db)
     values = {k: v for k, v in data.values.items() if k in MODEL_KEYS}
     values = await svc.resolve_masked("model", values)
     try:
-        models = build_test_models(values, timeout=30)
+        model = build_test_model(values, timeout=30)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 — provider init errors must be readable
         raise HTTPException(status_code=500, detail=f"构建测试模型失败: {exc}") from exc
 
-    async def _ping(model, label: str) -> dict:
-        t0 = time.monotonic()
-        try:
-            await model.ainvoke([HumanMessage(content="连通性测试，请只回复：pong")])
-            return {"ok": True, "latency_ms": round((time.monotonic() - t0) * 1000)}
-        except Exception as exc:  # noqa: BLE001 — surface any provider error to the form
-            return {"ok": False, "error": str(exc)[:500]}
-
-    results = {"text": {**await _ping(models["text"], "text"),
-                        "model": values.get("llm_model") or values.get("deepseek_model") or "deepseek-chat"}}
-    if models["vision"] is not None:
-        results["vision"] = {**await _ping(models["vision"], "vision"),
-                             "model": values.get("vision_model")}
-    else:
-        results["vision"] = {"ok": True, "skipped": True,
-                             "model": "复用文本模型"}
-    ok = all(r.get("ok") for r in results.values())
-    return SuccessResponse(success=ok, data=results)
+    t0 = time.monotonic()
+    try:
+        await model.ainvoke([HumanMessage(content="连通性测试，请只回复：pong")])
+        result = {"ok": True, "latency_ms": round((time.monotonic() - t0) * 1000)}
+    except Exception as exc:  # noqa: BLE001 — surface any provider error to the form
+        result = {"ok": False, "error": str(exc)[:500]}
+    result["model"] = values.get("llm_model") or values.get("deepseek_model") or "deepseek-chat"
+    return SuccessResponse(success=result["ok"], data=result)
 
 
 @router.get("/platform", response_model=SuccessResponse, summary="Get platform integration settings")

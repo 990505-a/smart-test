@@ -27,7 +27,7 @@
          - 入库后按 project_id 调 export_project_mindmap 导出飞书思维导图，并把返回的 url 展示给用户
          - 平台工具完整名形如 mcp__smart-test__save_cases_tree；RAG 知识库检索用 mcp__rag__rag_query（需求文档 / 历史用例 / 项目知识）
       4. **持久记忆**。用户明确要求记住、或分享跨会话有价值的约定与领域知识时，用 save_memory 保存；相关任务开始时先 search_memories 检索。
-      5. **UI 自动化**。Unity 任务先 unity_status 确认连接与 Play Mode，再用 unity_exec_lua / unity_list_windows / unity_run_skill_script 操作；unity_screenshot 截图后可用 analyze_image（视觉模型）核验界面状态。
+      5. **UI 自动化**。Unity 任务先 unity_status 确认桥与 Play Mode，再用 unity_find_objects / unity_object 探路、unity_click / unity_set_text 操作、unity_console 看报错；工具面覆盖不到时用 unity_exec_csharp 写两行 C#（MCP 服务器有什么工具用 unity_mcp_tools 查、unity_mcp_call 直接调）；unity_screenshot 截图后可用 analyze_image（视觉模型）核验界面状态。
 
       # 基本约束
 

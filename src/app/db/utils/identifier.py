@@ -15,6 +15,10 @@ async def generate_identifier(prefix: str, lock_key: str) -> str:
     Uses SQLite-compatible approach: reads and increments a counter
     row in the identifier_seq table within a transaction.
 
+    ``RETURNING next_val - 1`` 而不是 ``RETURNING next_val``：计数器列存的是
+    "下一个待发的值"，而 UPDATE 返回的是**自增之后**的值。直接返回它会让第一个
+    标识符变成 ``PR-0002``（首号被跳掉），与"PR-0001"的约定不符——实测确认过。
+
     Args:
         prefix: Identifier prefix (e.g. 'PR', 'TC', 'TR').
         lock_key: Counter key string.
@@ -31,11 +35,11 @@ async def generate_identifier(prefix: str, lock_key: str) -> str:
             ),
             {"k": lock_key},
         )
-        # Atomically increment and return the new value
+        # Atomically increment and return the value **just issued**
         result = await session.execute(
             text(
                 "UPDATE identifier_seq SET next_val = next_val + 1 "
-                "WHERE key = :k RETURNING next_val"
+                "WHERE key = :k RETURNING next_val - 1"
             ),
             {"k": lock_key},
         )

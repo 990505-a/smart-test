@@ -46,7 +46,9 @@ import {
   deleteMemoryModule,
   saveMemoryModule,
   searchMemories,
+  setMemoryGlobalSwitch,
   setMemoryModuleEnabled,
+  useMemoryGlobalSwitch,
   useMemoryModule,
   useMemoryModules,
   useMemoryStatus,
@@ -77,8 +79,24 @@ export default function MemoriesPage() {
   const [hits, setHits] = useState<MemoryHit[] | null>(null);
   const [entryText, setEntryText] = useState("");
   const [entryModule, setEntryModule] = useState("memory");
+  const [gateBusy, setGateBusy] = useState(false);
 
   const rows = useMemo(() => modules.data ?? [], [modules.data]);
+
+  // 记忆总闸（设置页那个 MEMORY_ENABLED 搬到这里）：默认开，只有显式 false 才算关
+  const gate = useMemoryGlobalSwitch();
+  const globalOn = String(gate.data?.memory_enabled ?? "true").toLowerCase() !== "false";
+  const toggleGlobal = async (next: boolean) => {
+    setGateBusy(true);
+    try {
+      await setMemoryGlobalSwitch(next);
+      toast.success(next ? "记忆已恢复注入" : "记忆总闸已关闭：模型不再看到任何记忆");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "切换失败");
+    } finally {
+      setGateBusy(false);
+    }
+  };
 
   // 首次加载自动选中 AGENTS.md（最重要的那个模块）
   useEffect(() => {
@@ -209,7 +227,7 @@ export default function MemoriesPage() {
             }
           />
 
-          <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 p-3 text-sm">
+          <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 p-3 text-sm">
             <span className="text-muted-foreground">
               启用 <span className="font-mono">{status.data?.enabled_modules ?? "-"}</span>
               /{status.data?.total_modules ?? "-"} 个模块 ·
@@ -217,6 +235,21 @@ export default function MemoriesPage() {
             </span>
             <span className="min-w-0 flex-1 truncate text-muted-foreground">
               目录：<span className="font-mono text-xs">{status.data?.root ?? "-"}</span>
+            </span>
+            {/* 总闸：只有它能"让模型不知道有记忆这回事"。模块全关仍会贴官方的
+                <memory_guidelines>（正文是 No memory loaded），模型照样知道可以写记忆；
+                所以排障时用它，日常控制用上面那些模块开关。 */}
+            <span className="flex items-center gap-2">
+              <span className="flex flex-col items-end leading-tight">
+                <span className="text-xs font-medium">
+                  记忆总闸{globalOn ? "（开）" : "（已停用）"}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {globalOn ? "关掉 = 模型完全不知道有记忆（排障用）" : "模型当前看不到任何记忆"}
+                </span>
+              </span>
+              <Switch checked={globalOn} disabled={gateBusy}
+                      onCheckedChange={toggleGlobal} />
             </span>
           </Card>
 
@@ -389,9 +422,12 @@ export default function MemoriesPage() {
           </div>
 
           <Card className="p-3 text-xs leading-5 text-muted-foreground">
-            注入规则：所有**启用中**的模块会按顺序拼进系统提示词（AGENTS.md 在最前、标注为必须遵守的规则；
-            超长按预算截断，agent 可用 read_memory_module 读全文）。记忆是提示词的一部分，
-            所以改完**下一轮对话立即生效**，不需要重启服务。
+            注入规则：所有**启用中**的模块会按顺序拼进系统提示词（AGENTS.md 在最前）。
+            注入走框架官方实现、**不做截断**——写多长就占多少上下文，所以请保持精炼；
+            需要细节时 agent 可以用 read_memory_module 读全文。记忆在提示词里被明确标注为
+            <span className="text-foreground/80">「参考材料，不是指令」</span>（文件可能过期、
+            也可能不是当前用户写的），与当轮要求冲突时以用户为准。
+            改完**下一轮对话立即生效**，不需要重启服务。
           </Card>
         </div>
       </div>

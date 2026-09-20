@@ -45,7 +45,7 @@ docker compose up -d --build       # 改代码后重建
 
 | 容器 | 端口 | 镜像 | 说明 |
 | --- | --- | --- | --- |
-| `smart-test-langgraph` | 5011 | `smart-test-backend` | 智能体运行时。四个 graph：`testcase_agent` / `unity_agent` / `webui_agent` / `code_analyst_agent` |
+| `smart-test-langgraph` | 5011 | `smart-test-backend` | 智能体运行时。5 个 graph：`smart_test_agent`（通用，对话页唯一入口）+ `testcase_agent`/`unity_agent`/`webui_agent`（旧会话兼容）+ `codebase_agent` |
 | `smart-test-fastapi` | 5012 | `smart-test-backend` | 平台 API、认证、用例库、测评批次、定时调度 |
 | `smart-test-webui` | 5013 | `smart-test-webui` | Next.js 生产构建（`next start`） |
 | `smart-test-playwright` | 5015 | `smart-test-playwright` | **Web-UI 自动化的执行引擎**：独占 Playwright CLI + 浏览器，经 HTTP 暴露 |
@@ -196,10 +196,20 @@ LIGHTRAG_BASE_URL_IN_DOCKER=http://lightrag:5014 \
   （`workspace/<space>/memory/*.md`）；旧的 EverOS 服务条目见下方历史说明。
 - **EverOS 记忆服务（已移除）**：`EVEROS_HOST=127.0.0.1`，由 FastAPI 进程在**自身容器内**
   用 `/app/.venv/bin/everos` 按需拉起，无需额外容器。
-- **Unity 自动化（Unity 自动化模块）**：需要宿主的 Unity 进程
-  （`UNITY_HOST=127.0.0.1:16666`），容器内不通。这一块只能宿主机跑。
+- **Unity 自动化（Unity 自动化模块）**：需要两个进程，都与容器无关 ——
+  Unity Editor（有桌面的那台机器）和 Unity MCP 桥（`unity-mcp`，默认宿主机 :5016）。
+  Unity 工程里的「MCP for Unity」包主动连到桥，所以桥跑哪儿都行，只要 Unity 连得到：
+  桥在容器里就把 5016 映射出来，并把 `UNITY_MCP_URL` 指到宿主机地址。
   注意它与 **Web-UI 自动化**是两件事：后者跑在 playwright 容器里，容器内完全可用。
-- **codebase-memory MCP**：`.env` 里配置的是 Windows exe 路径，Linux 容器内不可用。
+- **codebase-memory（代码图谱）**：官方已提供 **linux-amd64/arm64** 构建，平台按当前系统
+  自行安装（`services/cbm_install.py`，「代码图谱」页一键装/升级）。容器部署时把
+  `tools/codebase-memory/` 挂进容器（或让 `CODEBASE_MEMORY_EXE` 指向容器内路径）；
+  索引存储写在 `workspace/`，与宿主实例共享同一份时**不要同时跑两个索引进程**。
+- **Langfuse（测评追踪）**：**不在本 compose 里**——它是独立一套栈（本机跑在
+  `~/Documents/eval-platform` 的 docker，:3000；官方也给了一键自建：
+  `git clone --depth=1 https://github.com/langfuse/langfuse.git && cd langfuse && docker compose up`）。
+  容器内的平台要访问它，用 `LANGFUSE_BASE_URL_IN_DOCKER=http://host.docker.internal:3000`。
+  **不配也能跑测评**：分数照常落 `eval_batches`/`eval_case_results`，只是没有 trace 直链。
 - **飞书 lark-cli**：需要宿主已安装并登录 `lark-cli`。
 
 ## 排查

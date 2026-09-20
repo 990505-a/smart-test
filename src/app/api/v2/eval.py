@@ -30,22 +30,11 @@ from src.app.core.config import settings
 from src.app.db.models.eval_run import EvalBatch, EvalCaseResult
 from src.app.db.schemas.common import SuccessResponse
 from src.app.eval import live as live_mod
+# 「按生效配置构造客户端」的唯一定义在 eval 模块内（就绪中心走同一条路径，
+# 免得不配 Langfuse 时两处的判断结果不一致）
+from src.app.eval.langfuse_client import langfuse_client_for
 
 logger = logging.getLogger(__name__)
-
-
-def langfuse_client_for(values: dict[str, str]):
-    """按生效配置构造 Langfuse 客户端（设置页优先，其次 .env）。"""
-    from src.app.eval.langfuse_client import LangfuseClient
-
-    enabled = str(values.get("langfuse_enabled", "")).strip().lower() not in ("", "0", "false", "no")
-    # 地址翻译在 LangfuseClient 构造函数里做（唯一入口）
-    return LangfuseClient(
-        host=values.get("langfuse_base_url") or None,
-        public_key=values.get("langfuse_public_key") or None,
-        secret_key=values.get("langfuse_secret_key") or None,
-        enabled=enabled,
-    )
 
 router = APIRouter(prefix="/eval")
 
@@ -142,7 +131,6 @@ async def eval_status(user: CurrentUserDep, db: DbSessionDep):
                   "configured": bool(endpoint.api_key), "source": endpoint.source,
                   "explicit_model": judge_values.get("judge_model") or ""},
         "datasets_dir": str(DEFAULT_DATASET_DIR),
-        "max_repair": settings.eval_max_repair,
     })
 
 
@@ -230,7 +218,6 @@ class DatasetPayload(BaseModel):
     name: str
     description: str | None = None
     agent: str = "webui_agent"
-    max_repair: int | None = None
     items: list[DatasetItemPayload]
 
 
@@ -280,7 +267,7 @@ def _payload_to_dict(data: DatasetPayload) -> dict:
             entry["metadata"] = item.metadata
         items.append(entry)
     return {"name": data.name.strip(), "description": data.description, "agent": data.agent,
-            "max_repair": data.max_repair, "items": items}
+            "items": items}
 
 
 def _validate_payload(data: DatasetPayload) -> None:

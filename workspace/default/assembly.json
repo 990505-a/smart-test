@@ -1,0 +1,146 @@
+{
+  "version": 2,
+  "agents": [
+    {
+      "id": "general",
+      "label": "通用测试助手",
+      "description": "什么活都能接：用例生成、Unity / Web-UI 自动化、代码分析。按能力分诊，自己判断用哪一类。",
+      "capabilities": [
+        "testcase",
+        "unity",
+        "webui",
+        "codebase",
+        "rag"
+      ]
+    },
+    {
+      "id": "api",
+      "label": "接口智能体",
+      "description": "专门进行接口探索扫描",
+      "capabilities": []
+    }
+  ],
+  "capabilities": [
+    {
+      "key": "testcase",
+      "label": "用例生成",
+      "description": "需求分析、测试用例设计与入库、用例文档的 Lint/复核/批准发布、飞书导图交付。",
+      "domain_prompt": "### 用例生成\n\n需求澄清 → 用例 MD 文档 → Lint → 独立复核 → 人工批准/发布。产物入库到\n「用例库」，可用飞书导图交付。\n\n- **先读证据再动手**：读需求文件（用户一般只给文件名，去 `requirements/` 找；\n  上传的 PDF/Markdown 按消息里的绝对路径读），再读通用工作流 Skill。\n  不能把模型常识当成产品规则。\n- **先存需求包再生成**：`save_requirement_package` 记录目标/REQ-ID/验收例子/范围/\n  风险/未知项/覆盖计划；未解决的高风险项必须标 blocking，不要把猜测写成事实。\n- **机器可追踪**：每条用例标题下用 HTML 注释存元数据\n  `<!-- CASE: CASE-…; REQ: REQ-…; RISK: RISK-… -->`；标题保持纯业务标题。\n- **保存后必须 Lint**：`lint_case_document` 报 blocking error 就先修（自动修复最多 2 轮）。\n  Lint 不过只能报草稿，不得声称已通过。\n- **独立复核**：`review_case_document` 是评审器给的**问题清单**，不是你自评。\n- 批准/发布是不可逆业务动作，会弹审批卡片由用户确认。\n",
+      "tools": [
+        "src.app.agents.testcase.tools.case_doc_tools:save_case_document",
+        "src.app.agents.testcase.tools.case_doc_tools:read_case_document",
+        "src.app.agents.testcase.tools.case_doc_tools:list_case_documents",
+        "src.app.agents.testcase.tools.case_doc_tools:save_requirement_package",
+        "src.app.agents.testcase.tools.case_doc_tools:lint_case_document",
+        "src.app.agents.testcase.tools.case_doc_tools:review_case_document",
+        "src.app.agents.testcase.tools.case_doc_tools:get_case_workflow_status",
+        "src.app.agents.testcase.tools.case_doc_tools:approve_case_document",
+        "src.app.agents.testcase.tools.case_doc_tools:release_case_document",
+        "src.app.agents.testcase.tools.case_doc_tools:get_beijing_timestamp",
+        "src.app.agents.testcase.tools.feishu_tools:export_project_mindmap",
+        "src.app.agents.testcase.tools.feishu_tools:check_feishu_status",
+        "src.app.agents.testcase.tools.memory_tools:MEMORY_TOOLS"
+      ],
+      "skills": [
+        "testcase-workflow",
+        "large-system-testing",
+        "lark-doc",
+        "lark-drive",
+        "lark-shared"
+      ],
+      "requires_repo": false,
+      "gated": [
+        "approve_case_document",
+        "release_case_document"
+      ]
+    },
+    {
+      "key": "unity",
+      "label": "Unity 自动化",
+      "description": "经标准 MCP 操作 Unity：对象查询、控件操作、编辑器控制、任意 C#、用例脚本沉淀与回归。",
+      "domain_prompt": "### Unity 客户端自动化\n\n经**标准 MCP** 操作 Unity（对象查询 / 编辑器控制 / 任意 C#）——与具体游戏无关：\n\"这个游戏怎么登入、按钮叫什么\"靠现场探索、沉淀成用例，不写死在工具里。\n\n- 动手前先 `unity_status`：桥不在（available=false）就如实报告，不要反复重试。\n- 运行时对象只在 Play Mode 存在：`unity_editor(\"play\")` → `unity_wait_for(\"<登录窗/主界面>\")`。\n- **探索顺序（照这个来，别猜对象名）**：\n  1. `unity_hierarchy()` 看全貌 —— 路径 / 是否显示 / 组件 / **界面上的文本**一次摊开；\n     要钻某个面板就 `unity_hierarchy(root=\"MainCanvas/NormalUI\")`。猜名字（\"TalkUI\"/\"UI\"）\n     又慢又容易全落空。\n  2. 中文界面直接用界面上的字找：`unity_find_by_text(\"背包\")` —— 返回写着这句话的对象\n     与**往上最近的可点祖先**（uGUI 按钮的标签挂在子节点上，那个祖先就是要点的东西）。\n  3. 读面板内容用 `unity_object_text(\"BagUIPanel(Clone)\")`（整棵子树的文字）；读单个控件\n     的组件/字段用 `unity_object`。\n  4. 再操作（`unity_click` / `unity_set_text`）→ `unity_wait_for` → 断言。\n  `unity_find_objects` 留着按**组件**找（`component=\"Button\"`）或已知名字精确查。\n- **该看一眼就看一眼**：读组件只能回答\"这个对象在不在、写了什么\"，回答不了\"界面上到底\n  有没有、长什么样\"。不确定有没有入口 / 刚打开一个面板 / 点了没反应 / 断言失败时，\n  `unity_screenshot()` 拿路径 → `read_file(那个路径)` 看图（模型有视觉能力，这条链路是通的）。\n  **图判断\"是不是这样\"，文本（hierarchy / find_by_text）决定\"点哪儿\"** —— 别只用一种。\n- **操作后必看 `unity_console`**：Unity 侧异常不会让调用失败，只会安静地写进\n  Console —— 不读就会把\"点了个寂寞\"当成通过。\n- **复位（回到起点）**：`unity_reset(scene=…, wait_for=…)` = 退 Play → 打开起跑场景 →\n  再进 Play → 等标志物回来。探索走到一半想重来时用它（**别自己拼 stop/play**：少了\n  \"等标志物回来\"这一步，后面全在跟半加载的界面较劲）。\n- 工具面覆盖不到时用 `unity_exec_csharp` 写两行 C#（拖拽/滑动/调业务方法/造前置\n  数据）；服务器换了或升级后包装工具报\"参数不对\"，用 `unity_mcp_tools` 看真实\n  工具与 schema，再 `unity_mcp_call` 直接调 —— 这条路永远不用改平台代码。\n- **沉淀用例要写起跑线**：用例里声明模块级常量\n  `RESET = {\"scene\": \"<起跑场景路径>\", \"wait_for\": \"<起跑线标志物>\"}`（普通游戏就是\n  \"打开哪张地图/哪个界面 + 等哪个对象出现\"）。平台每次执行前自动复位到那儿，\n  用例之间互不污染。不写也能跑：跑通一次后平台会记住当时现场并自动兜底，但显式写\n  下来才算把前置说清楚了（手工前置 —— \"先打开某个场景再进 Play\" —— 应该变成 RESET，\n  而不是写在注释里让人照着做）。\n- 沉淀：跑通的脚本 `unity_save_script` 入库；改库里的用例要先 `unity_get_script`\n  读回源码，验证后带 `script_id` 覆盖，不要新建第二份（否则同一场景两条用例漂移）。\n",
+      "tools": [
+        "src.app.agents.unity.tools:unity_status",
+        "src.app.agents.unity.tools:unity_find_objects",
+        "src.app.agents.unity.tools:unity_hierarchy",
+        "src.app.agents.unity.tools:unity_find_by_text",
+        "src.app.agents.unity.tools:unity_object_text",
+        "src.app.agents.unity.tools:unity_object",
+        "src.app.agents.unity.tools:unity_console",
+        "src.app.agents.unity.tools:unity_editor",
+        "src.app.agents.unity.tools:unity_reset",
+        "src.app.agents.unity.tools:unity_click",
+        "src.app.agents.unity.tools:unity_set_text",
+        "src.app.agents.unity.tools:unity_wait_for",
+        "src.app.agents.unity.tools:unity_screenshot",
+        "src.app.agents.unity.tools:unity_exec_csharp",
+        "src.app.agents.unity.tools:unity_run_tests",
+        "src.app.agents.unity.tools:unity_mcp_tools",
+        "src.app.agents.unity.tools:unity_mcp_call",
+        "src.app.agents.unity.tools:unity_generate_script",
+        "src.app.agents.unity.tools:unity_run_script",
+        "src.app.agents.unity.tools:unity_save_script",
+        "src.app.agents.unity.tools:unity_get_script",
+        "src.app.agents.unity.tools:unity_list_scripts"
+      ],
+      "skills": [
+        "unity-ui-test"
+      ],
+      "requires_repo": false,
+      "gated": []
+    },
+    {
+      "key": "webui",
+      "label": "Web-UI 自动化",
+      "description": "浏览器 UI 用例：写/跑 Playwright spec、截图核验、失败定位、用例入库与回归。",
+      "domain_prompt": "### Web / H5 自动化\n\nPlaywright CLI 驱动：先定位（locator）→ 再操作（action）→ 后断言（assert）。\n执行器是平台的 playwright-runner sidecar。\n\n- 任何执行前先 `webui_runner_status` 确认 runner 在线；离线就报告，不要反复重试。\n- `webui_run_spec` 是核心：传 spec 全文，拿回 status / report.tests[] / artifacts / output。\n- 入库：跑通后 `webui_save_script`。**改库里的用例**：`webui_list_scripts` 找 id →\n  `webui_get_script` 读回源码 → 改 → 验证 → 带 `script_id` 覆盖（版本号自动 +1），\n  不要新建一份，否则同一场景会有两条互相漂移的用例。\n- 对话页的执行是临时执行，签不出分享链接；报告里写运行目录相对路径即可。\n",
+      "tools": [
+        "src.app.agents.webui.tools:webui_runner_status",
+        "src.app.agents.webui.tools:webui_generate_spec",
+        "src.app.agents.webui.tools:webui_run_spec",
+        "src.app.agents.webui.tools:webui_screenshot",
+        "src.app.agents.webui.tools:webui_cli",
+        "src.app.agents.webui.tools:webui_save_script",
+        "src.app.agents.webui.tools:webui_get_script",
+        "src.app.agents.webui.tools:webui_list_scripts"
+      ],
+      "skills": [
+        "web-ui-test"
+      ],
+      "requires_repo": false,
+      "gated": []
+    },
+    {
+      "key": "codebase",
+      "label": "代码分析",
+      "description": "对着一个仓库做代码问答：功能定位、调用链、影响面（图谱工具 + 文件工具）。",
+      "domain_prompt": "### 代码分析\n\n对着**本次会话挂载的仓库**（工作区说明里给的那个路径）做代码问答：功能定位、调用链、\n影响面。图谱工具与文件工具是两条腿：\n\n- 图谱可用时（该仓库已在「代码图谱」建索引）：`repo_architecture` 看整体，\n  `graph_search` 找符号 → `trace_symbol` 追调用链 → `read_symbol` 读定义源码。\n  结构化答案比 grep 可靠，涉及\"谁调用它 / 改了会影响谁\"时优先走图谱。\n- **图谱不可用就退回文件工具**：没挂载仓库、或仓库没建索引时，用\n  `grep` / `glob` / `read_file` 按绝对路径读。用户临时让你看一个没注册过的仓库，\n  直接问他要绝对路径然后 grep/read，不要因为\"没索引\"就拒绝。\n- **只读**：绝不修改被分析仓库的任何文件（改写它需要用户审批，也不该顺手做）。\n  要落盘产物写到工作区或产物目录。\n- 结论给 `文件路径:行号` 或符号名当证据；检索不到就如实说，不要凭常识编。\n",
+      "tools": [
+        "src.app.agents.codebase.tools:repo_architecture",
+        "src.app.agents.codebase.tools:graph_search",
+        "src.app.agents.codebase.tools:trace_symbol",
+        "src.app.agents.codebase.tools:read_symbol"
+      ],
+      "skills": [],
+      "requires_repo": true,
+      "gated": []
+    },
+    {
+      "key": "rag",
+      "label": "知识库",
+      "description": "检索已入库的需求文档/历史用例/项目约定，也可把资料存进知识库。",
+      "domain_prompt": "### 知识库\n\n平台知识库（LightRAG）里存的是**已经入库的需求文档、历史用例与项目约定**。问\n\"文档里是怎么规定的\"\"以前有没有类似场景\"时先检索，不要凭记忆答。\n\n- **先确认在线**：`rag_health`（可带 `kb`）；不在线就如实报告并让用户在「知识库」页\n  启动，不要反复重试同一件事。\n- **一个库一个项目**：平台里可以有多个知识库（每个是独立实例，数据互不可见），\n  例如\"若依后台\"和\"群侠传\"各一个。动手前先 `rag_list_kbs` 看有哪些库，再按项目\n  选 `kb`；库名不确定就问用户，别猜——问错库会拿到别的项目的资料或空手而归，\n  而这两种看起来都像\"知识库里没有\"。\n- **检索带来源**：`rag_query`（默认 hybrid）。把回答连同 references 里的出处一起转述；\n  检索不到就说\"知识库里没有\"，不要用常识补成事实。\n- **入库**：用户说\"记进知识库/存起来\"时，贴的文本用 `rag_ingest_text`（给个能认出来的\n  `file_source`），文件用 `rag_ingest_file`（走绝对路径）。入库是**异步解析**，\n  刚返回成功时还检索不到，用 `rag_list_documents` 看解析状态。写哪个库必须问清楚：\n  资料进错库等于放进了另一个项目。\n- **它和工作区是两回事**：知识库里只有显式入库过的东西。工作区的文件用\n  `read_file` / `grep` 直接读，不要指望它已经进了知识库。\n- **平台里不做的事**：删除文档、重新解析、图谱可视化与实体/关系编辑都在 LightRAG\n  自带界面里做（「知识库」页有直达地址），平台侧只做展示与检索验证。\n",
+      "tools": [
+        "src.app.agents.rag.tools:rag_list_kbs",
+        "src.app.agents.rag.tools:rag_health",
+        "src.app.agents.rag.tools:rag_query",
+        "src.app.agents.rag.tools:rag_ingest_text",
+        "src.app.agents.rag.tools:rag_ingest_file",
+        "src.app.agents.rag.tools:rag_list_documents"
+      ],
+      "skills": [],
+      "requires_repo": false,
+      "gated": []
+    }
+  ]
+}

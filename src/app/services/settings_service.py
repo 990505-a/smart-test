@@ -12,16 +12,13 @@ from src.app.core.config import settings as env_settings
 from src.app.db.models.setting import SettingKV
 
 # Model settings keys -> env var names used by the agent processes.
-# The settings page renders only the text/vision model fields; the remaining
-# keys stay in the map so their values round-trip untouched and keep syncing
-# to .env (LLM_PROVIDER is derived from LLM_BASE_URL in model_factory).
+# The settings page renders only the main model fields; the remaining keys stay
+# in the map so their values round-trip untouched and keep syncing to .env
+# (LLM_PROVIDER is derived from LLM_BASE_URL in model_factory).
 MODEL_KEYS: dict[str, str] = {
     "llm_model": "LLM_MODEL",
     "llm_base_url": "LLM_BASE_URL",
     "llm_api_key": "LLM_API_KEY",
-    "vision_model": "VISION_MODEL",
-    "vision_base_url": "VISION_BASE_URL",
-    "vision_api_key": "VISION_API_KEY",
     "llm_context_window": "LLM_CONTEXT_WINDOW",
     "llm_reasoning_effort": "LLM_REASONING_EFFORT",
     "deepseek_api_key": "DEEPSEEK_API_KEY",
@@ -37,17 +34,25 @@ PLATFORM_KEYS: dict[str, str] = {
     "feishu_folder_token": "FEISHU_FOLDER_TOKEN",
     "feishu_template_mindnote_id": "FEISHU_TEMPLATE_MINDNOTE_ID",
     "lightrag_base_url": "LIGHTRAG_BASE_URL",
+    "lightrag_working_dir": "LIGHTRAG_WORKING_DIR",
+    # LightRAG 的 LLM 绑定（实体抽取/生成用）。留空各自回退平台主模型——
+    # 过去启动器把它写死成 api.deepseek.com，配的却是别家的 key，入库/检索必 401。
+    "lightrag_llm_base_url": "LIGHTRAG_LLM_BASE_URL",
+    "lightrag_llm_model": "LIGHTRAG_LLM_MODEL",
+    "lightrag_llm_api_key": "LIGHTRAG_LLM_API_KEY",
     "lightrag_embedding_base_url": "LIGHTRAG_EMBEDDING_BASE_URL",
     "lightrag_embedding_model": "LIGHTRAG_EMBEDDING_MODEL",
     "lightrag_embedding_api_key": "LIGHTRAG_EMBEDDING_API_KEY",
+    "lightrag_embedding_dim": "LIGHTRAG_EMBEDDING_DIM",
     "codebase_memory_exe": "CODEBASE_MEMORY_EXE",
     "codebase_graph_port": "CODEBASE_GRAPH_PORT",
     "codebase_schedule_enabled": "CODEBASE_SCHEDULE_ENABLED",
     "codebase_interval_hours": "CODEBASE_INTERVAL_HOURS",
-    "game_repo_path": "GAME_REPO_PATH",
-    "game_client_repo": "GAME_CLIENT_REPO",
-    "unity_host": "UNITY_HOST",
-    "unity_port": "UNITY_PORT",
+    "codebase_analyze_enabled": "CODEBASE_ANALYZE_ENABLED",
+    "unity_mcp_url": "UNITY_MCP_URL",
+    "unity_mcp_transport": "UNITY_MCP_TRANSPORT",
+    "unity_mcp_command": "UNITY_MCP_COMMAND",
+    "unity_mcp_server": "UNITY_MCP_SERVER",
     "memory_enabled": "MEMORY_ENABLED",
     "api_auto_max_repair": "API_AUTO_MAX_REPAIR",
 }
@@ -63,8 +68,8 @@ LANGFUSE_KEYS: dict[str, str] = {
     "langfuse_environment": "LANGFUSE_ENVIRONMENT",
 }
 
-SECRET_KEYS = {"llm_api_key", "vision_api_key", "deepseek_api_key",
-               "lightrag_embedding_api_key",
+SECRET_KEYS = {"llm_api_key", "deepseek_api_key",
+               "lightrag_llm_api_key", "lightrag_embedding_api_key",
                "langfuse_secret_key", "langfuse_monitor_secret_key", "judge_api_key"}
 
 # LLM 裁判（测评打分）-> env var names。三个都可以留空：留空表示**继承主 LLM**

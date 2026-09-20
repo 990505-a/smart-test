@@ -88,7 +88,7 @@ def _extract_text_from_bytes(file_bytes: bytes, filename: str, mime_type: str) -
 
     # PDF extraction
     try:
-        from app.processors.pdf import extract_pdf_text
+        from src.app.processors.pdf import extract_pdf_text
 
         return extract_pdf_text(file_bytes, filename)
     except ImportError:

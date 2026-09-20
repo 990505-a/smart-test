@@ -60,8 +60,8 @@ export function useMemoryModule(id: string | null) {
   });
 }
 
-/** 任何写入后刷新所有 /memories 的缓存（列表 + 详情 + 状态） */
-export function revalidateMemories() {
+/** 任何写入后刷新所有 /memories 的缓存（列表 + 详情 + 状态）。仅本模块内部使用 */
+function revalidateMemories() {
   void globalMutate(
     (key) => typeof key === "string" && key.startsWith(MEMORY_KEY_PREFIX),
     undefined,
@@ -108,4 +108,30 @@ export async function searchMemories(query: string, limit = 8) {
   const response = await apiClient.post<{ count: number; hits: MemoryHit[] }>(
     "/memories/search", { query, limit });
   return response.data;
+}
+
+/**
+ * 记忆总闸（设置页那个 `MEMORY_ENABLED`）。
+ *
+ * 它和"模块开关"不是一回事，所以没有随总开关一起删掉、而是搬到了本页：
+ *  - 模块全关：官方模板**照旧注入**（正文是"No memory loaded"），模型仍然知道
+ *    "我有记忆、可以用 edit_file 写记忆"——它照样会写；
+ *  - 总闸关掉：`sources` 为空 **且** 模板不贴，模型完全不知道记忆这回事。
+ * 所以排障（怀疑记忆在带偏行为、想让它彻底闭嘴）只有这个闸能做到。
+ *
+ * 读写走平台设置 API（`memory_enabled` 是 PLATFORM_KEYS 里的一项），与设置页
+ * 当年的写法一致：存 DB + 同步 .env。
+ */
+export function useMemoryGlobalSwitch() {
+  return useSWR("/settings/platform?memory-gate", () =>
+    fetcher<Record<string, string | null>>("/settings/platform"));
+}
+
+export async function setMemoryGlobalSwitch(enabled: boolean) {
+  const res = await apiClient.put("/settings/platform", {
+    values: { memory_enabled: enabled ? "true" : "false" },
+  });
+  await globalMutate("/settings/platform?memory-gate");
+  revalidateMemories();
+  return res.data;
 }

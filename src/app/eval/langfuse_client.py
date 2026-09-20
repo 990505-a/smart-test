@@ -238,3 +238,19 @@ class LangfuseClient:
                     return body
             time.sleep(interval_s)
         return latest
+
+
+def langfuse_client_for(values: dict[str, str]) -> "LangfuseClient":
+    """按生效配置构造客户端（设置页优先，其次 .env）。
+
+    唯一入口：测评 API 与就绪中心都走这条，免得不配 Langfuse 时两边判断不一致。
+    """
+    enabled = str(values.get("langfuse_enabled", "")).strip().lower() not in (
+        "", "0", "false", "no")
+    # 地址翻译在构造函数里做（container_reachable_host）
+    return LangfuseClient(
+        host=values.get("langfuse_base_url") or None,
+        public_key=values.get("langfuse_public_key") or None,
+        secret_key=values.get("langfuse_secret_key") or None,
+        enabled=enabled,
+    )

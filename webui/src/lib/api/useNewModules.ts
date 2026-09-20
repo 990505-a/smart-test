@@ -4,6 +4,7 @@
 
 import useSWR from "swr";
 import { apiClient, apiV2Url } from "@/lib/api-client";
+import type { SuccessResponse } from "@/app/types/api";
 
 const fetcher = <T,>(path: string) => apiClient.get<T>(path).then((r) => r.data);
 
@@ -77,19 +78,83 @@ export interface UnityScriptRun {
   status: string;
   exit_code: number | null;
   output: string | null;
+  /** 老字段：产物绝对路径的 JSON 数组（新前端读 artifacts，这里仍保留兼容） */
   screenshots: string | null;
+  /** 产物清单：截图 / 录像 / 步骤轨迹 / 失败现场文本 */
+  artifacts: UnityArtifact[] | null;
+  /** 本次执行的步骤轨迹（每个动作一行：点了什么、成了没有、耗时） */
+  steps: UnityStep[] | null;
   duration_ms: number | null;
   triggered_by: string;
+  /** 取产物的只读签名（`<img>` / `<video>` 带不上自定义头） */
+  share_sig?: string;
+  /** 产物清单还在但文件已被清理：不能画缩略图，得说清楚 */
+  artifacts_pruned?: boolean;
+  /** 卡在 running 太久（进程被杀/容器重启），不该继续显示"运行中" */
+  stale_running?: boolean;
+  /** 还在跑：已经跑了多久（跑完才有 duration_ms，这个是给"进行中"看的） */
+  elapsed_ms?: number | null;
   created_at: string | null;
+}
+
+export interface UnityArtifact {
+  index: number;
+  name: string;
+  path: string;
+  size: number | null;
+  kind: "image" | "video" | "text" | "html" | "trace" | "file";
+  pruned: boolean;
+  /** 平台给的直链（已带签名） */
+  url: string;
+}
+
+/** 删掉一条用例的结果：顺带清掉了多少执行记录与磁盘产物（给人一个交代）。 */
+export interface UnityDeleteResult {
+  deleted: boolean;
+  runs: number;
+  files: number;
+  bytes: number;
+  error?: string;
+}
+
+export interface UnityStep {
+  i: number;
+  /** 相对本次执行开始的秒数 */
+  t: number;
+  action: string;
+  target?: string;
+  ms: number;
+  ok: boolean;
+  error?: string;
 }
 
 export interface UnityStatus {
   available: boolean;
   error?: string;
   hint?: string;
-  server?: Record<string, unknown>;
-  editor?: { isPlaying?: boolean; isPaused?: boolean };
-  is_playing?: boolean;
+  transport?: string;
+  endpoint?: string;
+  server?: { name?: string; version?: string; protocol?: string };
+  flavor?: string;
+  tool_count?: number;
+  editor?: { isPlaying?: boolean; isPaused?: boolean; state?: string } | null;
+  is_playing?: boolean | null;
+  unity_connected?: boolean;
+}
+
+export interface UnityMcpTool {
+  name: string;
+  description: string;
+  schema: Record<string, unknown>;
+}
+
+export interface UnityTools {
+  success: boolean;
+  count?: number;
+  flavor?: string;
+  server?: { name?: string; version?: string };
+  tools?: UnityMcpTool[];
+  error?: string;
 }
 
 export interface FeishuStatus {
@@ -133,16 +198,48 @@ export function useUnityScripts() {
   return useSWR("/unity-auto/scripts", () => fetcher<UnityScript[]>("/unity-auto/scripts"));
 }
 
+/** 删掉一条 Unity 用例：执行记录与磁盘产物（截图/录像/起跑线）由后端一起清。 */
+export function deleteUnityScript(scriptId: string) {
+  return apiClient
+    .delete<SuccessResponse<UnityDeleteResult>>(`/unity-auto/scripts/${scriptId}`)
+    .then((r) => r.data);
+}
+
 export function useUnityScriptRuns(scriptId: string | null) {
   return useSWR(scriptId ? `/unity-auto/scripts/${scriptId}/runs` : null, () =>
-    fetcher<UnityScriptRun[]>(`/unity-auto/scripts/${scriptId}/runs`)
-  );
+    fetcher<UnityScriptRun[]>(`/unity-auto/scripts/${scriptId}/runs`), {
+    // 有执行在跑就轮询：历史列表里的状态也要自己变（不用手动刷新）
+    refreshInterval: (data) => (data?.some((r) => r.status === "running" && !r.stale_running) ? 3000 : 0),
+    refreshWhenHidden: true,
+    revalidateOnFocus: true,
+  });
+}
+
+/** 单条执行记录：执行是后台跑的，还在 running 时按 2s 轮询，跑完自动停。 */
+export function useUnityRun(runId: string | null) {
+  return useSWR(runId ? `/unity-auto/runs/${runId}` : null, () =>
+    fetcher<UnityScriptRun>(`/unity-auto/runs/${runId}`), {
+    refreshInterval: (data) => (data && data.status === "running" && !data.stale_running ? 2000 : 0),
+    // **必须**：SWR 默认在页面不可见时暂停轮询，而这个页面常常在后台（人在聊天页看
+    // 智能体、或在别的窗口等结果）—— 暂停的结果就是"跑完了还显示运行中"（实测）。
+    refreshWhenHidden: true,
+    revalidateOnFocus: true,
+  });
 }
 
 export function useUnityStatus() {
   return useSWR("/unity-auto/status", () => fetcher<UnityStatus>("/unity-auto/status"), {
     refreshInterval: 15000,
   });
+}
+
+export function useUnityTools() {
+  return useSWR("/unity-auto/tools", () => fetcher<UnityTools>("/unity-auto/tools"));
+}
+
+/** Unity 产物直链（后端给的就是带签名的 URL，这里只补 API 前缀）。 */
+export function unityArtifactUrl(artifact: Pick<UnityArtifact, "url">) {
+  return apiV2Url(artifact.url);
 }
 
 // --- Web-UI automation (Web-UI 自动化模块, Playwright CLI) ------------------
@@ -526,8 +623,10 @@ export function useModelPresets() {
 }
 
 export interface ModelTestResult {
-  text: { ok: boolean; latency_ms?: number; error?: string; model?: string };
-  vision: { ok: boolean; latency_ms?: number; error?: string; model?: string; skipped?: boolean };
+  ok: boolean;
+  latency_ms?: number;
+  error?: string;
+  model?: string;
 }
 
 export function testModelConnection(values: Record<string, string>) {
@@ -565,8 +664,19 @@ export interface CbmStatus {
   available: boolean;
   error: string | null;
   exe: string;
+  /** 配置的 exe 是否真的在盘上（与 available 区分：不在盘上 = 该安装了） */
+  exe_present?: boolean;
   projects: CbmProject[];
   graph_daemon: { up: boolean; port: number };
+  /** 平台自管安装状态（官方 release，见 services/cbm_install.py） */
+  install?: {
+    managed_dir?: string;
+    installed_version?: string | null;
+    target_version?: string;
+    asset?: string;
+    supported?: boolean;
+    upgradable?: boolean;
+  };
 }
 
 export interface CbmRepo {
@@ -580,6 +690,8 @@ export interface CbmRepo {
   file_type_mode: "all" | "include" | "exclude";
   file_types: string[];
   auto_increment: boolean;
+  auto_analyze: boolean;
+  last_commit: string | null;
   last_index_at: string | null;
   last_index_mode: string | null;
 }
@@ -611,7 +723,34 @@ export interface CbmSchedule {
   success: boolean;
   enabled: boolean;
   interval_hours: number;
+  analyze_enabled: boolean;
   next_run: string | null;
+}
+
+/** 一次「增量影响分析」的产物（无头 codebase_agent 的报告）。 */
+export interface CbmImpactReport {
+  id: string;
+  repo_id: string;
+  repo_path: string;
+  repo_name: string;
+  index_run_id: string | null;
+  trigger: string;
+  status: "running" | "success" | "failed" | string;
+  model: string | null;
+  summary: string | null;
+  counts: { added?: number; modified?: number; deleted?: number; files_total?: number };
+  changes: {
+    added: string[];
+    modified: string[];
+    deleted: string[];
+    truncated: boolean;
+    git: { base?: string; head?: string; name_status?: string[]; stat?: string } | null;
+  };
+  file_path: string | null;
+  error: string | null;
+  created_at: string | null;
+  /** 仅详情接口返回 */
+  content_md?: string;
 }
 
 export function useCbmStatus() {
@@ -675,6 +814,33 @@ export function fetchCbmIgnore(repoId: string) {
   return apiClient
     .get<{ success: boolean; exists: boolean; content: string; managed_present: boolean }>(
       `/codebase/repos/${repoId}/cbmignore`)
+    .then((r) => r.data);
+}
+
+/** 影响报告列表；有报告在生成中就加快轮询。 */
+export function useCbmImpactReports(limit = 50, repoId?: string) {
+  const key = `/codebase/impact-reports?limit=${limit}${repoId ? `&repo_id=${repoId}` : ""}`;
+  return useSWR(key, () => fetcher<{ success: boolean; reports: CbmImpactReport[] }>(key), {
+    refreshInterval: (latest?: { reports: CbmImpactReport[] }) =>
+      latest?.reports?.some((r) => r.status === "running") ? 3000 : 15000,
+  });
+}
+
+export function fetchCbmImpactReport(reportId: string) {
+  return apiClient
+    .get<{ success: boolean; report: CbmImpactReport }>(`/codebase/impact-reports/${reportId}`)
+    .then((r) => (r.data.success ? r.data.report : null));
+}
+
+export function deleteCbmImpactReport(reportId: string) {
+  return apiClient.delete(`/codebase/impact-reports/${reportId}`);
+}
+
+/** 手动对单个仓库跑一次影响分析（后台执行；即使本轮无变更也跑）。 */
+export function triggerCbmAnalyze(repoId: string) {
+  return apiClient
+    .post<{ success: boolean; data: { started: boolean } }>(
+      `/codebase/repos/${repoId}/analyze`, {})
     .then((r) => r.data);
 }
 
@@ -790,7 +956,6 @@ export interface EvalDatasetDetail {
   name: string;
   description?: string | null;
   agent: string;
-  max_repair?: number | null;
   items: EvalDatasetDraftItem[];
   gate_hint?: string | null;
   /** 磁盘上的原始 YAML（只读展示，方便手改对照） */
@@ -810,7 +975,6 @@ export interface EvalStatus {
     explicit_model?: string;
   };
   datasets_dir: string;
-  max_repair: number;
 }
 
 export function useEvalStatus() {

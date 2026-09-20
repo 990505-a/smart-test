@@ -85,8 +85,7 @@ class ScoreReporter(Protocol):
 async def run_dataset(*, dataset: EvalDataset, scorers: list, driver: AgentDriver,
                       reporter: ScoreReporter | None = None, concurrency: int = 1,
                       run_name: str | None = None, on_item: Any = None,
-                      on_start: Any = None,
-                      repair_rounds: int | None = None) -> DatasetRunOutcome:
+                      on_start: Any = None) -> DatasetRunOutcome:
     """Run a whole dataset; never raises on item failure — failures become rows.
 
     ``on_start`` / ``on_item`` are observation hooks (CLI prints, platform UI

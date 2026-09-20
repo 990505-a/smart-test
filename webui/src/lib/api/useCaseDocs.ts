@@ -187,26 +187,6 @@ export function useDeleteCaseDoc() {
   );
 }
 
-export function useSaveRequirementPackage() {
-  return useSWRMutation(
-    "/case-docs",
-    async (
-      url: string,
-      { arg }: { arg: { name: string; package: Record<string, unknown>; expected_revision?: number } },
-    ) => {
-      const result = await apiClient.post<WorkflowMeta>(
-        `${url}/${encodeURIComponent(arg.name)}/requirement-package`,
-        {
-          package: arg.package,
-          expected_revision: arg.expected_revision,
-        },
-      );
-      revalidateCaseDocs();
-      return result;
-    },
-  );
-}
-
 function useWorkflowAction(path: string) {
   return useSWRMutation(
     "/case-docs",

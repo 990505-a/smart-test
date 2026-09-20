@@ -17,11 +17,6 @@ class ExportMindnoteRequest(BaseModel):
     parent_node_id: str | None = None
 
 
-class FetchDocRequest(BaseModel):
-    doc_url: str
-    scope: str | None = None
-
-
 class DeviceCodeRequest(BaseModel):
     device_code: str
 
@@ -51,22 +46,6 @@ async def auth_complete(data: DeviceCodeRequest, user: CurrentUserDep):
     result = await feishu_service.complete_device_login(data.device_code)
     if not result.get("success"):
         raise HTTPException(status_code=502, detail=result.get("error", "登录未完成"))
-    return SuccessResponse(success=True, data=result)
-
-
-@router.post("/docs/fetch", response_model=SuccessResponse, summary="拉取飞书文档内容")
-async def fetch_doc(data: FetchDocRequest, user: CurrentUserDep):
-    result = await feishu_service.fetch_doc(data.doc_url, scope=data.scope)
-    if not result.get("success"):
-        raise HTTPException(status_code=502, detail=result.get("error", "飞书文档拉取失败"))
-    return SuccessResponse(success=True, data=result)
-
-
-@router.get("/mindnote/nodes", response_model=SuccessResponse, summary="思维导图节点列表")
-async def mindnote_nodes(user: CurrentUserDep, mindnote_id: str | None = None):
-    result = await feishu_service.list_mindnote_nodes(mindnote_id)
-    if not result.get("success"):
-        raise HTTPException(status_code=502, detail=result.get("error", "获取节点失败"))
     return SuccessResponse(success=True, data=result)
 
 

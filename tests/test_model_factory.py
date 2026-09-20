@@ -5,12 +5,12 @@ import src.app.agents.testcase.model_factory as mf
 from src.app.agents.testcase.model_factory import (
     VALID_EFFORTS,
     build_chat_model,
-    build_test_models,
-    build_vision_model,
+    build_model_from_values,
+    build_test_model,
     effort_model,
     refresh_from_env,
 )
-from app.core.config import settings
+from src.app.core.config import settings
 
 
 @pytest.fixture(autouse=True)
@@ -25,9 +25,6 @@ def _clean_settings(monkeypatch):
     monkeypatch.setattr(settings, "llm_reasoning_effort", "", raising=False)
     monkeypatch.setattr(settings, "deepseek_model", "deepseek-chat", raising=False)
     monkeypatch.setattr(settings, "deepseek_api_key", "sk-test", raising=False)
-    monkeypatch.setattr(settings, "vision_model", "", raising=False)
-    monkeypatch.setattr(settings, "vision_base_url", "", raising=False)
-    monkeypatch.setattr(settings, "vision_api_key", "", raising=False)
     mf._cached_effort_model.cache_clear()
     yield
     mf._cached_effort_model.cache_clear()
@@ -79,41 +76,66 @@ class TestOpenAICompatibleProvider:
             build_chat_model()
 
 
-class TestVisionModel:
-    def test_empty_vision_reuses_text_model(self, monkeypatch):
-        """vision_model empty -> the text model itself (deepseek by default)."""
-        model = build_vision_model()
+class TestBuildModelFromValues:
+    """按显式配置构建模型：设置页连通性测试与对话页模型预设共用这条路径。"""
+
+    def test_explicit_endpoint_and_model(self):
+        model = build_model_from_values({
+            "llm_base_url": "https://api.siliconflow.cn/v1",
+            "llm_model": "glm-5.3-flash",
+            "llm_api_key": "sk-x",
+        })
+
+        assert getattr(model, "model_name", None) == "glm-5.3-flash"
+        base = getattr(model, "openai_api_base", None) or getattr(model, "base_url", None)
+        assert str(base) == "https://api.siliconflow.cn/v1"
+        # profile 用于 SummarizationMiddleware 的触发阈值
+        assert model.profile["max_input_tokens"] == 128_000
+
+    def test_effort_wins_over_values_default(self):
+        values = {
+            "llm_base_url": "https://x.example/v1",
+            "llm_model": "m1",
+            "llm_api_key": "sk-x",
+            "llm_reasoning_effort": "low",
+        }
+
+        assert getattr(build_model_from_values(values, effort="high"),
+                       "reasoning_effort", None) == "high"
+        assert getattr(build_model_from_values(values), "reasoning_effort", None) == "low"
+
+    def test_no_base_url_uses_deepseek(self):
+        model = build_model_from_values({"llm_model": "", "deepseek_model": "deepseek-chat"})
 
         assert getattr(model, "model_name", None) == "deepseek-chat"
 
-    def test_vision_reuses_text_model_endpoint(self, monkeypatch):
-        """Text on a custom endpoint, vision unset -> same endpoint and key."""
-        monkeypatch.setattr(settings, "llm_model", "glm-4.6")
-        monkeypatch.setattr(settings, "llm_base_url", "https://api.siliconflow.cn/v1")
-        monkeypatch.setattr(settings, "llm_api_key", "sk-custom")
+    def test_missing_key_raises(self):
+        with pytest.raises(ValueError, match="API Key"):
+            build_model_from_values({"llm_base_url": "https://x.example/v1"})
 
-        model = build_vision_model()
+    def test_does_not_touch_global_settings(self):
+        before = mf._current_sig()
+        build_model_from_values({
+            "llm_base_url": "https://api.siliconflow.cn/v1",
+            "llm_model": "some-other-model",
+            "llm_api_key": "sk-x",
+        })
+        assert mf._current_sig() == before
 
-        assert getattr(model, "model_name", None) == "glm-4.6"
 
-    def test_vision_with_explicit_model_and_shared_endpoint(self, monkeypatch):
-        monkeypatch.setattr(settings, "llm_base_url", "https://api.siliconflow.cn/v1")
-        monkeypatch.setattr(settings, "llm_api_key", "sk-custom")
-        monkeypatch.setattr(settings, "vision_model", "glm-4.5v")
+class TestBuildTestModel:
+    def test_text_via_custom_endpoint(self):
+        model = build_test_model({
+            "llm_base_url": "https://api.siliconflow.cn/v1",
+            "llm_model": "glm-5.3-flash",
+            "llm_api_key": "sk-x",
+        })
 
-        model = build_vision_model()
+        assert getattr(model, "model_name", None) == "glm-5.3-flash"
 
-        assert getattr(model, "model_name", None) == "glm-4.5v"
-        base = getattr(model, "openai_api_base", None) or getattr(model, "base_url", None)
-        assert str(base) == "https://api.siliconflow.cn/v1"
-
-    def test_vision_official_openai_without_key_raises(self, monkeypatch):
-        """No base_url anywhere and no vision key -> explicit error (never
-        silently sends the DeepSeek fallback key to OpenAI)."""
-        monkeypatch.setattr(settings, "vision_model", "gpt-4o")
-
-        with pytest.raises(ValueError, match="VISION_API_KEY"):
-            build_vision_model()
+    def test_missing_key_raises(self):
+        with pytest.raises(ValueError, match="API Key"):
+            build_test_model({"llm_base_url": "https://x.example/v1"})
 
 
 class TestLiveReload:
@@ -142,41 +164,6 @@ class TestLiveReload:
         monkeypatch.setattr(mf, "_ENV_FILE", tmp_path / "nope.env")
 
         assert refresh_from_env() is False
-
-
-class TestBuildTestModels:
-    def test_text_via_custom_endpoint(self):
-        models = build_test_models({
-            "llm_base_url": "https://api.siliconflow.cn/v1",
-            "llm_model": "glm-5.3-flash",
-            "llm_api_key": "sk-x",
-        })
-
-        assert getattr(models["text"], "model_name", None) == "glm-5.3-flash"
-        assert models["vision"] is None  # vision unset -> reuse text model
-
-    def test_vision_explicit_on_shared_endpoint(self):
-        models = build_test_models({
-            "llm_base_url": "https://api.siliconflow.cn/v1",
-            "llm_api_key": "sk-x",
-            "vision_model": "glm-4.5v",
-        })
-
-        assert getattr(models["vision"], "model_name", None) == "glm-4.5v"
-
-    def test_missing_key_raises(self):
-        with pytest.raises(ValueError, match="API Key"):
-            build_test_models({"llm_base_url": "https://x.example/v1"})
-
-    def test_does_not_touch_global_settings(self):
-        before = mf._current_sig()
-        build_test_models({
-            "llm_base_url": "https://api.siliconflow.cn/v1",
-            "llm_model": "some-other-model",
-            "llm_api_key": "sk-x",
-            "vision_model": "glm-4.5v",
-        })
-        assert mf._current_sig() == before
 
 
 class TestReasoningEffort:

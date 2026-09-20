@@ -78,8 +78,6 @@ class EvalDataset:
     items: list[EvalItem]
     description: str | None = None
     agent: str = "webui_agent"
-    # 每条用例允许的重试/自修复轮数，覆盖 settings.eval_max_repair
-    max_repair: int | None = None
     path: Path | None = None
 
 
@@ -113,7 +111,6 @@ def load_dataset(path: str | Path) -> EvalDataset:
         items=items,
         description=raw.get("description"),
         agent=str(raw.get("agent") or "webui_agent"),
-        max_repair=raw.get("max_repair"),
         path=target,
     )
 
@@ -229,8 +226,6 @@ def dataset_payload(dataset: EvalDataset, *, file: str | None = None) -> dict:
     if dataset.description:
         payload["description"] = dataset.description
     payload["agent"] = dataset.agent
-    if dataset.max_repair is not None:
-        payload["max_repair"] = dataset.max_repair
     if file is not None:
         payload["file"] = file
     return payload
@@ -242,8 +237,6 @@ def dumps_dataset(payload: dict) -> str:
     if payload.get("description"):
         body["description"] = payload["description"]
     body["agent"] = payload.get("agent") or "webui_agent"
-    if payload.get("max_repair") is not None:
-        body["max_repair"] = payload["max_repair"]
     body["items"] = payload.get("items") or []
 
     header = ("# 由平台「评测集」页面保存；直接手改也可以，页面会读回。\n"

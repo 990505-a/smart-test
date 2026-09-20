@@ -240,10 +240,12 @@ export default function WebUiAutoPage() {
     if (!shotUrl.trim()) return;
     setShooting(true);
     try {
-      const res = await apiClient.post<{ path: string; data_uri?: string }>(
+      // 执行器返回的是驼峰 dataUri（tools/playwright-runner/server.mjs）。
+      // 这里曾读 data_uri，导致"截图后自动开新标签"从来没触发过，且不报错。
+      const res = await apiClient.post<{ path: string; dataUri?: string }>(
         "/web-ui-auto/screenshot", { url: shotUrl.trim(), full_page: true });
       toast.success(`截图已保存：${res.data.path}`);
-      if (res.data.data_uri) window.open(res.data.data_uri, "_blank");
+      if (res.data.dataUri) window.open(res.data.dataUri, "_blank");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "截图失败");
     } finally {
@@ -309,8 +311,8 @@ export default function WebUiAutoPage() {
             description={
               <>
                 浏览器端 UI 用例：定位 → 操作 → 断言 → 截图/trace 存证，执行引擎为官方 Playwright CLI。
-                在<Link href="/chat?agent=webui" className="text-primary hover:underline">聊天页「Web-UI自动化」</Link>
-                可与智能体对话式设计与调试用例。
+                也可以去<Link href="/chat" className="text-primary hover:underline">聊天页</Link>
+                让通用测试助手帮你对话式设计与调试用例（它会自己分诊到 Web-UI 能力）。
               </>
             }
             actions={<div className="flex items-center gap-2">{statusBadge}</div>}

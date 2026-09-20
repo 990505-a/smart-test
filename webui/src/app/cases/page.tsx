@@ -94,6 +94,8 @@ function CaseDocsPageInner() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [deleting, setDeleting] = useState<CaseDocInfo | null>(null);
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const [exporting, setExporting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const loadedName = useRef<string | null>(null);
@@ -179,18 +181,34 @@ function CaseDocsPageInner() {
     handleWorkflowAction((args) => approveDoc(args), "已批准当前版本"),
   [handleWorkflowAction, approveDoc]);
 
-  const handleRelease = useCallback(() =>
-    handleWorkflowAction((args) => {
-      if (!window.confirm("确定发布当前已批准版本吗？发布后将作为正式用例版本。")) {
-        return Promise.resolve(null);
-      }
-      return releaseDoc(args);
-    }, "已发布当前版本"),
-  [handleWorkflowAction, releaseDoc]);
+  const handleRelease = useCallback(async () => {
+    if (!selected) return;
+    // 确认放在 action 之外：取消时直接返回，不走 handleWorkflowAction ——
+    // 否则它会照样 reload 并弹「已发布当前版本」，把取消报成成功。
+    if (!window.confirm("确定发布当前已批准版本吗？发布后将作为正式用例版本。")) return;
+    await handleWorkflowAction((args) => releaseDoc(args), "已发布当前版本");
+  }, [selected, handleWorkflowAction, releaseDoc]);
 
-  const handleRequestChanges = useCallback(() =>
-    handleWorkflowAction((args) => requestChanges(args), "已退回修改"),
-  [handleWorkflowAction, requestChanges]);
+  const handleRequestChanges = useCallback(() => {
+    if (!selected) return;
+    setRejectReason("");
+    setRejecting(true);
+  }, [selected]);
+
+  // 退回修改的理由会记进文档的 workflow 元数据（last_transition_reason），
+  // 是后续复查「为什么被打回」的唯一线索，所以强制填写。
+  const confirmRequestChanges = useCallback(async () => {
+    const reason = rejectReason.trim();
+    if (!reason) {
+      toast.error("请填写退回修改的理由");
+      return;
+    }
+    setRejecting(false);
+    await handleWorkflowAction(
+      (args) => requestChanges({ ...args, reason }),
+      "已退回修改",
+    );
+  }, [rejectReason, handleWorkflowAction, requestChanges]);
 
   const handleCreate = useCallback(async () => {
     const name = newName.trim();
@@ -602,6 +620,29 @@ function CaseDocsPageInner() {
             </Button>
             <Button onClick={handleCreate} disabled={!newName.trim()}>
               创建
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Request changes dialog —— 理由必填，会写进 workflow 元数据 */}
+      <Dialog open={rejecting} onOpenChange={setRejecting}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>退回修改</DialogTitle>
+          </DialogHeader>
+          <Textarea
+            placeholder="说明需要改什么（如：P1 用例缺少断言的预期值；登录场景漏了验证码过期分支）"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            rows={4}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejecting(false)}>
+              取消
+            </Button>
+            <Button onClick={confirmRequestChanges} disabled={!rejectReason.trim()}>
+              退回
             </Button>
           </DialogFooter>
         </DialogContent>

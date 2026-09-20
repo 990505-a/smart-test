@@ -52,11 +52,11 @@ type Draft = {
   name: string;
   description: string;
   agent: string;
-  maxRepair: string;
   items: DraftItem[];
 };
 
-const AGENT_OPTIONS = ["webui_agent", "testcase_agent", "unity_agent", "code_analyst_agent"];
+// 通用智能体优先；其余是历史会话/既有数据集仍在用的单能力 graph。
+const AGENT_OPTIONS = ["smart_test_agent", "webui_agent", "testcase_agent", "unity_agent", "codebase_agent"];
 
 const EMPTY_EXPECTED: DraftExpected = {
   contains: "", not_contains: "", toolsSequence: "", toolsMode: "subsequence",
@@ -77,7 +77,6 @@ function toPayload(draft: Draft) {
     name: draft.name.trim(),
     description: draft.description.trim() || null,
     agent: draft.agent.trim() || "webui_agent",
-    max_repair: draft.maxRepair.trim() === "" ? null : Number(draft.maxRepair),
     items: draft.items.map((item, index) => ({
       id: item.id.trim() || `item-${index + 1}`,
       input: item.input,
@@ -105,7 +104,6 @@ function fromDetail(detail: EvalDatasetDetail): Draft {
     name: detail.name,
     description: detail.description ?? "",
     agent: detail.agent,
-    maxRepair: detail.max_repair == null ? "" : String(detail.max_repair),
     items: detail.items.map((item) => ({
       id: item.id,
       input: item.input,
@@ -287,7 +285,7 @@ export function DatasetEditor({ file, seed, seedFileName, onClose, onSaved }: {
     }
     setDraft({
       file: "my-first.yaml", name: "my-first", description: "", agent: "testcase_agent",
-      maxRepair: "", items: [{ ...EMPTY_ITEM, expected: { ...EMPTY_EXPECTED },
+      items: [{ ...EMPTY_ITEM, expected: { ...EMPTY_EXPECTED },
                                judge: { criteria: "", pass: "0.7" } }],
     });
   }, [file, seed, seedFileName, detail.data]);

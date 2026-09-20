@@ -33,13 +33,17 @@ x-no-proxy-env: &no-proxy-env
 
 services:
   # ---------------------------------------------------------------- LangGraph
-  # 智能体运行时（用例生成 / UI 自动化 / 代码分析三个 graph，见 graph.json）
+  # 智能体运行时（用例生成 / UI 自动化 / 代码分析四个 graph，见 graph.json）
   langgraph:
     build:
       context: .
       dockerfile: Dockerfile.backend
       args: *no-proxy-build
     image: smart-test-backend:latest
+    # 2026-09 起平台后端改本机运行（launcher.py），这四个服务默认不再随 `up` 启动——
+    # 否则会跟本机进程抢 5011/5012/5013/5015，症状是"端口被占/连不上"，很难查。
+    # 要用容器版（换机器、复现环境）时：docker compose --profile docker up -d --build
+    profiles: ["docker"]
     container_name: smart-test-langgraph
     command: ["python", "start_server.py"]
     env_file:
@@ -71,6 +75,15 @@ services:
       # 那句"保存后无需重启即时生效"在容器部署里从来没生效过（进程一直用启动时
       # 注入的环境变量）。见 DOCKER.md 的跨容器地址/配置一节。
       - ./.env:/app/.env
+      # 被测系统源码（只读）。用例智能体的 read_file / grep / execute 是**真实路径 +
+      # 真 shell**、没有沙箱——但容器只看得见**挂进来**的目录。不挂这一行，它在需求里
+      # 看到 /Users/.../ruoyi-vue-pro 只会得到 "No such file or directory"（容器里
+      # 压根没有 /Users 这一层）。只读是故意的：可以读源码求证规则，不能改被测系统。
+      - ../ruoyi-vue-pro:/app/sut/ruoyi-vue-pro:ro
+      # 同一份源码再按**宿主原路径**挂一份：用户在需求里写的通常是自己机器上的路径
+      # （/Users/yun/Documents/ruoyi-vue-pro），挂成同名路径，agent 就能照着原话去找，
+      # 不用要求用户先翻译成容器路径。只读同上。
+      - ../ruoyi-vue-pro:/Users/yun/Documents/ruoyi-vue-pro:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5011/ok', timeout=5).status==200 else 1)"]
       interval: 15s
@@ -87,6 +100,7 @@ services:
       dockerfile: Dockerfile.backend
       args: *no-proxy-build
     image: smart-test-backend:latest
+    profiles: ["docker"]
     container_name: smart-test-fastapi
     command: ["python", "-m", "uvicorn", "src.app.fastapi_app:app", "--host", "0.0.0.0", "--port", "5012"]
     env_file:
@@ -151,6 +165,7 @@ services:
         # 官方源在本机约 3s/请求且会中断，默认走国内镜像
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
     image: smart-test-playwright:latest
+    profiles: ["docker"]
     container_name: smart-test-playwright
     environment:
       <<: *no-proxy-env
@@ -197,7 +212,9 @@ services:
       DSH_PORT: "3080"
       # 容器内地址：MCP 桥与技能库都要用服务名 / 容器内路径
       SQLITE_DB: /data/smart_test_platform.db
-      LANGGRAPH_API_URL: http://langgraph:5011
+      # 平台后端 2026-09 起改本机运行（launcher.py），容器版 langgraph/fastapi 已停用，
+      # 所以这里指向宿主机而不是服务名。host.docker.internal 靠上面的 extra_hosts 解析。
+      LANGGRAPH_API_URL: http://host.docker.internal:5011
       LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL_IN_DOCKER:-http://host.docker.internal:5014}
       DSH_BUNDLED_SKILL_DIR: /workspace/smart-test/src/app/skills
       DSH_TELEMETRY_DISABLED: "1"
@@ -212,9 +229,8 @@ services:
       - ./workspace:/app/workspace
       - ./docker-data/dsh-home:/home/dsh
       - ./docker-data:/data
-    depends_on:
-      fastapi:
-        condition: service_healthy
+    # 原先 depends_on fastapi(容器)；后端改本机运行后这个依赖不存在了，且 compose 会因
+    # "依赖了不在同一 profile 里的服务" 直接报错。dsh 现在经 host.docker.internal 找宿主后端。
     restart: unless-stopped
 
 
@@ -228,6 +244,7 @@ services:
         # 官方源在本机约 3s/请求且会中断，默认走国内镜像；置空则用官方源
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
     image: smart-test-webui:latest
+    profiles: ["docker"]
     container_name: smart-test-webui
     environment:
       <<: *no-proxy-env

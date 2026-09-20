@@ -87,13 +87,16 @@ GET {平台}/api/v2/web-ui-auto/report/{run_id}/{share_sig}/index.html         �
 
 ## 白名单 CLI
 
-`webui_cli(["<subcommand>", ...])` 只放行：
-`--version` `install` `screenshot` `pdf` `cr` `test`。
+`webui_cli(["<subcommand>", ...])` 只放行**没有专用工具**的三个：
+`install` `pdf` `cr`。
 
-放行 `test` 是为了让 agent 在特殊参数下自己调；日常请用 `webui_run_spec`，
-因为它附带 JSON 报告与 artifacts 清单，而裸 CLI 只有 stdout。
-注意裸 `test` 是以 runs 根目录为 cwd 且没有 config 的，会递归收集历史运行目录里的
-所有 spec —— 别用它跑常规回归。
+`--version` / `screenshot` / `test` 曾经也在白名单里，现已移除——平台分别有
+`webui_runner_status` / `webui_screenshot` / `webui_run_spec`，它们返回结构化
+结果（CLI 版本 / `dataUri` / JSON 报告 + artifacts 清单），而裸 CLI 只有
+stdout。用专用的那个。
+
+`cr`（codegen）产出的是一份"录下来的操作"，选择器质量取决于录制时的点击，
+**不能直接当用例用**，必须按 spec 硬性规范重写选择器与断言。
 
 ## 排查
 

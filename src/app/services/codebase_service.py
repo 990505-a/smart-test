@@ -33,9 +33,15 @@ from uuid import UUID
 import httpx
 from sqlalchemy import delete as sa_delete, select, update as sa_update
 
+from src.app.core import breaker
 from src.app.core.config import settings
+from src.app.core.http import local_client
 from src.app.db.database import async_session_factory
-from src.app.db.models.codebase import CodebaseIndexRun, CodebaseRepo
+from src.app.db.models.codebase import (
+    CodebaseImpactReport,
+    CodebaseIndexRun,
+    CodebaseRepo,
+)
 from src.app.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -44,6 +50,9 @@ _CBM_TIMEOUT = 45.0
 _INDEX_TIMEOUT = 1800.0  # 大仓库全量索引可能很慢
 _LAYOUT_TIMEOUT = 90.0
 _DAEMON_BOOT_TIMEOUT = 20.0
+
+# exe 不在/起不来的时候，每次工具调用都要等满 45s。快速失败把它压成一次。
+_cbm_guard = breaker.Guard("代码图谱 exe")
 
 INDEX_MODES = ("fast", "moderate", "full")
 FILE_TYPE_MODES = ("all", "include", "exclude")
@@ -99,6 +108,8 @@ def _unwrap(result) -> object:
 
 async def cbm_call(tool_name: str, args: dict, timeout: float = _CBM_TIMEOUT) -> dict:
     """Call one codebase-memory tool over stdio; never raises."""
+    if (reason := _cbm_guard.blocked()) is not None:
+        return {"success": False, "error": reason}
     try:
         tools = await _tools_map()
         tool = tools.get(tool_name)
@@ -106,6 +117,7 @@ async def cbm_call(tool_name: str, args: dict, timeout: float = _CBM_TIMEOUT) ->
             return {"success": False, "error": f"codebase-memory 无工具 {tool_name}"}
         result = await asyncio.wait_for(tool.ainvoke(args), timeout=timeout)
         data = _unwrap(result)
+        _cbm_guard.ok()
         if isinstance(data, (dict, list)):
             return {"success": True, "data": data}
         if isinstance(data, str):
@@ -117,6 +129,7 @@ async def cbm_call(tool_name: str, args: dict, timeout: float = _CBM_TIMEOUT) ->
     except Exception as exc:  # noqa: BLE001 — optional dependency
         global _tools
         _tools = None  # 会话可能已死，下次重连
+        _cbm_guard.fail()
         return {"success": False,
                 "error": f"codebase-memory 调用失败 ({settings.codebase_memory_exe}): {exc}"}
 
@@ -130,27 +143,51 @@ def _reset_client() -> None:
 # ===========================================================================
 # CLI mode (一锤子调用) — 平台模块全部走这条路
 # ===========================================================================
-# exe 的 `cli <tool> <json>` 模式：stdout 是纯 JSON、stderr 是日志，无会话
-# 生命周期问题。stdio MCP 会话（cbm_call，经垫片）偶发在 index_repository
-# 长调用上挂起（子进程已退出而客户端不觉察），故平台自身的索引/查询改走
-# CLI；cbm_call 仅供 Agent 的 search_codebase 工具继续使用。
+# exe 的 `cli <tool>` 模式：stdout 给结果、stderr 给日志，无会话生命周期问题。
+# stdio MCP 会话（cbm_call，经垫片）偶发在 index_repository 长调用上挂起（子进程
+# 已退出而客户端不觉察），故平台自身的索引/查询改走 CLI；cbm_call 仅供 Agent 的
+# 代码图谱工具继续使用（agents/codebase/tools.py）。
+#
+# ⚠️ 官方 v0.11.0 起，读工具默认输出**给人看的紧凑树**；要机器可读的结构化 JSON
+# 必须带 format=json。写工具（index_repository / delete_project）默认就是 JSON，
+# 也不接受该参数。名单是对着 v0.11.0 `cli <tool> --help` 逐个核过的。
+_TOOLS_WITH_JSON_FORMAT = frozenset({
+    "list_projects", "search_graph", "search_code", "query_graph",
+    "index_status", "trace_path", "get_code_snippet", "get_architecture",
+})
+
+
+def cbm_args(tool_name: str, args: dict) -> dict:
+    """补上 CLI 侧的方言差异：读工具需要 format=json 才是结构化输出。"""
+    payload = dict(args)
+    if tool_name in _TOOLS_WITH_JSON_FORMAT:
+        payload.setdefault("format", "json")
+    return payload
+
 
 def cbm_cli_sync(tool_name: str, args: dict, timeout: float = _CBM_TIMEOUT,
                  on_log=None) -> dict:
     """同步 CLI 调用；永不抛异常。调用方用 asyncio.to_thread 包裹。
 
+    参数经 **stdin** 传：位置参数 JSON 自 v0.11.0 起 deprecated（会往 stderr 打
+    警告并在未来版本移除），stdin 是官方推荐的三种写法之一，且不需要临时文件。
     on_log: 可选回调（每行 stderr 日志调用一次），用于索引进度透出。
     stdout/stderr 各由独立线程排水（communicate 会与手动读 stderr 抢管道，
     在 Windows 上引发 NULL buffer 崩溃）；主线程按截止时间看护，超时杀进程。
     """
     import threading
+    payload = cbm_args(tool_name, args)
     try:
         proc = subprocess.Popen(
-            [settings.codebase_memory_exe, "cli", tool_name,
-             json.dumps(args, ensure_ascii=False)],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            [settings.codebase_memory_exe, "cli", tool_name],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": f"CLI 启动失败: {exc}"}
+    try:
+        proc.stdin.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        proc.stdin.close()
+    except (OSError, ValueError):
+        pass  # 写不进去就让下面按"无输出"报错，错误信息里带 stderr 尾部
 
     stderr_lines: list[str] = []
     stdout_buf: dict = {}
@@ -193,25 +230,58 @@ def cbm_cli_sync(tool_name: str, args: dict, timeout: float = _CBM_TIMEOUT,
     if not out:
         err_tail = "\n".join(stderr_lines[-3:])[-300:]
         return {"success": False,
-                "error": f"CLI 无输出 (exit={proc.returncode}): {err_tail}"}
+                "error": f"CLI 无输出 ({tool_name}, exit={proc.returncode}): {err_tail}"}
     try:
         return {"success": True, "data": json.loads(out)}
     except json.JSONDecodeError as exc:
-        return {"success": False, "error": f"CLI 输出不是 JSON: {exc}"}
+        # 读工具若漏了 format=json，exe 会回紧凑树文本，这里要看得见是哪个工具
+        return {"success": False,
+                "error": f"CLI 输出不是 JSON ({tool_name}): {exc}；"
+                         f"输出开头：{out[:120]}"}
 
 
 async def cbm_cli(tool_name: str, args: dict, timeout: float = _CBM_TIMEOUT,
-                  on_log=None) -> dict:
-    return await asyncio.to_thread(cbm_cli_sync, tool_name, args, timeout, on_log)
+                  on_log=None, *, use_breaker: bool = True) -> dict:
+    """exe 一锤子调用。
+
+    ``use_breaker=False`` 给**长任务**用（全量索引 1800s）：它本来就要跑很久，失败
+    一次也不能说明 exe 不可用，挂熔断会误伤。短查询走默认值，服务不在时立刻返回。
+    """
+    if use_breaker:
+        if (reason := _cbm_guard.blocked()) is not None:
+            return {"success": False, "error": reason}
+    result = await asyncio.to_thread(cbm_cli_sync, tool_name, args, timeout, on_log)
+    if use_breaker:
+        if result.get("success"):
+            _cbm_guard.ok()
+        else:
+            _cbm_guard.fail()
+    return result
 
 
 # ===========================================================================
 # Project naming + exe operations
 # ===========================================================================
 
+def _normalize_project_path(path: str) -> str:
+    """路径 → 项目名的纯字符串规则（拆出来是为了能在任意平台上测 Windows 盘符）。"""
+    p = path.replace("\\", "/")
+    p = re.sub(r"^([A-Za-z]):/", r"\1-", p)  # Windows 盘符 E:/ → E-
+    return p.lstrip("/").replace("/", "-")
+
+
 def project_name(repo_path: str) -> str:
-    """codebase-memory 默认项目名规则：E:/a/b -> E-a-b。"""
-    return repo_path.replace(":/", "-").replace("/", "-")
+    """exe 的项目名规则（官方 v0.11.0 实测）：realpath → 去首分隔符 → 分隔符换 '-'。
+
+    ``/private/tmp/demo`` → ``private-tmp-demo``；``E:/a/b`` → ``E-a-b``。
+    两个易错点：exe 先做 realpath（macOS 上 ``/tmp`` 会变成 ``/private/tmp``，
+    所以必须同样 realpath 才能对上），且 POSIX 下首位斜杠不留下前导 '-'（旧
+    GS 定制版的 ``replace("/", "-")`` 会得到 ``-private-...``）。
+
+    真实名字以 exe 为准：索引完成后 exe 会回传 project，与这里不一致会记 warning
+    （见 index_repository），免得上游改了归一化规则后平台静默查错项目。
+    """
+    return _normalize_project_path(os.path.realpath(repo_path))
 
 
 async def exe_projects() -> list[dict]:
@@ -236,8 +306,35 @@ async def exe_projects() -> list[dict]:
     return out
 
 
+async def install_info() -> dict:
+    """平台自管安装的状态：装没装、什么版本、要不要升级（给就绪中心/页面用）。"""
+    from src.app.services import cbm_install  # 局部导入：拉 httpx 不构成本模块的必需依赖
+
+    try:
+        asset = cbm_install.asset_tag()
+        supported = True
+    except cbm_install.InstallError:
+        asset, supported = "", False
+    installed = cbm_install.installed_version()
+    target = settings.codebase_version
+    return {
+        "managed_dir": str(cbm_install.CBM_MANAGED_DIR),
+        "installed_version": installed,
+        "target_version": target,
+        "asset": asset,
+        "supported": supported,
+        # 只有"记录了版本且与目标不同"才算能升级；没装过（None）是"该安装"
+        "upgradable": bool(installed and installed != target),
+        # .env 的 CODEBASE_MEMORY_EXE 优先级高于默认值：老配置还指着 GS 版时，平台会
+        # 把新版装进 tools/codebase-memory/ 却依然去用旧路径 —— 这两个字段让界面能
+        # 说清"装是装好了，但你指的地方不是这儿"。
+        "configured_exe": settings.codebase_memory_exe,
+        "using_managed": Path(settings.codebase_memory_exe) == cbm_install.managed_exe(),
+    }
+
+
 async def status() -> dict:
-    """exe 可用性 + 已索引项目 + 图守护进程状态。"""
+    """exe 可用性 + 已索引项目 + 图守护进程状态 + 自管安装状态。"""
     result = await cbm_cli("list_projects", {})
     available = bool(result.get("success"))
     projects: list[dict] = []
@@ -257,10 +354,17 @@ async def status() -> dict:
     return {
         "success": True,
         "available": available,
-        "error": None if available else f"codebase-memory 不可达 ({settings.codebase_memory_exe})",
+        # 用底层返回的原始错误：它区分得开"exe 不存在"、"调用超时"和"熔断中，
+        # 30 秒内不再尝试"。之前这里一律改写成"不可达"，把原因吞掉了——
+        # 前端只能反复看到一个笼统结论，也不知道平台其实已经停止重试。
+        "error": None if available else (
+            result.get("error") or f"codebase-memory 不可达 ({settings.codebase_memory_exe})"
+        ),
         "exe": settings.codebase_memory_exe,
+        "exe_present": Path(settings.codebase_memory_exe).is_file(),
         "projects": projects,
         "graph_daemon": await graph_daemon_status(),
+        "install": await install_info(),
     }
 
 
@@ -277,18 +381,14 @@ def _daemon_url(path: str = "/") -> str:
 
 
 async def _daemon_up() -> bool:
+    """探活根路径（图 UI 首页，v0.11.0 实测 200）。<500 即视为"活着"，
+    这样端口被别的服务占着也不至于误判为已就绪而不再拉起。"""
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(_daemon_url("/api/project-health"))
+        async with local_client(timeout=3.0) as client:
+            resp = await client.get(_daemon_url("/"))
             return resp.status_code < 500
     except httpx.HTTPError:
-        # /api/project-health 可能随版本变化；根路径兜底判定
-        try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(_daemon_url("/"))
-                return resp.status_code < 500
-        except httpx.HTTPError:
-            return False
+        return False
 
 
 async def graph_daemon_status() -> dict:
@@ -301,21 +401,21 @@ async def ensure_graph_daemon() -> dict:
     if await _daemon_up():
         return {"success": True, "up": True, "spawned": False}
 
-    if not Path(settings.codebase_graph_exe).is_file():
-        return {"success": False, "error": f"图守护 exe 不存在: {settings.codebase_graph_exe}"}
+    exe = settings.codebase_memory_exe
+    if not Path(exe).is_file():
+        return {"success": False, "error": f"图服务 exe 不存在: {exe}（代码图谱页可一键安装）"}
 
+    # 与 MCP/CLI 用的是**同一个二进制**：官方 v0.11.0 起图 UI 内嵌在每次构建里，
+    # 不再需要旧的双 exe（GS 版索引 + 官方版出图）。
     # DETACHED_PROCESS + CREATE_NEW_PROCESS_GROUP:脱离 FastAPI 生命周期常驻。
     # 注意 stdin 必须保持打开(PIPE)：exe 默认是 stdio MCP 服务，stdin EOF(如
-    # DEVNULL)会让它直接退出，--ui 的 HTTP 服务也随之关闭。
-    # 用 graph_exe(官方版，内嵌 UI)而非 GS 定制版——GS 版构建未含 UI 资源，
-    # --ui=true 时 HTTP 服务不会启动；两者共享同一份索引存储。
+    # DEVNULL)会让它直接退出（v0.11.0 实测），--ui 的 HTTP 服务也随之关闭。
     flags = 0
     if os.name == "nt":
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     try:
         _graph_proc = subprocess.Popen(
-            [settings.codebase_graph_exe, "--ui=true",
-             f"--port={settings.codebase_graph_port}"],
+            [exe, "--ui=true", f"--port={settings.codebase_graph_port}"],
             stdin=subprocess.PIPE,  # 保持打开：写端由本进程持有，不写入不关闭
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=flags, close_fds=True,
@@ -339,7 +439,7 @@ async def graph_layout(project: str, max_nodes: int = 2000) -> dict:
     if not ensured.get("success"):
         return ensured
     try:
-        async with httpx.AsyncClient(timeout=_LAYOUT_TIMEOUT) as client:
+        async with local_client(timeout=_LAYOUT_TIMEOUT) as client:
             resp = await client.get(_daemon_url("/api/layout"),
                                     params={"project": project, "max_nodes": max_nodes})
             resp.raise_for_status()
@@ -583,17 +683,45 @@ def _repo_payload(repo: CodebaseRepo, indexed: dict | None) -> dict:
         "file_type_mode": repo.file_type_mode,
         "file_types": repo.file_types or [],
         "auto_increment": repo.auto_increment,
+        "auto_analyze": repo.auto_analyze,
+        "last_commit": repo.last_commit,
         "last_index_at": repo.last_index_at.isoformat() if repo.last_index_at else None,
         "last_index_mode": repo.last_index_mode,
     }
 
 
+#: index_status 探测结果缓存：project -> (monotonic 时间戳, info|None)。
+#: 为什么要缓存：list_repos 对**每个**受管仓库都可能探一次（见下），而每次探测是
+#: 一次 exe 子进程调用（45s 超时）。仓库一多，刷新一次列表就是 N 次 spawn。
+#: 索引只在“索引完成”那一刻变化，所以 TTL 只需要覆盖页面连续刷新的窗口——
+#: 索引成功与删库都会显式失效（invalidate_probe_cache），不靠 TTL 兜正确性。
+_probe_cache: dict[str, tuple[float, dict | None]] = {}
+_PROBE_TTL = 30.0
+
+
+def invalidate_probe_cache(project: str | None = None) -> None:
+    """丢弃探测缓存（project 为 None 时清空）。索引完成 / 删库后调用。"""
+    if project is None:
+        _probe_cache.clear()
+    else:
+        _probe_cache.pop(project, None)
+
+
+async def _probe_project_cached(project: str) -> dict | None:
+    hit = _probe_cache.get(project)
+    if hit is not None and (time.monotonic() - hit[0]) < _PROBE_TTL:
+        return hit[1]
+    info = await _probe_project(project)
+    _probe_cache[project] = (time.monotonic(), info)
+    return info
+
+
 async def _probe_project(project: str) -> dict | None:
     """按项目名探测索引是否存在（返回 nodes/edges 等信息；不存在返回 None）。
 
-    exe 的 list_projects 只枚举“已注册”的项目——经 CLI 建立的索引（如
-    index_repository 一锤子调用）能按名字访问但不进列表，所以对受管仓库
-    必须用 index_status 逐个探测，否则会误判“未建库”。
+    这是**唯一**能拿到 nodes/edges 的路径：exe 的 ``list_projects`` 只回
+    name/root_path/branch（实测 v0.11.0），计数只在 ``index_status`` 里。
+    受管仓库必须用它补全，否则前端拿不到图规模。
     """
     result = await cbm_cli("index_status", {"project": project})
     if not result.get("success"):
@@ -617,15 +745,22 @@ async def list_repos() -> dict:
         for r in rows:
             name = project_name(r.repo_path)
             info = projects.get(name)
-            if info is None:
-                info = await _probe_project(name)  # list_projects 未枚举时按名探测
+            # 「枚举到了」不等于「拿到计数」：list_projects 的条目没有 nodes/edges，
+            # 只有 index_status 有。缺计数时必须补探 —— 否则前端拿到 nodes=null，
+            # 大图会被当成小图走全量采样（/api/layout 随机采样巨型图只剩结构节点、
+            # 且边为 0），表现为“图谱一片空白”。
+            if info is None or info.get("nodes") is None:
+                probed = await _probe_project_cached(name)
+                # 探测失败（exe 不可达/索引不存在）时保留 list_projects 的条目，
+                # 至少还能显示 root_path；探测成功则用带计数的覆盖。
+                info = probed or info
             repos.append(_repo_payload(r, info))
         return {"success": True, "repos": repos}
 
 
 async def add_repo(repo_path: str, display_name: str | None = None,
                    file_type_mode: str = "all", file_types: list | None = None,
-                   auto_increment: bool = True) -> dict:
+                   auto_increment: bool = True, auto_analyze: bool = False) -> dict:
     path = (repo_path or "").strip().replace("\\", "/")
     if not path:
         return {"success": False, "error": "仓库路径不能为空"}
@@ -644,7 +779,7 @@ async def add_repo(repo_path: str, display_name: str | None = None,
             return {"success": False, "error": f"仓库已存在: {path}"}
         repo = CodebaseRepo(repo_path=path, display_name=display_name or None,
                             file_type_mode=file_type_mode, file_types=exts,
-                            auto_increment=auto_increment)
+                            auto_increment=auto_increment, auto_analyze=auto_analyze)
         db.add(repo)
         await db.commit()
         return {"success": True, "repo": _repo_payload(repo, None)}
@@ -671,6 +806,8 @@ async def update_repo(repo_id: str, **fields) -> dict:
             repo.file_types = normalize_extensions(fields["file_types"])
         if "auto_increment" in fields and fields["auto_increment"] is not None:
             repo.auto_increment = bool(fields["auto_increment"])
+        if "auto_analyze" in fields and fields["auto_analyze"] is not None:
+            repo.auto_analyze = bool(fields["auto_analyze"])
         await db.commit()
         return {"success": True}
 
@@ -684,10 +821,22 @@ async def delete_repo(repo_id: str, delete_index: bool = False) -> dict:
         path = repo.repo_path
         await db.execute(sa_delete(CodebaseIndexRun)
                          .where(CodebaseIndexRun.repo_id == repo.id))
+        # 影响报告同样要清：FK 的 ondelete 在 SQLite 上要 PRAGMA foreign_keys=ON
+        # 才生效，本平台的库没开，所以级联一律显式写。
+        await db.execute(sa_delete(CodebaseImpactReport)
+                         .where(CodebaseImpactReport.repo_id == repo.id))
         await db.delete(repo)
         await db.commit()
+    # 变更基线随仓库一起删，否则同一路径重新注册会拿旧清单做对比
+    try:
+        from src.app.services.codebase_analysis_service import _manifest_path
+        _manifest_path(repo_id).unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
     if delete_index:
         await cbm_cli("delete_project", {"project": project_name(path)})
+    # 索引没了，探测缓存里那条「已建库 + 计数」立刻作废
+    invalidate_probe_cache(project_name(path))
     return {"success": True}
 
 
@@ -760,11 +909,14 @@ async def _index_repo_locked(repo: CodebaseRepo, mode: str, trigger: str) -> dic
     _index_progress.update({"repo_path": repo.repo_path, "phase": "starting",
                             "last_line": "", "started_at": time.time(), "live": True})
     run_id = await _record_run(repo.id, trigger, mode, "running")
+    # run_id 回传给调用方：定时轮次结束后要拿它把影响报告挂到这次索引上。
+    run_ref = str(run_id) if run_id else None
     t0 = time.time()
     try:
         if not Path(repo.repo_path).is_dir():
             await _finish_run(run_id, "failed", error=f"仓库目录不存在: {repo.repo_path}")
-            return {"success": False, "error": f"仓库目录不存在: {repo.repo_path}"}
+            return {"success": False, "run_id": run_ref,
+                    "error": f"仓库目录不存在: {repo.repo_path}"}
 
         if repo.file_type_mode != "all":
             _index_progress.update({"phase": "write_cbmignore"})
@@ -772,28 +924,42 @@ async def _index_repo_locked(repo: CodebaseRepo, mode: str, trigger: str) -> dic
                                         repo.file_types or [])
             if err:
                 await _finish_run(run_id, "failed", error=err)
-                return {"success": False, "error": err}
+                return {"success": False, "run_id": run_ref, "error": err}
 
         result = await cbm_cli("index_repository",
                                {"repo_path": repo.repo_path, "mode": mode},
                                timeout=_INDEX_TIMEOUT,
-                               on_log=_make_progress_callback(repo.repo_path))
+                               on_log=_make_progress_callback(repo.repo_path),
+                               use_breaker=False)  # 长任务：失败一次不代表 exe 不可用
         duration = round(time.time() - t0, 1)
         if result.get("success"):
             data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            # 名字以 exe 为准：上游改了归一化规则时，这里会第一时间喊出来，
+            # 否则表现为"所有图谱查询都查不到东西"，极难定位。
+            actual = data.get("project")
+            derived = project_name(repo.repo_path)
+            if actual and actual != derived:
+                logger.warning(
+                    "codebase-memory 项目名与平台推导不一致：exe=%s 平台=%s（repo=%s）；"
+                    "project_name() 的规则需要跟着上游更新", actual, derived, repo.repo_path)
             # index_repository 的响应含覆盖率等长列表，截断后存入 detail
             raw = json.dumps(data, ensure_ascii=False, default=str)
             await _finish_run(run_id, "success",
-                              detail={"duration_s": duration, "raw": raw[:4000]})
+                              detail={"duration_s": duration, "raw": raw[:4000],
+                                      "project": actual, "project_derived": derived})
             async with async_session_factory() as db:
                 await db.execute(
                     sa_update(CodebaseRepo).where(CodebaseRepo.id == repo.id)
                     .values(last_index_at=_now(), last_index_mode=mode))
                 await db.commit()
-            return {"success": True, "duration_s": duration}
+            # 计数变了：让下一次 list_repos 重新探一次，页面立刻看到新节点数
+            invalidate_probe_cache(derived)
+            return {"success": True, "run_id": run_ref, "duration_s": duration,
+                    "project": actual or derived,
+                    "project_mismatch": bool(actual and actual != derived)}
         error = str(result.get("error"))
         await _finish_run(run_id, "failed", detail={"duration_s": duration}, error=error)
-        return {"success": False, "error": error}
+        return {"success": False, "run_id": run_ref, "error": error}
     finally:
         _indexing_repo = None
         _index_progress["live"] = False
@@ -905,7 +1071,8 @@ async def run_incremental_round(trigger: str = "scheduled") -> dict:
             if not r.get("indexed"):
                 await _record_run(UUID(r["id"]), trigger, "incremental", "skipped",
                                   detail={"reason": "未建全量索引，跳过增量"})
-                results.append({"repo": r["repo_path"], "status": "skipped"})
+                results.append({"repo": r["repo_path"], "repo_id": r["id"],
+                                "auto_analyze": False, "status": "skipped"})
                 continue
             async with async_session_factory() as db:
                 repo = (await db.execute(select(CodebaseRepo)
@@ -915,10 +1082,25 @@ async def run_incremental_round(trigger: str = "scheduled") -> dict:
                 continue
             outcome = await _index_repo_locked(
                 repo, r.get("last_index_mode") or "fast", trigger)
-            results.append({"repo": r["repo_path"], **outcome})
-    return {"success": True,
-            "summary": f"本轮处理 {len(results)} 个仓库",
-            "results": results}
+            results.append({"repo": r["repo_path"], "repo_id": r["id"],
+                            "auto_analyze": bool(r.get("auto_analyze")), **outcome})
+
+    # 影响分析刻意放在索引锁**之外**：LLM 调用慢，占着锁会让手动索引排不进来。
+    # 它失败也不影响上面的索引结果（run_impact_analysis 内部自己兜异常）。
+    analyses: list[dict] = []
+    if any(item.get("success") and item.get("auto_analyze") for item in results):
+        try:
+            from src.app.services.codebase_analysis_service import analyze_after_round
+            analyses = await analyze_after_round(results, trigger=trigger)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("impact analysis round failed: %s", exc)
+
+    summary = f"本轮处理 {len(results)} 个仓库"
+    if analyses:
+        done = sum(1 for a in analyses if a.get("status") == "success")
+        summary += f"，影响分析 {done}/{len(analyses)} 份"
+    return {"success": True, "summary": summary,
+            "results": results, "analyses": analyses}
 
 
 # ===========================================================================
@@ -928,7 +1110,8 @@ async def run_incremental_round(trigger: str = "scheduled") -> dict:
 async def get_schedule() -> dict:
     async with async_session_factory() as db:
         stored = await SettingsService(db).get_namespace(
-            "platform", {"codebase_schedule_enabled": "", "codebase_interval_hours": ""})
+            "platform", {"codebase_schedule_enabled": "", "codebase_interval_hours": "",
+                         "codebase_analyze_enabled": ""})
     try:
         enabled = str(stored.get("codebase_schedule_enabled") or
                       settings.codebase_schedule_enabled).lower() in ("1", "true", "yes")
@@ -939,29 +1122,42 @@ async def get_schedule() -> dict:
                         settings.codebase_interval_hours))
     except (TypeError, ValueError):
         hours = settings.codebase_interval_hours
+    try:
+        analyze = str(stored.get("codebase_analyze_enabled") or
+                      settings.codebase_analyze_enabled).lower() in ("1", "true", "yes")
+    except Exception:  # noqa: BLE001
+        analyze = bool(settings.codebase_analyze_enabled)
 
     from src.app.services.scheduler import scheduler_info
     info = scheduler_info()
     job = next((j for j in info.get("jobs", [])
                 if j.get("id") == "codebase_incremental_index"), None)
     return {"success": True, "enabled": enabled, "interval_hours": hours,
+            "analyze_enabled": analyze,
             "next_run": job.get("next_run") if job else None}
 
 
-async def save_schedule(enabled: bool, interval_hours: int) -> dict:
+async def save_schedule(enabled: bool, interval_hours: int,
+                        analyze_enabled: bool | None = None) -> dict:
     if not 1 <= interval_hours <= 720:
         return {"success": False, "error": "间隔小时数需在 1-720 之间"}
     async with async_session_factory() as db:
         svc = SettingsService(db)
-        await svc.set_many("platform", {
+        values = {
             "codebase_schedule_enabled": "true" if enabled else "false",
             "codebase_interval_hours": str(interval_hours),
-        })
+        }
+        if analyze_enabled is not None:
+            values["codebase_analyze_enabled"] = "true" if analyze_enabled else "false"
+        await svc.set_many("platform", values)
         await db.commit()
 
     settings.codebase_schedule_enabled = enabled
     settings.codebase_interval_hours = interval_hours
+    if analyze_enabled is not None:
+        settings.codebase_analyze_enabled = analyze_enabled
 
     from src.app.services.scheduler import reschedule_codebase
     reschedule_codebase(enabled, interval_hours)
-    return {"success": True, "enabled": enabled, "interval_hours": interval_hours}
+    return {"success": True, "enabled": enabled, "interval_hours": interval_hours,
+            "analyze_enabled": bool(settings.codebase_analyze_enabled)}

@@ -204,3 +204,75 @@ class TestAnnotationFlag:
         docs = {d["name"]: d for d in svc.list_docs()}
         assert docs["未标注"]["annotated"] is False
         assert docs["已标注"]["annotated"] is True
+
+
+class TestAppendix:
+    """附录（`## 附录：…`）是正文段，不是分组、更不是用例。
+
+    回归来源：agent 写覆盖对照表时用了 `## 附录：覆盖对照`，而格式契约里标题
+    只有"根/分组/用例"三种含义——它是个无子标题、body 里只有项目符号的叶子，
+    于是被判成一条缺元数据的用例，报 CASE_METADATA_MISSING + STEP_EXPECTED_MISSING，
+    且**怎么写都修不掉**。那次 agent 反复重写全文约 20 分钟才靠"不用标题"绕过去。
+    """
+
+    APPENDIX_DOC = (
+        "# 登录用例集\n\n"
+        "## 登录\n\n"
+        "#### 正确密码登录 [P0]\n"
+        "<!-- CASE: CASE-A-001; REQ: REQ-A-001; RISK: RISK-A-001 -->\n"
+        "前置：账号已注册\n"
+        "- 输入正确密码 ⇒ 进入首页\n\n"
+        "## 附录：覆盖对照\n\n"
+        "- 需求覆盖：REQ-A-001 已覆盖\n"
+        "- 风险对照：RISK-A-001 → CASE-A-001\n\n"
+        "### 附录里的子标题\n\n"
+        "- 这段也不该被当成用例\n"
+    )
+
+    def test_appendix_is_not_parsed_as_case_or_group(self):
+        parsed = svc.parse_cases_md(self.APPENDIX_DOC)
+        assert parsed["case_count"] == 1
+        assert [node["name"] for node in parsed["tree"]] == ["登录"]
+
+    def test_appendix_does_not_break_lint(self):
+        package = {
+            "requirements": [{"id": "REQ-A-001"}],
+            "risks": [{"id": "RISK-A-001"}],
+            "coverage_plan": [{"requirement_id": "REQ-A-001", "case_ids": ["CASE-A-001"]}],
+        }
+        report = svc.lint_case_document(self.APPENDIX_DOC, package)
+        assert report["ok"] is True, report["errors"]
+        assert report["stats"]["case_count"] == 1
+
+    def test_appendix_subtree_does_not_leak_into_the_preceding_case_body(self):
+        """附录的内容不能落进前一个用例的 body。
+
+        只"跳过附录块"是不够的：块的 body 是从自己到下一个块之间的原文，跳过之后
+        最后一个真用例的 body 会一直延伸到文件末尾，把附录的项目符号当成没有 `⇒`
+        的步骤，报出一条指向用例行的 STEP_EXPECTED_MISSING（改之前就是这样）。
+        """
+        report = svc.lint_case_document(self.APPENDIX_DOC)
+        assert not any(e["code"] == "STEP_EXPECTED_MISSING" for e in report["errors"])
+
+    def test_non_appendix_prose_heading_still_reports_missing_metadata(self):
+        """普通说明段落仍按用例校验（这条保护不能因为附录支持而放宽）。"""
+        bad = "# t\n\n## g\n\n#### 说明段落 [P1]\n- 一句说明\n"
+        report = svc.lint_case_document(bad)
+        assert report["ok"] is False
+        assert any(e["code"] == "CASE_METADATA_MISSING" for e in report["errors"])
+        # 报错里要带上契约，否则修法只能靠猜
+        assert "附录" in next(
+            e["message"] for e in report["errors"] if e["code"] == "CASE_METADATA_MISSING"
+        )
+
+    def test_document_whose_root_title_starts_with_appendix_is_not_blanked(self):
+        """根标题以「附录」开头 ≠ 附录段。
+
+        `#` 是文档根标题，附录只能是 `##` 及更深。改之前这条规则只看名字，
+        一篇标题为「# 附录回归验证」的文档会被整篇置空——case_count 变 0、
+        lint 全红。这是实测抓到的（离线测试没覆盖到根标题这种命名）。
+        """
+        doc = self.APPENDIX_DOC.replace("# 登录用例集", "# 附录相关的用例集")
+        parsed = svc.parse_cases_md(doc)
+        assert parsed["case_count"] == 1
+        assert [node["name"] for node in parsed["tree"]] == ["登录"]

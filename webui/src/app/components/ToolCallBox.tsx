@@ -1,25 +1,17 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, lazy, Suspense } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   ChevronDown,
   ChevronUp,
   Terminal,
   AlertCircle,
-  Loader2,
   CircleCheckBig,
   StopCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ToolCall } from "@/app/types/types";
 import { cn } from "@/lib/utils";
-
-const LoadExternalComponent = lazy(() =>
-  import("@langchain/langgraph-sdk/react-ui").then((m) => ({
-    default: m.LoadExternalComponent,
-  })),
-);
-type ExternalComponentProps = React.ComponentProps<typeof LoadExternalComponent>;
 
 const TOOL_DISPLAY: Record<string, string> = {
   ls: "列出目录",
@@ -44,9 +36,6 @@ const TOOL_DISPLAY: Record<string, string> = {
 
 interface ToolCallBoxProps {
   toolCall: ToolCall;
-  uiComponent?: unknown;
-  stream?: unknown;
-  graphId?: string;
 }
 
 /**
@@ -66,7 +55,7 @@ function rememberExpanded(id: string, expanded: boolean) {
 }
 
 export const ToolCallBox = React.memo<ToolCallBoxProps>(
-  ({ toolCall, uiComponent, stream, graphId }) => {
+  ({ toolCall }) => {
     const [isExpanded, setIsExpanded] = useState(
       () => expandedStateById.get(toolCall.id) ?? false,
     );
@@ -117,7 +106,6 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     }, []);
 
     const hasContent = result || Object.keys(args).length > 0;
-    const hasGenUI = !!uiComponent && !!stream && !!graphId;
 
     return (
       <div
@@ -153,30 +141,10 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
             ))}
         </Button>
 
-        {isExpanded && (hasContent || hasGenUI) && (
+        {isExpanded && hasContent && (
           <div className="px-4 pb-3">
-            {hasGenUI ? (
-              <div className="mt-1">
-                <Suspense
-                  fallback={
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Loader2 size={14} className="animate-spin" />
-                      加载组件…
-                    </div>
-                  }
-                >
-                  <LoadExternalComponent
-                    key={(uiComponent as { id: string }).id}
-                    stream={stream as ExternalComponentProps["stream"]}
-                    message={uiComponent as ExternalComponentProps["message"]}
-                    namespace={graphId!}
-                    meta={{ status, args, result: result ?? "暂无结果" }}
-                  />
-                </Suspense>
-              </div>
-            ) : (
-              <>
-                {Object.keys(args).length > 0 && (
+            <>
+              {Object.keys(args).length > 0 && (
                   <div className="mt-1">
                     <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       参数
@@ -223,8 +191,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                     </pre>
                   </div>
                 )}
-              </>
-            )}
+            </>
           </div>
         )}
       </div>

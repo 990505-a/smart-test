@@ -2,8 +2,10 @@
 
 import React, { useEffect, useState } from "react";
 import { PageHeader } from "@/app/components/ui-patterns";
+import { ReadinessCenter } from "@/app/components/ReadinessCenter";
 import { apiClient } from "@/lib/api-client";
 import {
+  useFeishuStatus,
   useModelSettings,
   useModelPresets,
   usePlatformSettings,
@@ -13,8 +15,6 @@ import {
   testMonitorLangfuseConnection,
   useJudgeSettings,
   testJudgeConnection,
-  useFeishuStatus,
-  useUnityStatus,
   testModelConnection,
   applyModelPreset,
   saveModelPreset,
@@ -53,7 +53,7 @@ const MODEL_FIELDS: SettingField[] = [
   {
     key: "llm_model",
     label: "模型名称",
-    heading: "文本模型（对话主模型）",
+    heading: "对话主模型",
     placeholder: "deepseek-chat / glm-5.3-flash（留空用 DeepSeek 官方）",
   },
   {
@@ -62,14 +62,6 @@ const MODEL_FIELDS: SettingField[] = [
     placeholder: "https://api.siliconflow.cn/v1（留空用 DeepSeek 官方端点）",
   },
   { key: "llm_api_key", label: "API Key", secret: true, placeholder: "留空使用 .env 中的 DeepSeek Key" },
-  {
-    key: "vision_model",
-    label: "模型名称",
-    heading: "视觉模型（选填，处理图片消息）",
-    placeholder: "gpt-4o / glm-4.5v（留空则复用文本模型）",
-  },
-  { key: "vision_base_url", label: "API 地址", placeholder: "留空使用文本模型的 API 地址" },
-  { key: "vision_api_key", label: "API Key", secret: true, placeholder: "留空使用文本模型的 Key" },
 ];
 
 const LANGFUSE_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string;
@@ -117,18 +109,17 @@ const JUDGE_FIELDS: { key: string; label: string; secret?: boolean; placeholder?
 
 const PLATFORM_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string }[] = [  { key: "feishu_folder_token", label: "飞书目录（每次导出自动新建思维导图）", placeholder: "目录 URL 中 drive/folder/ 后面的 token" },
   { key: "feishu_mindnote_id", label: "飞书思维导图 ID（固定追加模式）", placeholder: "用例保存目标 mindnote id；配置目录后此项不生效" },
+  { key: "feishu_mindnote_parent_node", label: "固定导图的父节点（可选）", placeholder: "追加模式下整棵树挂到哪个节点下；留空挂根节点" },
+  { key: "feishu_template_mindnote_id", label: "思维导图样式模板 ID（可选）", placeholder: "一张调好连线风格、只留根节点的干净导图；填了走「复制模板」写出，留空回退 OPML 导入（连线为默认曲线）" },
   { key: "lark_cli_bin", label: "lark-cli 命令", placeholder: "lark-cli" },
   { key: "lark_cli_identity", label: "飞书身份 (user/bot)", placeholder: "user" },
-  { key: "lightrag_base_url", label: "LightRAG 服务地址", placeholder: "http://127.0.0.1:5014" },
-  { key: "lightrag_embedding_base_url", label: "Embedding API 地址", placeholder: "https://api.siliconflow.cn/v1" },
-  { key: "lightrag_embedding_model", label: "Embedding 模型", placeholder: "BAAI/bge-m3" },
-  { key: "lightrag_embedding_api_key", label: "Embedding API Key", secret: true },
-  { key: "codebase_memory_exe", label: "代码图谱 exe 路径（GS 定制版）", placeholder: "C:/codebase/cbm-gs.exe" },
-  { key: "game_repo_path", label: "游戏仓库路径", placeholder: "E:/m72-publish/m72" },
-  { key: "game_client_repo", label: "游戏客户端路径", placeholder: "E:/m72-publish/m72/client" },
-  { key: "unity_host", label: "Unity 主机", placeholder: "127.0.0.1" },
-  { key: "unity_port", label: "Unity LuaRemoteServer 端口", placeholder: "16666" },
-  { key: "memory_enabled", label: "记忆总开关 (true/false)", placeholder: "false = 完全不向提示词注入记忆（各模块的开关在「Agent 记忆」页）" },
+  // LightRAG（知识库）的配置**不在这里**：模型 / Embedding / 知识库清单都挪到了
+  // LightRAG 自带界面的「RAG 设置」页（每页右上角有入口，或见 /rag 页的地址）。
+  // 那些值是启动 LightRAG 进程的环境变量，放在本体那一侧改完重启才说得通。
+  { key: "unity_mcp_url", label: "Unity MCP 桥地址", placeholder: "http://127.0.0.1:5016/mcp" },
+  { key: "unity_mcp_transport", label: "桥传输方式 (http/stdio)", placeholder: "http" },
+  { key: "unity_mcp_command", label: "stdio 启动命令（留空用默认）", placeholder: "uvx --from mcpforunityserver==10.2.0 mcp-for-unity --transport stdio" },
+  { key: "unity_mcp_server", label: "工具名方言 (auto/coplay/ivan/generic)", placeholder: "auto" },
   { key: "api_auto_max_repair", label: "接口脚本自修复次数上限" },
 ];
 
@@ -323,8 +314,6 @@ export default function SettingsPage() {
   const langfuseSettings = useLangfuseSettings();
   const monitorSettings = useMonitorLangfuseSettings();
   const judgeSettings = useJudgeSettings();
-  const feishuStatus = useFeishuStatus();
-  const unityStatus = useUnityStatus();
 
   const [savingModel, setSavingModel] = useState(false);
   const [savingPlatform, setSavingPlatform] = useState(false);
@@ -452,14 +441,14 @@ export default function SettingsPage() {
     setTestingModel(true);
     try {
       const result = await testModelConnection(form);
-      const fmt = (r: { ok: boolean; latency_ms?: number; error?: string; model?: string; skipped?: boolean }) =>
+      const fmt = (r: { ok: boolean; latency_ms?: number; error?: string; model?: string }) =>
         r.ok
-          ? `${r.model ?? ""}${r.skipped ? "" : ` · ${r.latency_ms}ms`}`
+          ? `${r.model ?? ""} · ${r.latency_ms}ms`
           : `${r.model ?? ""} 失败：${r.error ?? "未知错误"}`;
-      if (result.text.ok && result.vision.ok) {
-        toast.success(`连通正常 — 文本 ${fmt(result.text)}；视觉 ${fmt(result.vision)}`);
+      if (result.ok) {
+        toast.success(`连通正常 — ${fmt(result)}`);
       } else {
-        toast.error(`文本模型 ${fmt(result.text)}；视觉模型 ${fmt(result.vision)}`);
+        toast.error(fmt(result));
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "测试失败");
@@ -534,28 +523,11 @@ export default function SettingsPage() {
         <div className="flex flex-col gap-6">
           <PageHeader
             title="设置"
-            description={
-              <span className="flex flex-wrap items-center gap-x-3">
-                <span>模型与平台集成配置（本地单机模式，无需登录）。集成状态：</span>
-                <span className="flex items-center gap-1">
-                  飞书
-                  {feishuStatus.data?.logged_in ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5 text-destructive" />
-                  )}
-                </span>
-                <span className="flex items-center gap-1">
-                  Unity
-                  {unityStatus.data?.available ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5 text-destructive" />
-                  )}
-                </span>
-              </span>
-            }
+            description="模型与平台集成配置（本地单机模式，无需登录）。各依赖的就绪状态见下方「就绪中心」"
           />
+
+        {/* 就绪中心：外部依赖唯一的一份状态视图（描述来自后端 integrations 注册表） */}
+        <ReadinessCenter />
 
         {/* 本地单机模式说明（原「账号」卡片：登录已移除，见 api/v2/auth.py） */}
         <Card className="p-5">
@@ -571,7 +543,7 @@ export default function SettingsPage() {
         {modelSettings.data && (
           <SettingsForm
             title="模型"
-            description="文本模型支持任意 OpenAI 兼容端点（OpenAI / 硅基流动 / OneAPI / vLLM 等）：填了 API 地址即走该端点，留空使用 DeepSeek 官方。视觉模型留空则由文本模型处理图片（需文本模型本身支持视觉）。思考强度在聊天页按会话设置。密钥显示为 ******** 时保持不变即可"
+            description="支持任意 OpenAI 兼容端点（OpenAI / 硅基流动 / OneAPI / vLLM 等）：填了 API 地址即走该端点，留空使用 DeepSeek 官方。需要处理图片消息时，模型本身要支持读图。思考强度、以及「本次会话用哪个模型」都在聊天页按会话设置。密钥显示为 ******** 时保持不变即可"
             fields={MODEL_FIELDS}
             values={modelSettings.data}
             onSave={saveModel}
@@ -692,7 +664,7 @@ export default function SettingsPage() {
         {platformSettings.data && (
           <SettingsForm
             title="平台集成"
-            description="飞书 / LightRAG / codebase-memory / 游戏仓库 / Unity / 记忆总开关"
+            description="飞书 / LightRAG / Unity 的连接信息，以及记忆总开关。代码图谱引擎由平台自管安装（版本与安装按钮在「代码图谱」页），这里不需要填路径。"
             fields={PLATFORM_FIELDS}
             values={platformSettings.data}
             onSave={savePlatform}

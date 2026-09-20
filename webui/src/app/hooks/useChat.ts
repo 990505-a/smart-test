@@ -107,12 +107,30 @@ async function _syncIncompleteThread(
  * command comes from the real tool call args in the interrupt payload —
  * never from model-authored prose (dsh anti-spoofing principle).
  */
+export interface PendingApprovalAction {
+  name: string;
+  command: string;
+  description: string;
+  args: Record<string, unknown>;
+}
+
 export interface PendingApproval {
   threadId: string;
   toolName: string;
   command: string;
   description: string;
   args: Record<string, unknown>;
+  /**
+   * 本次中断里**全部**待决策的工具调用。
+   *
+   * 一次模型回复可能并行发起多个受控调用（实测：agent 查源码时同时发了两条 rg），
+   * 而 LangChain 的 HumanInTheLoopMiddleware 要求 decisions 数量与挂起的 tool call
+   * 数**严格相等**——只回一条会直接抛
+   * "Number of human decisions (1) does not match number of hanging tool calls (2)"，
+   * 整个 run 失败、前端只收到一个空的 error 事件。
+   * 上面那四个字段是 actions[0] 的展开，仅为兼容既有渲染代码。
+   */
+  actions: PendingApprovalAction[];
 }
 
 export function useChat({
@@ -136,6 +154,10 @@ export function useChat({
     "permission",
     parseAsString.withDefault("workspace_write"),
   );
+  // 本次对话用哪个模型（?model=<设置页里的模型预设名>，空 = 跟随平台默认模型）。
+  // 转发为 configurable.model_preset，后端 RunModelMiddleware 按预设换模型与端点；
+  // 只影响本会话，不动设置页里的全局配置。
+  const [modelPreset] = useQueryState("model", parseAsString.withDefault(""));
   // 飞书检索开关已移除（2026-09）：默认就允许只读检索，不再往 configurable
   // 传 feishu_cli（后端中间件在缺省时按"开启"处理，写成 "off" 才关闭）。
   const client = useClient();
@@ -287,6 +309,17 @@ export function useChat({
   const threadIdRef = useRef<string | null>(threadId);
   threadIdRef.current = threadId;
 
+  // 当前模式（assistant id）的最新值。saveMessagesToLocalStore 是 [] 依赖的
+  // 稳定回调、ensureThreadId 是 [client, setThreadId] 依赖，而 ChatProvider
+  // 切模式时不重挂载 → 闭包里直接读 assistantId 会永远是首个模式的值
+  // （thread_infos.agent 被写成旧模式）。用 ref 读当前值：既拿到新模式，又
+  // 不改回调身份——把 assistantId 加进依赖数组会让回调换身份，引发流的
+  // 重订阅抖动。
+  const assistantIdRef = useRef(assistantId);
+  useEffect(() => {
+    assistantIdRef.current = assistantId;
+  }, [assistantId]);
+
   // 懒创建的并发防护：批量拖文件/快速连续操作时不重复建线程
   const ensuredThreadIdRef = useRef<string | null>(null);
   const ensureThreadIdPromiseRef = useRef<Promise<string | undefined> | null>(null);
@@ -304,7 +337,8 @@ export function useChat({
       ensureThreadIdPromiseRef.current = (async () => {
         try {
           const newThread = await client.threads.create({
-            metadata: { agent: assistantId },
+            // 懒创建的线程也要记下建它时的模式（读 ref 取当前值，见上方说明）
+            metadata: { agent: assistantIdRef.current },
           });
           ensuredThreadIdRef.current = newThread.thread_id;
           setThreadId(newThread.thread_id);
@@ -403,7 +437,9 @@ export function useChat({
           const payload = {
             // 会话的模式（LangGraph assistant id）：首条消息落库时写进
             // thread_infos.agent，会话列表与"点开历史会话恢复模式"都靠它。
-            agent: assistantId,
+            // 读 ref 而不是闭包里的 assistantId：本回调依赖为空，闭包值会
+            // 是首个模式，切模式后保存会一直写旧模式（见 assistantIdRef）
+            agent: assistantIdRef.current,
             messages: toSend.map((m) => {
               const attachmentMetadataByMessage = attachmentMetadataRef.current.get(tid);
               const existingAdditional =
@@ -624,7 +660,8 @@ export function useChat({
           // 混入渲染层，流结束后的权威回填（messages/sync prune）也会用
           // LangGraph state 覆盖纠正 —— 实时性与正确性兼得。
           const stream = cli.runs.joinStream(threadId, activeRun.run_id, {
-            streamMode: ["messages", "tasks"],
+            // 同样不要 tasks（占 93.6% 字节、只用两个字段，见发送流处的说明）。
+            streamMode: ["messages"],
             signal: abortController.signal,
           });
 
@@ -733,21 +770,30 @@ export function useChat({
           ...(snap.tasks ?? []).flatMap((task) => task.interrupts ?? []),
         ];
         for (const int of allInterrupts) {
-          const request = int.value?.action_requests?.[0];
-          if (request?.name) {
-              if (target === (viewedThreadIdRef.current ?? "")) {
-                setInterrupt({
-                  threadId: target,
-                  toolName: request.name,
-                  command: String(
-                    (request.args as { command?: unknown } | undefined)?.command ?? "",
-                  ),
-                  description: String(request.description ?? ""),
-                  args: request.args ?? {},
-                });
-              }
-              return;
-            }
+          // 取**全部** action_requests，不能只看 [0]：并行多个受控调用时每个都要
+          // 回一条 decision（见 PendingApproval.actions 的说明）。
+          const actions = (int.value?.action_requests ?? [])
+            .filter((r) => Boolean(r?.name))
+            .map((r) => ({
+              name: String(r.name),
+              command: String(
+                (r.args as { command?: unknown } | undefined)?.command ?? "",
+              ),
+              description: String(r.description ?? ""),
+              args: r.args ?? {},
+            }));
+          if (actions.length === 0) continue;
+          if (target === (viewedThreadIdRef.current ?? "")) {
+            setInterrupt({
+              threadId: target,
+              toolName: actions[0].name,
+              command: actions[0].command,
+              description: actions[0].description,
+              args: actions[0].args,
+              actions,
+            });
+          }
+          return;
         }
         setInterrupt((prev) => (prev && prev.threadId === target ? null : prev));
       } catch {
@@ -891,7 +937,8 @@ export function useChat({
    * so switching to a different thread won't interrupt it.
    */
   const sendMessage = useCallback(
-    async (content: string, contentBlocks?: ContentBlock[], context?: { workspacePath?: string }) => {
+    async (content: string, contentBlocks?: ContentBlock[],
+           context?: { workspacePath?: string; agentId?: string }) => {
       const imageBlocks =
         contentBlocks?.filter((b) => b.type === "image") ?? [];
       const fileBlocks =
@@ -1039,15 +1086,19 @@ export function useChat({
         const streamingThreadId = currentThreadId;
 
         // Remember the run's configurable so a later resume (approval decision)
-        // keeps the same workspace mount / effort / approval switch.
+        // keeps the same workspace mount / effort / approval switch / model.
         lastRunConfigRef.current = {
           space_id: workspaceId || "default",
           // 工作区 = 本次对话的目录（agent 的 cwd）；留空用平台默认。
           workspace_path: context?.workspacePath || "",
+          // 用哪个智能体（装配目录里用户定义的那些）；留空用默认智能体。
+          agent_id: context?.agentId || "",
           permission_mode: permissionMode,
           ...(reasoningEffort
             ? { llm_reasoning_effort: reasoningEffort }
             : {}),
+          // 模型预设名；留空表示跟随设置页的全局模型。
+          ...(modelPreset ? { model_preset: modelPreset } : {}),
         };
 
         // 竞态预检：用户可能在 run 创建前就点了停止（发送后立即停止）。
@@ -1086,7 +1137,15 @@ export function useChat({
               recursion_limit: 1000,
               configurable: lastRunConfigRef.current,
             },
-            streamMode: ["messages", "tasks"],
+            // 只要 messages，**不要 tasks**。实测（最小对话、36 个事件、103,805
+            // 字节）tasks 占 93.6%（97,193 字节），而 noteTaskEvent 只从里面取两个
+            // 小字段（task.id 与 input.tool_call.id）——代价是每个任务事件都携带该
+            // 节点的**完整输入**，模型节点的输入就是整段对话，于是随对话变长呈二次
+            // 增长：一次 20 分钟的长会话把 231 MB 推给了浏览器。
+            // 子代理面板不依赖它也能工作：consume() 会用 messages/metadata 的
+            // namespace 自行推导 pregelId → callId（subagentActivity.ts:218-221），
+            // 这也正是重连路径（joinStream 不透传 subgraphs）已经在用的降级方式。
+            streamMode: ["messages"],
             streamSubgraphs: true,
             onRunCreated,
             // SDK 实现层透传 signal（类型未声明，见 client/runs/index.js）：
@@ -1122,7 +1181,7 @@ export function useChat({
 
       onHistoryRevalidate?.();
     },
-    [threadId, assistantId, client, workspaceId, setThreadId, scheduleHistoryRevalidate, onHistoryRevalidate, paginated, saveMessagesToLocalStore, isViewedThread, scheduleStreamRender, flushStreamRender, bumpLoadingIfViewed, upsertStreamMessage, reasoningEffort, permissionMode, processStreamEvents, finalizeStream, tombstoneRuns, cancelThreadRuns],
+    [threadId, assistantId, client, workspaceId, setThreadId, scheduleHistoryRevalidate, onHistoryRevalidate, paginated, saveMessagesToLocalStore, isViewedThread, scheduleStreamRender, flushStreamRender, bumpLoadingIfViewed, upsertStreamMessage, reasoningEffort, permissionMode, modelPreset, processStreamEvents, finalizeStream, tombstoneRuns, cancelThreadRuns],
   );
 
   /**
@@ -1172,9 +1231,14 @@ export function useChat({
     async (decision: "approve" | "reject", reason?: string) => {
       const tid = interrupt?.threadId ?? threadId;
       if (!tid || !interrupt || !assistantId) return;
-      const decisions = [
-        { type: decision, ...(reason ? { message: reason } : {}) },
-      ];
+      // 一条 decision 对应一个挂起的 tool call。并行调用时必须按个数补齐，
+      // 否则服务端 HumanInTheLoopMiddleware 直接 ValueError、run 整个失败
+      // （见 PendingApproval.actions）。这里对本次中断里的所有调用用同一个决策。
+      const pendingCount = Math.max(1, interrupt.actions?.length ?? 0);
+      const decisions = Array.from({ length: pendingCount }, () => ({
+        type: decision,
+        ...(reason ? { message: reason } : {}),
+      }));
       setInterrupt(null);
 
       const oldAbort = abortMapRef.current.get(tid);
@@ -1194,7 +1258,8 @@ export function useChat({
               ...lastRunConfigRef.current,
             },
           },
-          streamMode: ["messages", "tasks"],
+          // 与上方发送流一致：不要 tasks（它占 93.6% 的字节，只用两个字段）。
+          streamMode: ["messages"],
           streamSubgraphs: true,
           // SDK 实现层透传 signal（类型未声明）——本地 abort 立即掐断 SSE
           ...({ signal: abortController.signal }),
@@ -1241,9 +1306,6 @@ export function useChat({
     resumeInterrupt,
     /** 按需创建线程（懒创建）：首条消息前的文件上传用 */
     ensureThreadId,
-    todos: [] as TodoItem[],
-    files: {} as Record<string, unknown>,
-    ui: undefined as unknown[] | undefined,
     interrupt,
     threadId,
     setThreadId,

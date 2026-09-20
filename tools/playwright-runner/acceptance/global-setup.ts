@@ -73,7 +73,16 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   if (!created.ok()) throw new Error(`夹具创建失败: HTTP ${created.status()}`);
   const scriptId = (await created.json()).data.id as string;
 
-  await api.post(`/api/v2/web-ui-auto/scripts/${scriptId}/run`, { headers, data: {} });
+  // auto_repair: false 是**必须的**，不能省。
+  // 平台默认会拿 .env 的 WEB_UI_MAX_REPAIR（本机是 2）去自修复：这条夹具的失败
+  // 原因是"断言的目标元素不存在"，而模型完全可以把它改成一个成立的断言——于是
+  // 这条"故意失败"的执行变成通过（0 失败、退出码 0），下游 04 号用例找不到
+  // 「失败原因」直接挂。实测就撞上过一次。要验的是失败存证链路，就不能让自修复
+  // 把失败修掉。
+  await api.post(`/api/v2/web-ui-auto/scripts/${scriptId}/run`, {
+    headers,
+    data: { auto_repair: false },
+  });
 
   // 等执行进入终态。注意：执行记录现在**先以 running 落库**再开跑
   // （前端要靠它显示实时进度），所以看到记录 ≠ 跑完了。

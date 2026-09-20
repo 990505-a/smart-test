@@ -26,10 +26,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import httpx
+from sqlalchemy import select
 
 from src.app.core.config import settings
+from src.app.core.http import local_client
 from src.app.core.llms import get_deepseek_model
 from src.app.db.models.web_ui_script import WebUiScript
 
@@ -70,7 +73,7 @@ def workspace() -> Path:
 async def status() -> dict:
     """Probe the runner and report the CLI/browser inventory."""
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with local_client(timeout=15.0) as client:
             response = await client.get(_runner_url("/health"))
             response.raise_for_status()
             data = response.json()
@@ -94,7 +97,7 @@ async def status() -> dict:
 
 async def run_cli(args: list[str], *, timeout: float = 120.0) -> dict:
     """Raw allow-listed ``playwright <subcommand>`` passthrough."""
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with local_client(timeout=timeout) as client:
         response = await client.post(_runner_url("/cli"), json={"args": args, "timeoutMs": int(timeout * 1000)})
         return response.json()
 
@@ -107,7 +110,7 @@ async def screenshot(url: str, *, filename: str | None = None, device: str | Non
         payload["filename"] = filename
     if device:
         payload["device"] = device
-    async with httpx.AsyncClient(timeout=timeout + 30) as client:
+    async with local_client(timeout=timeout + 30) as client:
         response = await client.post(_runner_url("/screenshot"), json=payload)
         return response.json()
 
@@ -153,7 +156,7 @@ async def run_spec(script: WebUiScript, *, timeout_s: int | None = None,
 
     started = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=(timeout_s or settings.web_ui_run_timeout_s) + 60) as client:
+        async with local_client(timeout=(timeout_s or settings.web_ui_run_timeout_s) + 60) as client:
             response = await client.post(_runner_url("/run"), json=payload)
             data = response.json()
     except Exception as exc:  # noqa: BLE001
@@ -275,19 +278,21 @@ def _indent(text: str) -> str:
 
 SPEC_PROMPT = """你是资深 Web UI 自动化测试工程师。请把下面的测试意图写成**一份可直接运行的 Playwright 测试 spec**（TypeScript，`@playwright/test`）。
 
-硬性要求：
+这是一次**草稿生成**调用：你只拿到输出格式契约，看不到平台技能库里的完整规范。
+定位/断言/截图等写法以 `skills/web-ui-test` 的「spec 硬性规范」为准（生成后由人和
+用例智能体按那份规范复核）。所以这里只写**流水线契约**，不重复业务规范。
+
+输出契约：
 1. 只输出代码，用 ```typescript 围栏包裹，不要任何解释文字。
-2. 第一行 import：`import { test, expect } from '@playwright/test'`。
+2. 第一行 import：`import {{ test, expect }} from '@playwright/test'`。
 3. **不要**自己写 `playwright.config`、不要 `page.goto` 绝对域名——用相对路径（baseURL 由运行器注入，值为 {target_url}）。
    即：`await page.goto('/movie/')` 而不是 `page.goto('https://...')`。
 4. 用例名用中文，描述「测什么」；每个 `test()` 内按 定位 → 操作 → 断言 的顺序写。
-5. **选择器必须稳健**：优先 `getByRole` / `getByText` / `data-*` 属性；避免 nth-child 之类的脆弱路径。
-   移动站点注意用 `page.getByText(...)` 或 CSS 类名组合。
-6. 断言用 `expect(...)`，必须给出**具体的期望值**（`toBeVisible()` / `toContainText('...')` / `toHaveCount(n)`），
-   禁止 `expect(true).toBe(true)` 这类空断言。
-7. 每个用例至少 1 处截图存证：`await page.screenshot({{ path: 'artifacts/<用例名>.png', fullPage: true }})`。
-8. 超时留足：移动站首屏可能较慢，可在 test 内用 `test.setTimeout(60000)`。
-9. 不依赖登录态、不写死时间戳/随机数；用例之间相互独立。
+5. 每个用例至少 1 处截图存证，路径必须落在 `artifacts/` 下（这是运行器约定的产物目录）：
+   `await page.screenshot({{ path: 'artifacts/<用例名>.png', fullPage: true }})`。
+6. 断言必须给出具体期望值，禁止 `expect(true).toBe(true)` 这类空断言。
+7. 超时留足：移动站首屏可能较慢，可在 test 内用 `test.setTimeout(60000)`。
+8. 不依赖登录态、不写死时间戳/随机数；用例之间相互独立。
 
 被测站点：{target_url}
 {extra}
@@ -414,3 +419,111 @@ def _load_repairs(script: WebUiScript) -> list[dict]:
         return parsed if isinstance(parsed, list) else []
     except json.JSONDecodeError:
         return []
+
+
+# ---------------------------------------------------------------------------
+# Script persistence — 唯一的写入口
+# ---------------------------------------------------------------------------
+
+#: 脚本 spec 在运行目录里的默认相对路径（决定 CLI 的 testMatch 能否命中）。
+DEFAULT_SPEC_FILE = "tests/spec.spec.ts"
+
+#: 新建脚本的默认状态：还没跑过。只有"已验证跑通"的调用方显式传 active。
+DEFAULT_SCRIPT_STATUS = "draft"
+
+
+def build_script_options(*, device: str | None = None, browsers: list | None = None,
+                         desktop: bool = False, video: str | None = None,
+                         base: dict | None = None) -> dict:
+    """脚本 options 的唯一构造点 —— 默认设备只在 settings 里定义一次。
+
+    过去 ``"iPhone 13"`` 这个字面量散落在两个工具签名和页面 API 里（还有一处
+    靠 ``"douban" in target_url`` 猜），改 ``WEB_UI_DEFAULT_DEVICE`` 管不到它们。
+    """
+    options: dict = dict(base or {})
+    if desktop:
+        options.pop("device", None)   # 显式桌面：不注入任何设备
+    else:
+        options["device"] = device or settings.web_ui_default_device
+    if browsers:
+        options["browsers"] = [str(b) for b in browsers]
+    if video:
+        options["video"] = video
+    return options
+
+
+async def save_script(db, *, name: str | None = None, content: str | None = None,
+                      script_id: str | None = None, module: str | None = None,
+                      description: str | None = None, spec_file: str | None = None,
+                      target_url: str | None = None, options: dict | None = None,
+                      device: str | None = None, browsers: list | None = None,
+                      desktop: bool = False, video: str | None = None,
+                      status: str | None = None) -> WebUiScript:
+    """新建或更新一条 Web-UI 脚本 —— 对话页与模块页共用的唯一写入口。
+
+    四条路（agent 的 webui_save_script、页面 POST /scripts、页面 AI /generate、
+    页面 PUT 保存）都走这里，默认值因此只在一处定义：
+
+    - 给了 ``script_id`` 就**更新**，否则新建（新建必须有 ``content``）。
+    - ``content`` 真的变了才 version+1（避免无改动保存也把版本推上去）。
+    - ``options`` 显式给了就直接用（页面表单路径）；否则按 device/browsers/desktop
+      构造，落到 ``settings.web_ui_default_device``。
+    - ``status`` 缺省：新建 draft / 更新不动。
+    """
+    row: WebUiScript | None = None
+    if script_id:
+        row = (await db.execute(
+            select(WebUiScript).where(WebUiScript.id == UUID(str(script_id)))
+        )).scalars().first()
+        if row is None:
+            raise LookupError(f"脚本不存在: {script_id}")
+
+    if row is None:
+        if not content:
+            raise ValueError("新建脚本必须提供 content")
+        row = WebUiScript(
+            name=name, module=module or None, description=description or None,
+            content=content, spec_file=spec_file or DEFAULT_SPEC_FILE,
+            target_url=target_url or settings.web_ui_default_target_url,
+            # 显式给了 options（页面表单路径）就直接用；否则按 device/browsers 构造。
+            options=json.dumps(options, ensure_ascii=False) if options is not None
+            else json.dumps(build_script_options(
+                device=device, browsers=browsers, desktop=desktop, video=video),
+                ensure_ascii=False),
+            status=status or DEFAULT_SCRIPT_STATUS,
+        )
+        db.add(row)
+    else:
+        if name is not None:
+            row.name = name
+        if module is not None:
+            row.module = module
+        if description is not None:
+            row.description = description
+        if spec_file is not None:
+            row.spec_file = spec_file
+        if target_url is not None:
+            row.target_url = target_url
+        if content is not None and content != row.content:
+            row.content = content
+            row.version += 1
+        if status is not None:
+            row.status = status
+        if options is not None:
+            row.options = json.dumps(options, ensure_ascii=False)
+        elif device or browsers or desktop or video:
+            # 只在这些字段真被指定时才覆盖 options，否则保存一次标题就把
+            # 页面表单里配好的设备/浏览器矩阵抹掉了。
+            row.options = json.dumps(build_script_options(
+                device=device, browsers=browsers, desktop=desktop, video=video),
+                ensure_ascii=False)
+
+    await db.commit()
+    return row
+
+
+async def get_script(db, script_id: str) -> WebUiScript | None:
+    """按 id 取脚本（含 content）。对话页要读回源码必须走这里。"""
+    return (await db.execute(
+        select(WebUiScript).where(WebUiScript.id == UUID(str(script_id)))
+    )).scalars().first()

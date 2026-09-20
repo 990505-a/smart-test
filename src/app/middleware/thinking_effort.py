@@ -17,9 +17,31 @@ from langchain.agents.middleware.types import ResponseT
 from langchain_core.language_models import BaseChatModel
 from langgraph.typing import ContextT
 
-from app.agents.testcase.model_factory import VALID_EFFORTS, effort_model
+from src.app.agents.testcase.model_factory import VALID_EFFORTS, effort_model
 
 logger = logging.getLogger(__name__)
+
+
+def configurable_value(key: str, default: str = "") -> str:
+    """Read a string out of the run config's ``configurable``; "" when unset.
+
+    ``get_config()`` raises outside a graph context (unit tests, plain calls),
+    which must not break the caller — an absent value simply means "no per-run
+    override", i.e. keep whatever the platform is configured with.
+    """
+    from langgraph.config import get_config
+
+    try:
+        config = get_config() or {}
+    except Exception:
+        return default
+    return str((config.get("configurable") or {}).get(key, default) or "").strip()
+
+
+def current_effort() -> str | None:
+    """Per-run reasoning effort from configurable.llm_reasoning_effort."""
+    effort = configurable_value("llm_reasoning_effort").lower()
+    return effort if effort in VALID_EFFORTS else None
 
 
 class ThinkingEffortMiddleware(AgentMiddleware):
@@ -52,11 +74,4 @@ class ThinkingEffortMiddleware(AgentMiddleware):
     @staticmethod
     def _current_effort() -> str | None:
         """Read the effort from the LangGraph run config; None when unset."""
-        from langgraph.config import get_config
-
-        try:
-            config = get_config() or {}
-        except Exception:
-            return None
-        effort = str((config.get("configurable") or {}).get("llm_reasoning_effort", "")).strip().lower()
-        return effort if effort in VALID_EFFORTS else None
+        return current_effort()

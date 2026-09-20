@@ -31,6 +31,8 @@ workspace/default/web-ui-auto/runs/
 workspace/default/unity-auto/
 # 测评批次的执行现场（live.ndjson / live.log）：运行期数据，每跑一次新生成
 workspace/default/eval-runs/
+# deepagents 内部产物（摘要 offload 的对话历史、超大工具结果淘汰），运行期数据
+workspace/.artifacts/
 
 # Docker 运行期数据（SQLite 库、dsh home），由 docker compose 以卷挂载
 docker-data/
@@ -58,3 +60,25 @@ dsh/logs/
 
 # 验收用例的截图/报告产物（可重跑生成，不入库）
 tools/playwright-runner/acceptance/artifacts/
+
+# 代码图谱二进制（平台自管安装：services/cbm_install.py 按系统下载官方 release
+# 到此处并校验 sha256）。单个文件 ~290MB，是**第三方产物**而非本仓库源码，
+# 且 GitHub 单文件上限 100MB —— 必须忽略，重装一条命令即可复原。
+tools/codebase-memory/
+
+# 本地备份快照（backups/*/smart_test_platform.db 含 settings_kv 里的真实 API Key
+# 与 auth_tokens 表）。**公开仓库绝不可提交**，需要分享就单独打包。
+backups/
+
+# 根目录散落的执行证据（Unity 截图 / 录像）：正常产物在 workspace/default/unity-auto/
+# 下且已被忽略，落到根目录的是手工跑冒烟时漏收的，同样不入库
+/*.mp4
+/01_current_state.png
+/click_medals.png
+
+# LightRAG 单库实例的存储（kv_store_* / vdb_*）：索引运行期数据，随每次入库变动，
+# 与上面已忽略的 rag_storage/ 同类；知识库本体由服务侧持有，不入库
+workspace/default/rag/
+
+# 装配清单的滚动备份（每次保存生成一份），只跟踪 assembly.json 本身
+workspace/default/assembly.json.bak-*

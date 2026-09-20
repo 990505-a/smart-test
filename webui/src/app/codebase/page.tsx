@@ -5,7 +5,11 @@
  * 左侧仓库列表(状态点 + 点选切换) + 右侧选中仓库的功能区。
  * - 图谱:选中已建库仓库即自动加载,工具条(搜索/上限/结构节点/边过滤)内聚
  * - 索引与规则:该仓库的索引动作、文件类型规则、实际 .cbmignore、运行历史
- * - 定时任务(全局):间隔配置 + 立即执行 + 全部历史
+ * - 定时任务(全局):间隔配置 + 立即执行 + 影响分析开关 + 全部历史
+ *
+ * 交互式的代码问答**不在这里**（原「AI 分析」Tab 已删除，2026-09）：对话页的
+ * 「代码图谱仓库」选择器挂上这里注册的仓库就能问，同一套图谱工具与文件工具。本页保留的
+ * 是「索引」这条线 + 索引后自动跑的无头影响分析（报告在定时任务 Tab 里看）。
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -13,7 +17,9 @@ import { PageHeader } from "@/app/components/ui-patterns";
 import { apiClient } from "@/lib/api-client";
 import {
   useCbmRepos, useCbmRuns, useCbmSchedule, useCbmStatus,
-  fetchCbmGraphData, fetchCbmIgnore, fetchCbmSubgraph, type CbmGraphData, type CbmRepo,
+  useCbmImpactReports, deleteCbmImpactReport, fetchCbmImpactReport, triggerCbmAnalyze,
+  fetchCbmGraphData, fetchCbmIgnore, fetchCbmSubgraph,
+  type CbmGraphData, type CbmImpactReport, type CbmRepo,
 } from "@/lib/api/useNewModules";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,8 +47,8 @@ const GraphView = dynamic(() => import("@/app/components/GraphView"), {
   ),
 });
 import {
-  CheckCircle2, Database, FileCode2, Loader2, Play, Plus, RefreshCw,
-  Timer, Trash2, XCircle,
+  CheckCircle2, Database, Download, FileCode2, Loader2, Play, Plus, RefreshCw,
+  Sparkles, Timer, Trash2, XCircle,
 } from "lucide-react";
 
 const COMMON_EXTS = [".gs", ".lua", ".cs", ".py", ".go", ".ts", ".java", ".cpp"];
@@ -77,7 +83,7 @@ export default function CodebasePage() {
       <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col px-6 py-6 lg:px-8">
         <PageHeader
           title="代码图谱"
-          description="多仓库代码知识图谱:索引管理、文件类型控制、节点连线可视化、定时增量索引。"
+          description="多仓库代码知识图谱:索引管理、文件类型控制、节点连线可视化、定时增量索引与索引后的自动影响分析。要问代码，去对话页挂一个这里的仓库。"
         />
         <div className="mt-4 flex min-h-0 flex-1 gap-4">
           {/* ============ 左侧:仓库列表 ============ */}
@@ -170,6 +176,33 @@ export default function CodebasePage() {
 function ServiceFooter() {
   const status = useCbmStatus();
   const st = status.data;
+  const [installing, setInstalling] = useState(false);
+
+  // 平台自管安装：官方 release 按当前平台下载（旧版要用户自己弄一个 Windows exe，
+  // 在 macOS/Linux 上根本跑不起来）。升级也走同一个按钮。
+  const inst = st?.install;
+  const needInstall = !!st && !st.available && !st.exe_present;
+  const upgradable = !!inst?.upgradable;
+
+  const doInstall = async () => {
+    setInstalling(true);
+    try {
+      // 后端在"下载/校验失败"时返回 success=false + data.error（不抛 HTTP 错误）
+      const res = await apiClient.post<{ success?: boolean; message?: string; error?: string }>(
+        "/codebase/install", { force: upgradable, version: null });
+      if (res.data?.success === false) {
+        toast.error(res.data?.error ?? "安装失败");
+      } else {
+        toast.success(res.data?.message ?? "安装完成");
+        setTimeout(() => status.mutate(), 2000);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "安装失败（需要能访问 GitHub）");
+    } finally {
+      setInstalling(false);
+    }
+  };
+
   return (
     <Card className="shrink-0 space-y-1 p-3 text-xs">
       <div className="flex items-center justify-between">
@@ -188,6 +221,27 @@ function ServiceFooter() {
         <span className="text-muted-foreground">已建库项目</span>
         <span>{st?.projects?.length ?? 0}</span>
       </div>
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground">引擎版本</span>
+        <span className={upgradable ? "text-warning" : "text-muted-foreground"}>
+          {inst?.installed_version ?? (st?.exe_present ? "未知" : "未安装")}
+        </span>
+      </div>
+
+      {(needInstall || upgradable) && (
+        <div className="pt-1">
+          <Button size="sm" variant="outline" className="w-full"
+                  disabled={installing} onClick={doInstall}>
+            {installing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        : <Download className="mr-1 h-3 w-3" />}
+            {upgradable ? `升级到 ${inst?.target_version}` : "安装代码图谱引擎"}
+          </Button>
+          <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+            官方 codebase-memory-mcp{inst?.target_version ? ` ${inst.target_version}` : ""}
+            （{inst?.asset || "当前平台"}），约 40MB，从 GitHub 下载并校验 sha256
+          </p>
+        </div>
+      )}
     </Card>
   );
 }
@@ -270,8 +324,13 @@ function GraphTab({ repo, indexing }: { repo: CbmRepo | null; indexing: boolean 
   // 范围视图状态(大图)
   const [scopeMode, setScopeMode] = useState<"dir" | "symbol">("dir");
   const [scopeValue, setScopeValue] = useState("");
+  // 手动切范围视图:节点数拿不到时(探测失败) isBig 会误判成小图,而小图路径对超大图
+  // 只会采样出互不相连的散点。留一个手动开关,保证那条"改用范围视图"的提示真的能执行。
+  const [forceScope, setForceScope] = useState(false);
   const project = repo?.project ?? "";
+  const nodesKnown = typeof repo?.nodes === "number";
   const isBig = (repo?.nodes ?? 0) > BIG_GRAPH_THRESHOLD;
+  const useScope = isBig || forceScope;
   const loadKey = `${project}:${maxNodes}`;
 
   const applyResult = (res: unknown) => {
@@ -286,7 +345,7 @@ function GraphTab({ repo, indexing }: { repo: CbmRepo | null; indexing: boolean 
 
   // 小图:选中已建库仓库 → 自动全量加载
   useEffect(() => {
-    if (isBig || !project || !repo?.indexed) return;
+    if (useScope || !project || !repo?.indexed) return;
     let cancelled = false;
     setLoading(true); setError("");
     fetchCbmGraphData(project, maxNodes)
@@ -295,7 +354,7 @@ function GraphTab({ repo, indexing }: { repo: CbmRepo | null; indexing: boolean 
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadKey, repo?.indexed, isBig]);
+  }, [loadKey, repo?.indexed, useScope]);
 
   const reload = async () => {
     if (!project || loading) return;
@@ -352,9 +411,11 @@ function GraphTab({ repo, indexing }: { repo: CbmRepo | null; indexing: boolean 
           {repo.display_name || repo.repo_path}
         </span>
         <Badge variant="secondary">
-          {data ? `${data.nodes.length} 节点 · ${data.edges.length} 边` : `${repo.nodes} 节点`}
+          {data
+            ? `${data.nodes.length} 节点 · ${data.edges.length} 边`
+            : nodesKnown ? `${repo.nodes} 节点` : "规模未知"}
         </Badge>
-        {isBig ? (
+        {useScope ? (
           <>
             <div className="flex min-w-72 items-center gap-1.5">
               <Select value={scopeMode} onValueChange={(v) => setScopeMode(v as "dir" | "symbol")}>
@@ -377,8 +438,13 @@ function GraphTab({ repo, indexing }: { repo: CbmRepo | null; indexing: boolean 
               加载范围
             </Button>
             <span className="text-[11px] text-muted-foreground">
-              大图({repo.nodes} 节点)按范围查看更有意义
+              {isBig ? `大图(${repo.nodes} 节点)` : "范围视图"}按范围查看更有意义
             </span>
+            {!isBig && (
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setForceScope(false)}>
+                返回全量
+              </Button>
+            )}
           </>
         ) : (
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -400,11 +466,17 @@ function GraphTab({ repo, indexing }: { repo: CbmRepo | null; indexing: boolean 
           <Switch checked={showStructural} onCheckedChange={setShowStructural} />
           结构节点
         </label>
-        {!isBig && (
-          <Button size="sm" variant="outline" className="ml-auto h-7" onClick={reload} disabled={loading}>
-            {loading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-            刷新
-          </Button>
+        {!useScope && (
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button size="sm" variant="ghost" className="h-7 text-xs"
+                    onClick={() => setForceScope(true)} title="超大图按范围取真实子图,比全量采样更有意义">
+              范围视图
+            </Button>
+            <Button size="sm" variant="outline" className="h-7" onClick={reload} disabled={loading}>
+              {loading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+              刷新
+            </Button>
+          </div>
         )}
       </Card>
 
@@ -509,6 +581,7 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
   const [mode, setMode] = useState<string | null>(null);
   const [exts, setExts] = useState<string | null>(null);
   const [autoInc, setAutoInc] = useState<boolean | null>(null);
+  const [autoAna, setAutoAna] = useState<boolean | null>(null);
   const [showIgnore, setShowIgnore] = useState(false);
   const [ignoreContent, setIgnoreContent] = useState<string | null>(null);
 
@@ -517,8 +590,10 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
   const effMode = mode ?? repo.file_type_mode;
   const effExts = exts ?? repo.file_types.join(" ");
   const effAuto = autoInc ?? repo.auto_increment;
+  const effAna = autoAna ?? repo.auto_analyze;
   const dirty = effMode !== repo.file_type_mode
-    || effExts !== repo.file_types.join(" ") || effAuto !== repo.auto_increment;
+    || effExts !== repo.file_types.join(" ") || effAuto !== repo.auto_increment
+    || effAna !== repo.auto_analyze;
 
   const parseExts = () => effExts.split(/[\s,;]+/).map((e) => e.trim().toLowerCase())
     .filter(Boolean).map((e) => (e.startsWith(".") ? e : `.${e}`));
@@ -528,9 +603,13 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
     try {
       const res = await apiClient.patch<{ success: boolean; error?: string }>(
         `/codebase/repos/${repo.id}`,
-        { file_type_mode: effMode, file_types: parseExts(), auto_increment: effAuto });
+        { file_type_mode: effMode, file_types: parseExts(),
+          auto_increment: effAuto, auto_analyze: effAna });
       if (res.data?.success === false) toast.error(res.data.error ?? "保存失败");
-      else { toast.success("已保存（规则在下次索引时生效）"); setMode(null); setExts(null); setAutoInc(null); onChanged(); }
+      else {
+        toast.success("已保存（规则在下次索引时生效）");
+        setMode(null); setExts(null); setAutoInc(null); setAutoAna(null); onChanged();
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "保存失败");
     } finally { setBusy(false); }
@@ -582,7 +661,7 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {repo.indexed
-              ? <Badge className="bg-success/15 text-success">已建库 · {repo.nodes} 节点 / {repo.edges} 边</Badge>
+              ? <Badge className="bg-success/15 text-success">已建库 · {repo.nodes ?? "?"} 节点 / {repo.edges ?? "?"} 边</Badge>
               : <Badge variant="outline">未建库</Badge>}
             {repo.last_index_at && (
               <span>上次索引 {new Date(repo.last_index_at).toLocaleString("zh-CN")}（{repo.last_index_mode}）</span>
@@ -657,11 +736,30 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
             </div>
           </div>
         </div>
-        <div className="mt-3 flex items-center justify-between">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Switch checked={effAuto} onCheckedChange={setAutoInc} />
-            参与定时增量索引（仅对已建库仓库生效）
-          </label>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch checked={effAuto} onCheckedChange={setAutoInc} />
+              参与定时增量索引（仅对已建库仓库生效）
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground"
+                   title="索引成功后自动跑一次影响分析（还需在「定时任务」开启全局开关；分析会消耗 token）">
+              <Switch checked={effAna} onCheckedChange={setAutoAna} />
+              参与影响分析
+            </label>
+            <Button size="sm" variant="ghost" disabled={busy || !repo.indexed}
+                    title={repo.indexed ? "立刻用当前代码跑一次影响分析" : "该仓库尚未建索引"}
+                    onClick={async () => {
+                      try {
+                        await triggerCbmAnalyze(repo.id);
+                        toast.success("已开始生成影响分析（在「定时任务 → 影响分析报告」查看）");
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "触发失败");
+                      }
+                    }}>
+              <Sparkles className="mr-1 h-3.5 w-3.5" />分析一次
+            </Button>
+          </div>
           <div className="flex gap-1.5">
             <Button size="sm" variant="ghost" onClick={loadIgnore}>
               {showIgnore ? "收起规则文件" : "查看 .cbmignore"}
@@ -696,14 +794,18 @@ function ScheduleTab({ progress }: {
 }) {
   const schedule = useCbmSchedule();
   const runs = useCbmRuns(30);
+  const reports = useCbmImpactReports(30);
   const [enabled, setEnabled] = useState(false);
   const [hours, setHours] = useState(24);
+  const [analyze, setAnalyze] = useState(false);
   const [busy, setBusy] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [openReport, setOpenReport] = useState<CbmImpactReport | null>(null);
 
   if (schedule.data && !initialized) {
     setEnabled(schedule.data.enabled);
     setHours(schedule.data.interval_hours);
+    setAnalyze(!!schedule.data.analyze_enabled);
     setInitialized(true);
   }
 
@@ -711,7 +813,8 @@ function ScheduleTab({ progress }: {
     setBusy(true);
     try {
       const res = await apiClient.put<{ success: boolean; error?: string }>(
-        "/codebase/schedule", { enabled, interval_hours: hours });
+        "/codebase/schedule",
+        { enabled, interval_hours: hours, analyze_enabled: analyze });
       if (res.data?.success === false) toast.error(res.data.error ?? "保存失败");
       else { toast.success(enabled ? `已开启：每 ${hours} 小时增量索引一轮` : "已关闭定时增量"); schedule.mutate(); }
     } catch (err) {
@@ -730,7 +833,8 @@ function ScheduleTab({ progress }: {
   };
 
   const st = schedule.data;
-  const dirty = initialized && st && (enabled !== st.enabled || hours !== st.interval_hours);
+  const dirty = initialized && st &&
+    (enabled !== st.enabled || hours !== st.interval_hours || analyze !== !!st.analyze_enabled);
 
   return (
     <div className="space-y-4">
@@ -746,6 +850,10 @@ function ScheduleTab({ progress }: {
                    value={hours} disabled={!enabled}
                    onChange={(e) => setHours(Number(e.target.value) || 1)} />
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <Switch checked={analyze} onCheckedChange={setAnalyze} />
+            索引后自动影响分析
+          </label>
           <Button size="sm" disabled={busy || !dirty} onClick={save}>保存</Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={trigger}>
             <Play className="mr-1 h-3.5 w-3.5" />立即执行一轮
@@ -758,6 +866,10 @@ function ScheduleTab({ progress }: {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           规则：只对「已建库且开启参与」的仓库做增量索引（内容哈希，仅重解析变更文件）；从未全量索引的仓库自动跳过。
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          影响分析：索引成功后由代码分析智能体读本轮变更（文件清单 + git 行级 diff）分析影响面，
+          <span className="text-warning">会消耗 token</span>，且需要每个仓库在「索引与规则」里单独开启「参与影响分析」。
         </p>
       </Card>
 
@@ -772,10 +884,163 @@ function ScheduleTab({ progress }: {
       )}
 
       <Card className="p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">影响分析报告</h3>
+          <Button size="sm" variant="ghost" onClick={() => reports.mutate()} title="刷新">
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <ImpactReportsTable reports={reports.data?.reports ?? []}
+                            onOpen={setOpenReport}
+                            onDeleted={() => reports.mutate()} />
+      </Card>
+
+      <Card className="p-4">
         <h3 className="mb-2 text-sm font-semibold">全部运行历史</h3>
         <RunsTable runs={runs.data?.runs ?? []} />
       </Card>
+
+      <ImpactReportDialog report={openReport} onClose={() => setOpenReport(null)} />
     </div>
+  );
+}
+
+function ImpactReportsTable({ reports, onOpen, onDeleted }: {
+  reports: CbmImpactReport[];
+  onOpen: (r: CbmImpactReport) => void;
+  onDeleted: () => void;
+}) {
+  if (reports.length === 0) {
+    return (
+      <p className="py-4 text-center text-xs text-muted-foreground">
+        还没有报告。开启上面的开关（并给仓库开启「参与影响分析」），或到「索引与规则」点「分析一次」。
+      </p>
+    );
+  }
+  const statusBadge = (r: CbmImpactReport) => {
+    if (r.status === "success") return <Badge variant="secondary"><CheckCircle2 className="mr-1 h-3 w-3" />成功</Badge>;
+    if (r.status === "running") return <Badge variant="outline"><Loader2 className="mr-1 h-3 w-3 animate-spin" />生成中</Badge>;
+    if (r.status === "failed") return <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" />失败</Badge>;
+    return <Badge variant="outline">跳过</Badge>;
+  };
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-36">时间</TableHead>
+          <TableHead>仓库</TableHead>
+          <TableHead className="w-20">触发</TableHead>
+          <TableHead className="w-24">状态</TableHead>
+          <TableHead className="w-32">变更</TableHead>
+          <TableHead>结论</TableHead>
+          <TableHead className="w-20" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {reports.map((r) => {
+          const c = r.counts ?? {};
+          return (
+            <TableRow key={r.id}>
+              <TableCell className="text-xs text-muted-foreground">
+                {r.created_at ? new Date(r.created_at).toLocaleString("zh-CN") : "—"}
+              </TableCell>
+              <TableCell className="max-w-48 truncate font-mono text-xs" title={r.repo_path}>
+                {r.repo_name || r.repo_path || "—"}
+              </TableCell>
+              <TableCell className="text-xs">{r.trigger === "manual" ? "手动" : "定时"}</TableCell>
+              <TableCell>{statusBadge(r)}</TableCell>
+              <TableCell className="text-xs">
+                {r.status === "success" || r.status === "skipped"
+                  ? `+${c.added ?? 0} ~${c.modified ?? 0} -${c.deleted ?? 0}`
+                  : "—"}
+              </TableCell>
+              <TableCell className="max-w-96 text-xs text-muted-foreground">
+                {r.error ? <span className="text-destructive">{r.error}</span> : (r.summary ?? "—")}
+              </TableCell>
+              <TableCell>
+                <div className="flex gap-1">
+                  {(r.status === "success" || r.status === "failed") && r.content_md !== "" && (
+                    <Button size="sm" variant="ghost" onClick={() => onOpen(r)}>查看</Button>
+                  )}
+                  <Button size="sm" variant="ghost" title="删除"
+                          onClick={async () => {
+                            try {
+                              await deleteCbmImpactReport(r.id);
+                              toast.success("已删除");
+                              onDeleted();
+                            } catch { toast.error("删除失败"); }
+                          }}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+}
+
+/** 报告正文阅读：列表只有摘要，正文按需拉（可能几千字）。 */
+function ImpactReportDialog({ report, onClose }: {
+  report: CbmImpactReport | null;
+  onClose: () => void;
+}) {
+  const [detail, setDetail] = useState<CbmImpactReport | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!report) { setDetail(null); return; }
+    setLoading(true);
+    fetchCbmImpactReport(report.id)
+      .then(setDetail)
+      .catch(() => toast.error("报告加载失败"))
+      .finally(() => setLoading(false));
+  }, [report]);
+
+  const ga = detail?.changes?.git;
+
+  return (
+    <Dialog open={!!report} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>
+            增量影响分析 · {report?.repo_name || report?.repo_path}
+          </DialogTitle>
+        </DialogHeader>
+        {loading ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">加载中…</p>
+        ) : !detail ? (
+          <p className="py-6 text-center text-sm text-destructive">报告加载失败</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span>{detail.model ?? "未知模型"}</span>
+              <span>·</span>
+              <span>+{detail.counts?.added ?? 0} / ~{detail.counts?.modified ?? 0} / -{detail.counts?.deleted ?? 0}</span>
+              {ga?.head && <><span>·</span><span className="font-mono">{ga.base?.slice(0, 8)}..{ga.head.slice(0, 8)}</span></>}
+              {detail.changes?.truncated && (
+                <span className="text-warning">· 文件清单被截断</span>
+              )}
+            </div>
+            {detail.error && (
+              <p className="rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                {detail.error}
+              </p>
+            )}
+            <div className="rounded border border-border p-3">
+              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">
+                {detail.content_md || "（正文为空）"}
+              </pre>
+            </div>
+            {detail.file_path && (
+              <p className="font-mono text-[11px] text-muted-foreground">落盘：{detail.file_path}</p>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

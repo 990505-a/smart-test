@@ -36,7 +36,7 @@ export function agentShortLabel(agent: string): string {
     case "testcase_agent": return "用例";
     case "unity_agent": return "Unity";
     case "webui_agent": return "Web-UI";
-    case "code_analyst_agent": return "代码";
+    case "codebase_agent": return "代码";
     default: return "";
   }
 }

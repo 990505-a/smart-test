@@ -43,14 +43,22 @@ def cache_dict():
 class MockModelRequest:
     """Mock ModelRequest for middleware testing."""
 
-    def __init__(self, messages, system_message=None):
+    def __init__(self, messages, system_message=None, state=None, model=None):
         self.messages = messages
         self.system_message = system_message
+        # 官方 MemoryMiddleware 把记忆正文放在 request.state["memory_contents"]：
+        # before_agent 负责载入、wrap_model_call 只负责贴进 system prompt。
+        # 所以 mock 必须带 state，否则中间件会在 request.state 上 AttributeError。
+        self.state = dict(state or {})
+        # 官方还会看 request.model 决定要不要打 Anthropic 的 prompt-cache 断点
+        # （不是 ChatAnthropic 就跳过），所以这个属性也得存在。
+        self.model = model
 
     def override(self, **kwargs):
         new_req = MockModelRequest(
             messages=kwargs.get("messages", self.messages),
             system_message=kwargs.get("system_message", self.system_message),
+            state=kwargs.get("state", self.state),
         )
         new_req.model = kwargs.get("model", getattr(self, "model", None))
         return new_req

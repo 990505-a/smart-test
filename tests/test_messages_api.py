@@ -129,3 +129,61 @@ async def test_delete_commits_local_tombstone_before_best_effort_langgraph(db_fa
     )
     assert ignored["ignored"] is True
     assert (await messages_api.get_thread_messages(tid, 20, None))["messages"] == []
+
+
+@pytest.mark.asyncio
+async def test_sync_with_empty_authoritative_state_does_not_prune(db_factory, monkeypatch):
+    """权威源为空时**不许** prune —— 那多半是 agent 服务重启丢了内存态。
+
+    实测踩过（2026-09-19）：重启一次 agent 服务（inmem 运行时，检查点重启即空），
+    前端重连结束时照例 `messages/sync?prune=true`，把整段对话从平台库里删掉了 ——
+    用户看到的是"聊天记录凭空消失"。
+    """
+    import langgraph_sdk
+
+    tid = "thread-" + uuid.uuid4().hex
+    await _add_message(db_factory, tid, "a", 1)
+    await _add_message(db_factory, tid, "b", 2)
+
+    class _FakeThreads:
+        async def get_state(self, thread_id):
+            return {"values": {}}          # 空状态
+
+    class _FakeClient:
+        threads = _FakeThreads()
+
+    monkeypatch.setattr(langgraph_sdk, "get_client", lambda **kw: _FakeClient())
+
+    out = await messages_api.sync_thread_messages(tid, prune=True)
+
+    assert out["pruned"] == 0 and out["skipped_prune"] is True
+    async with db_factory() as session:
+        left = (await session.execute(
+            select(ThreadMessage).where(ThreadMessage.thread_id == tid)
+        )).scalars().all()
+    assert len(left) == 2, "本地历史不能被空状态删掉"
+
+
+@pytest.mark.asyncio
+async def test_sync_with_real_state_still_prunes(db_factory, monkeypatch):
+    """权威源非空时 prune 照旧：留下 state 里有的，删掉 state 里没有的。"""
+    import langgraph_sdk
+
+    tid = "thread-" + uuid.uuid4().hex
+    await _add_message(db_factory, tid, "a", 1)
+    await _add_message(db_factory, tid, "leaked", 2)
+
+    class _FakeThreads:
+        async def get_state(self, thread_id):
+            return {"values": {"messages": [
+                {"id": "a", "type": "human", "content": "a"}]}}
+
+    class _FakeClient:
+        threads = _FakeThreads()
+
+    monkeypatch.setattr(langgraph_sdk, "get_client", lambda **kw: _FakeClient())
+
+    out = await messages_api.sync_thread_messages(tid, prune=True)
+
+    assert out["pruned"] == 1
+    assert (await messages_api.get_thread_messages(tid, 20, None))["messages"][-1]["id"] == "a"

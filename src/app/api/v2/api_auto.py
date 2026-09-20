@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from uuid import UUID
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -147,6 +147,9 @@ async def update_script(script_id: str, data: dict, user: CurrentUserDep, db: Db
     if "status" in data:
         row.status = data["status"]
     await db.commit()
+    # updated_at 由 onupdate=func.now() 生成，UPDATE 后属性被 expire；异步会话里直接读
+    # 会触发同步懒加载（MissingGreenlet），故 commit 后显式 refresh 一次。
+    await db.refresh(row)
     return SuccessResponse(success=True, data=_script_dict(row))
 
 
@@ -156,15 +159,6 @@ async def run_script(script_id: str, data: RunScriptRequest, user: CurrentUserDe
     result = await api_auto_service.run_script(
         script_id, base_url=data.base_url, auto_repair=data.auto_repair)
     return SuccessResponse(success=True, data=result)
-
-
-@router.post("/scripts/{script_id}/run-async", response_model=SuccessResponse,
-             summary="后台执行脚本")
-async def run_script_async(script_id: str, data: RunScriptRequest,
-                           user: CurrentUserDep, background: BackgroundTasks):
-    background.add_task(api_auto_service.run_script, script_id,
-                        base_url=data.base_url, auto_repair=data.auto_repair)
-    return SuccessResponse(success=True, data={"started": True})
 
 
 @router.get("/scripts/{script_id}/runs", response_model=SuccessResponse, summary="脚本执行历史")

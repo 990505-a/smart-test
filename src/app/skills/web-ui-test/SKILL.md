@@ -41,10 +41,15 @@ SKILL_DIR/
 | `webui_runner_status` | 探活：CLI 版本 + 已装浏览器。**任何执行前先调** |
 | `webui_generate_spec` | 自然语言测试意图 → spec 初稿（不执行） |
 | `webui_run_spec` | **核心**：执行 spec 源码，回结构化结果 |
-| `webui_screenshot` | 单 URL 截图（直接调 `playwright screenshot` CLI） |
-| `webui_cli` | 白名单 CLI 透传（`--version`/`pdf`/`screenshot`/`cr`/`install`） |
-| `webui_save_script` | 跑通后入库，出现在平台「Web-UI 自动化」页 |
-| `webui_list_scripts` | 列出已入库脚本 |
+| `webui_screenshot` | 单 URL 截图。返回 `dataUri`（驼峰）可直接内联看 |
+| `webui_cli` | 白名单 CLI 透传，只剩**没有专用工具**的三个：`install` / `pdf` / `cr` |
+| `webui_save_script` | 跑通后入库；带 `script_id` 则是**覆盖更新**那条已有脚本 |
+| `webui_get_script` | 按 id 读回**完整源码**（改库里的用例前必须先读） |
+| `webui_list_scripts` | 列出已入库脚本（只有元数据，拿不到源码） |
+
+> 查版本用 `webui_runner_status`、截图用 `webui_screenshot`、跑用例用
+> `webui_run_spec`——别用 `webui_cli` 绕（白名单里已经没有那几个子命令了）。
+> 它们返回结构化结果，比读 CLI stdout 可靠。
 
 `webui_run_spec` 的可选参数（都会影响结论，别忽略）：
 
@@ -98,8 +103,26 @@ SKILL_DIR/
    - **异常/空态**：404、无数据提示
    - **导航**：跳转与返回，URL 变化是否符合预期
 4. **编写 spec**：遵守下面的硬性规范。
-5. **执行与修正**：失败 → 读 `output` → 改选择器/断言 → 重跑。最多 3 轮。
+5. **执行与修正**：失败 → 读 `output` → 改选择器/断言 → 重跑。重跑预算与平台的
+   自动修复预算一致（`WEB_UI_MAX_REPAIR`，默认初次 + 2 轮修正）；仍然失败就如实
+   报告，不要无限重试同一份 spec。
 6. **交付**：`webui_save_script` 入库；输出中文报告（用例清单、结果、失败原因、存证路径、遗留风险）。
+
+### 改一条已入库的用例
+
+库里的用例要改，**不要新建一份**，否则同一场景会有两条互相漂移的用例：
+
+`webui_list_scripts` 找到 id → `webui_get_script` 读回源码 → 改 →
+`webui_run_spec` 验证通过 → 带 `script_id` 调 `webui_save_script` 覆盖
+（版本号自动 +1，修复历史保留）。
+
+### 产物路径怎么写进报告
+
+对话页的执行是**临时的、不入库的**：平台签不出分享链接（签名 URL 只对
+`/web-ui-auto` 页里那些有执行记录的运行有效）。所以报告里写**运行目录相对路径**
+即可（如 `artifacts/首页-热映列表.png`、`test-results/详情页/trace.zip`），
+不要输出 `/api/v2/web-ui-auto/artifact/...` 这类地址。需要可分享的链接，
+就用 `/web-ui-auto` 页把脚本跑一遍，那边的每次执行都有记录和签名 URL。
 
 ## spec 硬性规范
 

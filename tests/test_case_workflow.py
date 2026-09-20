@@ -6,6 +6,19 @@ from src.app.services import case_docs_service as svc
 from src.app.services import case_workflow_service as workflow
 
 
+@pytest.fixture(autouse=True)
+def _platform_lint_is_strict(monkeypatch):
+    """把平台的 lint 严格档固定为开启。
+
+    lint 的严格程度是**平台配置**（``settings.case_lint_strict``）——它既不是文档
+    属性、也不再是 ``record_lint()`` 的参数。过去被检文档可以自己写
+    ``package_strict: false`` 让覆盖率门禁整段跳过（智能体能借此绕过验收），
+    所以这个决定权被收回到平台侧。测试必须显式固定它，否则会跟着 .env 漂移；
+    要验非严格分支的用例，在测试体内再 monkeypatch 覆盖即可。
+    """
+    monkeypatch.setattr(svc.settings, "case_lint_strict", True, raising=False)
+
+
 VALID = """# 登录用例集
 
 ## 登录
@@ -17,8 +30,9 @@ VALID = """# 登录用例集
 """
 
 
+# 注意：这里**没有** ``strict`` 字段。需求包不能声明"请宽松地检查我"——
+# 严格程度由 settings.case_lint_strict 决定（见上面 fixture 的说明）。
 STRICT_PACKAGE = {
-    "strict": True,
     "requirements": [{"id": "REQ-A-001"}],
     "risks": [{"id": "RISK-A-001"}],
     "coverage_plan": [{"requirement_id": "REQ-A-001", "case_ids": ["CASE-A-001"]}],
@@ -39,26 +53,34 @@ def test_metadata_is_parsed_without_polluting_case_or_steps():
 
 
 def test_strict_lint_accepts_traceable_document():
-    report = svc.lint_case_document(VALID, STRICT_PACKAGE, strict=True)
+    report = svc.lint_case_document(VALID, STRICT_PACKAGE)
     assert report["ok"] is True
     assert report["errors"] == []
     assert report["stats"]["requirements_covered"] == 1
 
 
-def test_strict_lint_reports_missing_metadata_but_legacy_mode_warns():
+def test_missing_metadata_blocks_when_platform_is_strict_and_warns_when_not(monkeypatch):
+    """缺元数据在两档下的表现：严格档阻断，非严格档降级为告警。
+
+    两档的切换现在是**平台开关**（settings.case_lint_strict），所以两条分支都
+    要显式覆盖它——这也正是这条测试存在的意义：证明档位是平台侧说了算的。
+    """
     legacy = "# t\n\n## g\n\n#### c [P1]\n- a ⇒ b\n"
-    compatibility = svc.lint_case_document(legacy)
-    strict = svc.lint_case_document(legacy, {"strict": True}, strict=True)
-    # Legacy mode accepts old documents but reports metadata as a warning.
-    assert compatibility["ok"] is True
-    assert any(item["code"] == "CASE_METADATA_MISSING" for item in compatibility["warnings"])
+
+    monkeypatch.setattr(svc.settings, "case_lint_strict", True, raising=False)
+    strict = svc.lint_case_document(legacy)
     assert strict["ok"] is False
     assert any(item["code"] == "CASE_METADATA_MISSING" for item in strict["errors"])
+
+    monkeypatch.setattr(svc.settings, "case_lint_strict", False, raising=False)
+    lenient = svc.lint_case_document(legacy)
+    assert lenient["ok"] is True
+    assert any(item["code"] == "CASE_METADATA_MISSING" for item in lenient["warnings"])
 
 
 def test_invalid_metadata_is_blocking():
     invalid = VALID.replace("CASE-A-001", "case-a-001")
-    report = svc.lint_case_document(invalid, STRICT_PACKAGE, strict=True)
+    report = svc.lint_case_document(invalid, STRICT_PACKAGE)
     assert report["ok"] is False
     assert any(item["code"] == "METADATA_ID_INVALID" for item in report["errors"])
 
@@ -79,8 +101,8 @@ def test_release_requires_lint_and_review(tmp_path, monkeypatch):
     monkeypatch.setattr(svc, "get_workspace_dir", lambda *args, **kwargs: tmp_path)
     svc.save_doc("项目A", VALID)
     workflow.save_requirement_package("项目A", STRICT_PACKAGE)
-    report = svc.lint_case_document(VALID, STRICT_PACKAGE, strict=True)
-    workflow.record_lint("项目A", report, strict=True)
+    report = svc.lint_case_document(VALID, STRICT_PACKAGE)
+    workflow.record_lint("项目A", report)
     with pytest.raises(workflow.WorkflowTransitionError):
         workflow.transition("项目A", "approved", actor="u1")
     workflow.record_review("项目A", {"verdict": "pass", "issues": []})
@@ -94,8 +116,8 @@ def _prepare_reviewable(tmp_path, monkeypatch, name="项目A"):
     monkeypatch.setattr(svc, "get_workspace_dir", lambda *args, **kwargs: tmp_path)
     svc.save_doc(name, VALID)
     workflow.save_requirement_package(name, STRICT_PACKAGE)
-    report = svc.lint_case_document(VALID, STRICT_PACKAGE, strict=True)
-    workflow.record_lint(name, report, strict=True)
+    report = svc.lint_case_document(VALID, STRICT_PACKAGE)
+    workflow.record_lint(name, report)
     return name
 
 
@@ -122,7 +144,7 @@ def test_review_quota_resets_on_requirement_package_update(tmp_path, monkeypatch
             {"severity": "high", "code": "MISSING_COVERAGE"}
         ]})
         workflow.record_lint(
-            name, svc.lint_case_document(VALID, STRICT_PACKAGE, strict=True), strict=True
+            name, svc.lint_case_document(VALID, STRICT_PACKAGE)
         )
     with pytest.raises(workflow.WorkflowTransitionError):
         workflow.record_review(name, {"verdict": "pass", "issues": []})
@@ -130,7 +152,7 @@ def test_review_quota_resets_on_requirement_package_update(tmp_path, monkeypatch
     meta = workflow.load_metadata(name)
     assert meta["review_calls_total"] == 0
     workflow.record_lint(
-        name, svc.lint_case_document(VALID, STRICT_PACKAGE, strict=True), strict=True
+        name, svc.lint_case_document(VALID, STRICT_PACKAGE)
     )
     workflow.record_review(name, {"verdict": "pass", "issues": []})
     assert workflow.load_metadata(name)["review_status"] == "passed"

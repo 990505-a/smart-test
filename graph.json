@@ -1,6 +1,11 @@
 {
-  "dependencies": ["."],
+  "dependencies": [
+    "."
+  ],
   "graphs": {
+    "smart_test_agent": {
+      "path": "./src/app/agents/general/agent.py:agent"
+    },
     "testcase_agent": {
       "path": "./src/app/agents/testcase/agent.py:agent"
     },
@@ -10,8 +15,8 @@
     "webui_agent": {
       "path": "./src/app/agents/webui/agent.py:agent"
     },
-    "code_analyst_agent": {
-      "path": "./src/app/agents/code_analyst/agent.py:agent"
+    "codebase_agent": {
+      "path": "./src/app/agents/codebase/agent.py:agent"
     }
   },
   "env": ".env"

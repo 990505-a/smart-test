@@ -204,10 +204,10 @@ def record_content_save(
 def record_lint(
     document_name: str,
     report: dict[str, Any],
-    *,
-    strict: bool = False,
 ) -> dict[str, Any]:
     """Persist a deterministic lint report without changing document content."""
+    from src.app.core.config import settings
+
     current = load_metadata(document_name)
     current["lint_report"] = report
     current["lint_status"] = "passed" if report.get("ok") else "failed"
@@ -216,8 +216,9 @@ def record_lint(
         current["revision"] = max(1, int(current.get("revision", 0)))
     if current["lifecycle_status"] == "released" and not report.get("ok"):
         current["lifecycle_status"] = "draft"
-    # A strict workflow document may proceed to review only after lint passes.
-    if strict and report.get("ok") and current["lifecycle_status"] == "draft":
+    # 平台判定为严格模式时，lint 通过才允许进入评审。
+    # 严格程度取自 settings，不再由调用方（更不是文档）决定。
+    if settings.case_lint_strict and report.get("ok") and current["lifecycle_status"] == "draft":
         current["lifecycle_status"] = "generated"
     return save_metadata(document_name, current)
 
@@ -251,12 +252,21 @@ def save_requirement_package(
     })
     current["package_id"] = package.get("package_id")
     current["package_name"] = package.get("package_name", document_name)
-    current["package_strict"] = bool(package.get("strict", True))
+    # package_strict 已删除：lint 的严格程度属于平台决策（settings.case_lint_strict），
+    # 不能由被检文档自己声明——过去智能体写 "strict": false 就能让需求覆盖率、
+    # 风险覆盖率两道门禁整段跳过。历史文档里可能还留着这个键，顺手清掉以免误读。
+    current.pop("package_strict", None)
     # 新的需求包 = 新的输入（例如用户答复了未决问题），复核配额重新计。
     current["review_calls_total"] = 0
+    # 是否构成"高风险歧义阻断"：severity 与显式 blocking **取或**。
+    # 过去写成 item.get("blocking", 默认值)，只要显式写 blocking:false，
+    # 一条 severity=high 的问题也会被洗成非阻断，从而绕过"不得批准"。
     blocking = any(
         isinstance(item, dict)
-        and bool(item.get("blocking", item.get("severity") in {"blocker", "high"}))
+        and (
+            bool(item.get("blocking"))
+            or str(item.get("severity") or "").strip().lower() in {"blocker", "high"}
+        )
         for item in current["unresolved_questions"]
     )
     current["lifecycle_status"] = "needs_clarification" if blocking else "draft"
@@ -401,5 +411,8 @@ def public_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
             "verdict": review.get("verdict"),
             "issues": list(review.get("issues", []))[:100],
             "summary": review.get("summary", ""),
+            # 分片数/输入规模/耗时/复核模型：成本与耗时要是可见的，
+            # 否则"为什么这次复核特别慢"永远查不出来。
+            "metrics": review.get("metrics") or {},
         }
     return result

@@ -91,7 +91,9 @@ for d in "${RUNTIME_DIRS[@]}"; do
 done
 
 echo; echo "== 2/4 清空平台业务表（保留 users / settings_kv）=="
-docker compose exec -T fastapi python - <<PY
+# 直接用本机 venv 跑：库就是仓库里的 docker-data/smart_test_platform.db 这个文件，
+# 两种部署模式共用同一份，不必借道容器（2026-09 起 fastapi 也默认跑在本机）。
+.venv/bin/python - <<PY
 import asyncio
 from sqlalchemy import text
 from src.app.db.database import engine
@@ -140,7 +142,7 @@ docker exec eval-platform-lf-postgres-1 psql -U postgres -d postgres -q -c "
 " && echo "  Postgres: datasets / dataset_items / dataset_runs 已清空"
 
 echo; echo "== 清空后 =="
-docker compose exec -T fastapi python - <<'PY'
+.venv/bin/python - <<'PY'
 import asyncio
 from sqlalchemy import text
 from src.app.db.database import engine

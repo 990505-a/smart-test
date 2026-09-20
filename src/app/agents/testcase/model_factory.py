@@ -1,9 +1,10 @@
 """Chat-model factory for the agent.
 
 One place that turns settings into a runnable chat model, so the default
-model (agent bootstrap), per-run variants (reasoning-effort overrides) and
-the vision model stay consistent. Provider selection is derived — no manual
-switch:
+model (agent bootstrap) and per-run variants stay consistent — the
+reasoning-effort overrides, and the per-conversation model *preset* picked in
+the chat page (see ``middleware/run_model.py``).  Provider selection is
+derived — no manual switch:
 
 - llm_base_url set  -> ANY OpenAI-compatible endpoint (OpenAI, SiliconFlow,
   OneAPI, OpenRouter, vLLM, Ollama's OpenAI shim, ...) via ChatOpenAI
@@ -13,9 +14,9 @@ switch:
 for reasoning-capable models; empty string sends nothing. If an endpoint
 rejects the parameter, leave the effort unset.
 
-`build_vision_model()` serves image-content turns: an explicit vision_model
-wins; otherwise the text model is reused (it must then be vision-capable,
-e.g. a multimodal chat model).
+`build_model_from_values()` is the one construction path that reads a plain
+mapping instead of the global settings singleton; both `build_chat_model()`
+and the preset/connectivity-test callers go through it.
 """
 
 from __future__ import annotations
@@ -29,12 +30,13 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_openai import ChatOpenAI
 
-# Dual import alias: the LangGraph process puts src/ on sys.path ("app.*"),
-# the FastAPI process imports everything as "src.app.*" (uvicorn from ROOT).
-try:
-    from app.core.config import settings
-except ImportError:  # pragma: no cover — FastAPI-process alias
-    from src.app.core.config import settings
+# 全仓统一用 "src.app.*" 这一种导入前缀。过去这里是个 try/except 双别名
+# （LangGraph 进程插了 src/ 所以 "app.*" 能用，FastAPI 进程只能用 "src.app.*"），
+# 结果是**同一进程里存在两个 Settings 对象**：热更改的是 app.core.config.settings，
+# 而 case_docs_service 等读的是 src.app.core.config.settings —— 设置页改完不生效
+# 且不报错。统一到 "src.app.*" 是因为它在两个进程里都能解析（两边 sys.path 都有
+# ROOT），而 "app.*" 只在插了 src/ 的进程里能解析。
+from src.app.core.config import settings
 
 VALID_EFFORTS = ("low", "medium", "high")
 
@@ -118,13 +120,14 @@ class ReasoningChatOpenAI(ChatOpenAI):
 # Besides the model fields this also carries the Feishu/lark keys so the
 # LangGraph agent process picks up settings-page changes without a restart
 # (these are NOT part of _SIG_FIELDS, so they never trigger a model rebuild).
+#
+# 记忆总闸（MEMORY_ENABLED）也在这里，理由不是模型而是"页面承诺"：中间件每次模型
+# 调用现读 settings.memory_enabled，而「Agent 记忆」页的开关只写 .env——不热更新的话
+# 用户关掉总闸得重启 LangGraph 才生效，与页面写的"下一轮生效"不符。
 _ENV_REFRESH_KEYS: dict[str, str] = {
     "llm_model": "LLM_MODEL",
     "llm_base_url": "LLM_BASE_URL",
     "llm_api_key": "LLM_API_KEY",
-    "vision_model": "VISION_MODEL",
-    "vision_base_url": "VISION_BASE_URL",
-    "vision_api_key": "VISION_API_KEY",
     "llm_context_window": "LLM_CONTEXT_WINDOW",
     "llm_reasoning_effort": "LLM_REASONING_EFFORT",
     "deepseek_api_key": "DEEPSEEK_API_KEY",
@@ -134,13 +137,16 @@ _ENV_REFRESH_KEYS: dict[str, str] = {
     "feishu_mindnote_id": "FEISHU_MINDNOTE_ID",
     "feishu_mindnote_parent_node": "FEISHU_MINDNOTE_PARENT_NODE",
     "feishu_folder_token": "FEISHU_FOLDER_TOKEN",
+    "memory_enabled": "MEMORY_ENABLED",
 }
 _INT_FIELDS = {"llm_context_window"}
+# 布尔字段要显式转换：pydantic 默认不在赋值时校验，把字符串 "false" 直接 setattr
+# 进去会变成**真值**（非空字符串），总闸就永远关不掉。
+_BOOL_FIELDS = {"memory_enabled"}
 
 # Fields that produce a different built model (cache signature)
 _SIG_FIELDS = (
     "llm_model", "llm_base_url", "llm_api_key",
-    "vision_model", "vision_base_url", "vision_api_key",
     "llm_reasoning_effort", "llm_context_window",
     "deepseek_api_key", "deepseek_model",
 )
@@ -182,6 +188,8 @@ def refresh_from_env() -> bool:
                 setattr(settings, field, int(raw.strip() or 0))
             except ValueError:
                 continue
+        elif field in _BOOL_FIELDS:
+            setattr(settings, field, raw.strip().lower() not in ("", "0", "false", "no"))
         else:
             setattr(settings, field, raw.strip())
 
@@ -193,86 +201,112 @@ def refresh_from_env() -> bool:
     return changed
 
 
-def _resolve_provider() -> str:
-    return "openai_compatible" if (settings.llm_base_url or "").strip() else "deepseek"
+def build_model_from_values(values: dict, effort: str = "",
+                            context_window: int | None = None,
+                            max_retries: int | None = None,
+                            request_timeout: float | None = None) -> BaseChatModel:
+    """按一份「设置形状」的字典构建模型，不读也不改全局 ``settings``。
+
+    与 ``build_chat_model()`` 是同一套解析规则和同一套构造方式，区别只在配置来源是
+    入参。两个调用方需要它：
+
+    - 设置页的连通性测试（表单值，绝不能污染进程级配置）；
+    - 对话页按会话选的模型（``middleware/run_model.py``，走预设而非全局配置）。
+
+    Args:
+        values: ``MODEL_KEYS`` 形状的映射（``llm_model`` / ``llm_base_url`` /
+            ``llm_api_key`` / ``deepseek_model`` / ``deepseek_api_key`` /
+            ``llm_context_window`` / ``llm_reasoning_effort``）。
+        effort: 本次调用的 reasoning effort；非法或为空时回落到 values 里的配置。
+        context_window / max_retries / request_timeout: 显式覆盖，None 表示沿用全局。
+    """
+    base_url = (values.get("llm_base_url") or "").strip()
+    model_name = (
+        (values.get("llm_model") or "").strip()
+        or (values.get("deepseek_model") or "").strip()
+        or "deepseek-chat"
+    )
+    api_key = (
+        (values.get("llm_api_key") or "").strip()
+        or (values.get("deepseek_api_key") or "").strip()
+    )
+
+    effective_effort = effort if effort in VALID_EFFORTS else ""
+    if not effective_effort:
+        configured = str(values.get("llm_reasoning_effort") or "").strip()
+        effective_effort = configured if configured in VALID_EFFORTS else ""
+
+    kwargs: dict = {
+        "max_retries": settings.llm_max_retries if max_retries is None else max_retries,
+        # 超时必须在**构造时**传：langchain-openai 用它建 httpx client，事后赋值
+        # 只是挂了个没人读的属性（详见 build_chat_model 的注释）。
+        "timeout": settings.llm_request_timeout if request_timeout is None else request_timeout,
+        "streaming": True,
+    }
+    if effective_effort:
+        kwargs["reasoning_effort"] = effective_effort
+
+    if base_url:
+        if not api_key:
+            raise ValueError("模型缺少 API Key（LLM_API_KEY）")
+        # ReasoningChatOpenAI 保留 reasoning_content 增量（ChatOpenAI 会丢掉）。
+        kwargs.update(
+            model=model_name,
+            base_url=base_url,
+            api_key=api_key,
+            default_headers=_go_session_headers(base_url),
+        )
+        llm = ReasoningChatOpenAI(**{k: v for k, v in kwargs.items() if v is not None})
+    else:
+        kwargs.update(model=f"deepseek:{model_name}")
+        if api_key:
+            kwargs["api_key"] = api_key
+        llm = init_chat_model(**{k: v for k, v in kwargs.items() if v is not None})
+
+    window = context_window
+    if window is None:
+        raw = str(values.get("llm_context_window") or "").strip()
+        try:
+            window = int(raw) if raw else settings.llm_context_window
+        except ValueError:
+            window = settings.llm_context_window
+    # Real context window of the model: SummarizationMiddleware triggers at
+    # 0.85 × max_input_tokens, so this must reflect the actual window.
+    llm.profile = {"max_input_tokens": window}
+    # 流式分块超时只能事后设（它不是构造参数，客户端按字段实时读取），
+    # 但总超时已经在上面随构造传入，这里不再重复赋值以免又变成"看着设了其实没生效"。
+    if hasattr(llm, "stream_chunk_timeout"):
+        llm.stream_chunk_timeout = settings.llm_stream_chunk_timeout
+    return llm
 
 
-def _resolve_model_name() -> str:
-    return (settings.llm_model or "").strip() or settings.deepseek_model or "deepseek-chat"
-
-
-def _resolve_api_key() -> str:
-    return (settings.llm_api_key or "").strip() or settings.deepseek_api_key or ""
-
-
-def build_chat_model(effort: str = "", context_window: int | None = None) -> BaseChatModel:
+def build_chat_model(effort: str = "", context_window: int | None = None,
+                     model_name: str | None = None) -> BaseChatModel:
     """Build a chat model from settings, optionally with a reasoning effort.
 
     Args:
         effort: reasoning effort ("low"/"medium"/"high"); anything else sends
             no reasoning parameter.
         context_window: override for the token budget used by summarization.
+        model_name: 覆盖模型名（仍走同一个 provider/端点）。用于**异构复核**——
+            评审换成不同模型家族才有意义，同族模型常常看不出自己写错的地方。
 
     Returns:
         A configured chat model instance.
     """
-    provider = _resolve_provider()
-    model_name = _resolve_model_name()
-    api_key = _resolve_api_key()
-
-    # langchain 1.x chat models expose reasoning_effort as a first-class
-    # field; passing it via model_kwargs only triggers a warning + relocation.
-    effective_effort = effort
-    if effective_effort not in VALID_EFFORTS:
-        # fall back to the configured default when no per-run override exists
-        effective_effort = (
-            settings.llm_reasoning_effort
-            if settings.llm_reasoning_effort in VALID_EFFORTS
-            else ""
-        )
-
-    kwargs: dict = {
-        "max_retries": settings.llm_max_retries,
-        # Inline subagents are invoked with ainvoke(). LangChain emits their
-        # nested messages only when the model itself is configured for streaming.
-        "streaming": True,
-    }
-    if effective_effort:
-        kwargs["reasoning_effort"] = effective_effort
-
-    if provider == "openai_compatible":
-        if not settings.llm_base_url:
-            raise ValueError(
-                "LLM_PROVIDER=openai_compatible 需要 LLM_BASE_URL（OpenAI 兼容端点地址）"
-            )
-        if not api_key:
-            raise ValueError(
-                "LLM_PROVIDER=openai_compatible 需要 LLM_API_KEY（或回退的 DEEPSEEK_API_KEY）"
-            )
-        # ReasoningChatOpenAI keeps reasoning_content deltas out of the
-        # provider's thinking stream instead of letting ChatOpenAI drop them.
-        kwargs.update(
-            model=model_name,
-            base_url=settings.llm_base_url,
-            api_key=api_key,
-            default_headers=_go_session_headers(settings.llm_base_url),
-        )
-        openai_kwargs = {k: v for k, v in kwargs.items() if v is not None}
-        llm = ReasoningChatOpenAI(**openai_kwargs)
-    else:
-        # default: official DeepSeek API (reads DEEPSEEK_API_KEY env if unset here)
-        kwargs.update(model=f"deepseek:{model_name}")
-        if api_key:
-            kwargs["api_key"] = api_key
-        llm = init_chat_model(**{k: v for k, v in kwargs.items() if v is not None})
-
-    # Real context window of the model: SummarizationMiddleware triggers at
-    # 0.85 × max_input_tokens, so this must reflect the actual window.
-    llm.profile = {"max_input_tokens": context_window or settings.llm_context_window}
-    llm.request_timeout = settings.llm_request_timeout
-    if hasattr(llm, "stream_chunk_timeout"):
-        llm.stream_chunk_timeout = settings.llm_stream_chunk_timeout
-    return llm
+    return build_model_from_values(
+        {
+            "llm_model": model_name or settings.llm_model,
+            "llm_base_url": settings.llm_base_url,
+            "llm_api_key": settings.llm_api_key,
+            "deepseek_model": settings.deepseek_model,
+            "deepseek_api_key": settings.deepseek_api_key,
+            "llm_context_window": settings.llm_context_window,
+            "llm_reasoning_effort": settings.llm_reasoning_effort,
+        },
+        effort=effort,
+        context_window=context_window,
+    )
 
 
 @lru_cache(maxsize=len(VALID_EFFORTS))
@@ -287,56 +321,6 @@ def effort_model(effort: str) -> BaseChatModel | None:
     return _cached_effort_model(effort)
 
 
-def build_vision_model() -> BaseChatModel:
-    """Build the model used for image-content turns.
-
-    Resolution order:
-    1. vision_model empty -> reuse the text model (must be vision-capable).
-    2. vision_base_url (or the text model's llm_base_url) set ->
-       OpenAI-compatible endpoint; key falls back to the text model's key.
-    3. neither base URL set -> official OpenAI endpoint, keyed by
-       vision_api_key only (never the DeepSeek fallback key).
-    """
-    vision_model = (settings.vision_model or "").strip()
-    if not vision_model:
-        return build_chat_model()
-
-    base_url = (
-        (settings.vision_base_url or "").strip()
-        or (settings.llm_base_url or "").strip()
-    )
-
-    kwargs: dict = {
-        "max_retries": settings.llm_max_retries,
-        "streaming": True,
-    }
-    if base_url:
-        api_key = (settings.vision_api_key or "").strip() or _resolve_api_key()
-        if not api_key:
-            raise ValueError("视觉模型缺少 API Key（VISION_API_KEY 或文本模型的 Key）")
-        # Direct construction (no "openai:" provider prefix — that is an
-        # init_chat_model convention, ChatOpenAI would take it literally).
-        kwargs.update(
-            model=vision_model,
-            base_url=base_url,
-            api_key=api_key,
-            default_headers=_go_session_headers(base_url),
-        )
-        llm = ReasoningChatOpenAI(**{k: v for k, v in kwargs.items() if v is not None})
-    else:
-        api_key = (settings.vision_api_key or "").strip()
-        if not api_key:
-            raise ValueError("视觉模型缺少 API Key（VISION_API_KEY）")
-        kwargs.update(model=f"openai:{vision_model}", api_key=api_key)
-        llm = init_chat_model(**kwargs)
-
-    llm.profile = {"max_input_tokens": settings.llm_context_window}
-    llm.request_timeout = settings.llm_request_timeout
-    if hasattr(llm, "stream_chunk_timeout"):
-        llm.stream_chunk_timeout = settings.llm_stream_chunk_timeout
-    return llm
-
-
 # ---------------------------------------------------------------------------
 # Connectivity test (POST /settings/model/test): build short-lived models
 # from explicit form values WITHOUT touching the global settings singleton —
@@ -344,71 +328,11 @@ def build_vision_model() -> BaseChatModel:
 # model config mutated by a test request.
 # ---------------------------------------------------------------------------
 
-def _test_text_model(values: dict, timeout: int) -> BaseChatModel:
-    base_url = (values.get("llm_base_url") or "").strip()
-    model_name = (
-        (values.get("llm_model") or "").strip()
-        or (values.get("deepseek_model") or "").strip()
-        or "deepseek-chat"
-    )
-    api_key = (
-        (values.get("llm_api_key") or "").strip()
-        or (values.get("deepseek_api_key") or "").strip()
-    )
-    kwargs: dict = {"model": f"openai:{model_name}", "max_retries": 0}
-    if base_url:
-        if not api_key:
-            raise ValueError("文本模型缺少 API Key")
-        kwargs.update(
-            base_url=base_url,
-            api_key=api_key,
-            default_headers=_go_session_headers(base_url),
-        )
-    else:
-        kwargs["model"] = f"deepseek:{model_name}"
-        if api_key:
-            kwargs["api_key"] = api_key
-    llm = init_chat_model(**kwargs)
-    llm.request_timeout = timeout
-    return llm
+def build_test_model(values: dict, timeout: int = 30) -> BaseChatModel:
+    """Build the short-lived model used by POST /settings/model/test.
 
-
-def _test_vision_model(values: dict, timeout: int) -> BaseChatModel | None:
-    """Mirror build_vision_model()'s resolution against explicit values."""
-    vision_model = (values.get("vision_model") or "").strip()
-    if not vision_model:
-        return None  # reuses the text model — text ping covers it
-    base_url = (
-        (values.get("vision_base_url") or "").strip()
-        or (values.get("llm_base_url") or "").strip()
-    )
-    kwargs: dict = {"model": f"openai:{vision_model}", "max_retries": 0}
-    if base_url:
-        api_key = (
-            (values.get("vision_api_key") or "").strip()
-            or (values.get("llm_api_key") or "").strip()
-            or (values.get("deepseek_api_key") or "").strip()
-        )
-        if not api_key:
-            raise ValueError("视觉模型缺少 API Key")
-        kwargs.update(
-            base_url=base_url,
-            api_key=api_key,
-            default_headers=_go_session_headers(base_url),
-        )
-    else:
-        api_key = (values.get("vision_api_key") or "").strip()
-        if not api_key:
-            raise ValueError("视觉模型缺少 API Key（VISION_API_KEY）")
-        kwargs["api_key"] = api_key
-    llm = init_chat_model(**kwargs)
-    llm.request_timeout = timeout
-    return llm
-
-
-def build_test_models(values: dict, timeout: int = 30) -> dict[str, BaseChatModel | None]:
-    """Build {"text": model, "vision": model|None} from explicit values."""
-    return {
-        "text": _test_text_model(values, timeout),
-        "vision": _test_vision_model(values, timeout),
-    }
+    From explicit form values WITHOUT touching the global settings singleton —
+    the FastAPI process shares this module but must not have its own global
+    model config mutated by a test request.
+    """
+    return build_model_from_values(values, request_timeout=timeout, max_retries=0)

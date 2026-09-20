@@ -28,17 +28,28 @@ export function useThreads() {
       }
 
       const apiBase = getFastapiUrl();
-      return `${apiBase}/api/v2/threads?limit=${DEFAULT_PAGE_SIZE}&offset=${pageIndex * DEFAULT_PAGE_SIZE}`;
+      // codebase_agent 的会话（无头影响分析 + 已删除的「AI 分析」Tab 留下的历史
+      // 会话）不属于对话页，交给后端排除（前端过滤会打乱分页与 total）。
+      return `${apiBase}/api/v2/threads?limit=${DEFAULT_PAGE_SIZE}&offset=${pageIndex * DEFAULT_PAGE_SIZE}&exclude_agent=codebase_agent`;
     },
     async (url: string) => {
       const data = await fetcher(url);
       return {
         threads: (data.threads || []).map(
-          (t: { thread_id: string; title: string; description: string; updated_at: string }) => ({
+          (t: {
+            thread_id: string;
+            title: string;
+            description: string;
+            updated_at: string;
+            /** 后端 GET /api/v2/threads 会带上会话的模式；旧数据可能为空 */
+            agent?: string;
+          }) => ({
             id: t.thread_id,
             updatedAt: new Date(t.updated_at),
             title: t.title || "无标题对话",
             description: t.description || "",
+            // 必须透传给 ThreadList：会话列表的模式徽标 + 点开会话时切回模式
+            agent: t.agent || "",
           })
         ),
         total: data.total || 0,

@@ -10,40 +10,38 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, FileIcon, FolderOpen, Settings, ChevronUp, FlaskConical, Brain, ShieldAlert } from "lucide-react";
+import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, ChevronUp, FlaskConical, Brain, ShieldAlert, FolderGit2, Bot, Cpu, Loader } from "lucide-react";
+import useSWR from "swr";
+import { useCbmRepos, useModelPresets } from "@/lib/api/useNewModules";
+import { apiClient } from "@/lib/api-client";
 import { ChatMessage } from "@/app/components/ChatMessage";
+import { ApprovalCard } from "@/app/components/ApprovalCard";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
-import { apiClient } from "@/lib/api-client";
 
 import { useFileUpload } from "@/app/hooks/useFileUpload";
+import { useTodos } from "@/app/hooks/useTodos";
 import { ContentBlocksPreview } from "@/app/components/ContentBlocksPreview";
 import { UploadProgressList } from "@/app/components/UploadProgress";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import type { ToolCall, TodoItem, SubAgent } from "@/app/types/types";
 import type { Message } from "@langchain/langgraph-sdk";
 import { SubAgentPanel } from "@/app/components/SubAgentPanel";
-import { AgentPicker } from "@/app/components/AgentPicker";
+import { useProcessedMessages } from "@/app/hooks/useProcessedMessages";
 
 interface ChatInterfaceProps {
   assistantId: string;
-  /** 当前智能体模式（agent key）。选择器就在输入框旁边——模式属于"这次对话的配置" */
+  /** 当前会话的智能体键（只读）：新会话恒为 general，历史会话是它当初的旧模式 */
   activeAgent: string;
-  onAgentChange: (value: string) => void;
 }
-
-/** Stable empty tool-call array shared by all human messages (memo safety). */
-const EMPTY_TOOLCALLS: ToolCall[] = [];
 
 const getStatusIcon = (status: TodoItem["status"], className?: string) => {
   switch (status) {
@@ -59,16 +57,10 @@ const getStatusIcon = (status: TodoItem["status"], className?: string) => {
 export const ChatInterface = React.memo<ChatInterfaceProps>(({
   assistantId,
   activeAgent,
-  onAgentChange,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [input, setInput] = useState("");
-  const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
-  // 工作区（dsh 风格）：本次对话挂载的目录 = agent 的 cwd。留空 = 平台默认工作区。
-  const [workspaceList, setWorkspaceList] = useState<string[]>([]);
-  const [selectedWorkspace, setSelectedWorkspace] = useState("");
-  const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
-  const [newWorkspacePath, setNewWorkspacePath] = useState("");
+  const [metaOpen, setMetaOpen] = useState<"tasks" | null>(null);
 
   // Scroll container ref for auto-scroll
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -84,6 +76,49 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
   const [permissionMode, setPermissionMode] = useQueryState("permission", {
     defaultValue: "workspace_write",
   });
+  // 本次对话挂载哪个仓库（?repo=<受管仓库 id>，空 = 不挂载）。
+  // 挂上之后：该仓库的绝对路径成为工作目录（cwd + 相对路径解析基准），
+  // 代码分析的图谱工具才进工具面（后端按 configurable.workspace_path 判断）。
+  // 仓库列表就是「代码图谱」页注册的那些 —— 没注册的仓库照样能让智能体 grep
+  // 绝对路径，只是没有图谱能力（见 codebase 能力段提示词）。
+  const [repoId, setRepoId] = useQueryState("repo", { defaultValue: "" });
+  const { data: repoData } = useCbmRepos();
+  const repos = useMemo(() => repoData?.repos ?? [], [repoData]);
+  const selectedRepo = useMemo(
+    () => repos.find((r) => r.id === repoId) ?? null,
+    [repos, repoId],
+  );
+  // 用哪个智能体（?agentId=<装配目录里的智能体>，空 = 平台默认智能体）。
+  // 装配目录在「智能体装配」页编辑：每个智能体有自己的一套能力/工具/技能/审批。
+  // 不设「默认」这一项：默认智能体（general = 通用测试助手）本来就在候选列表里，
+  // 后端 active_agent_id() 在缺省时也是解析到它 —— 两个选项指的是同一个智能体。
+  const [agentKey, setAgentKey] = useQueryState("agentId", { defaultValue: "" });
+  const { data: catalog } = useSWR<{ agents: { id: string; label: string }[]; default_agent_id?: string }>(
+    "/agents", () => apiClient.get<{ agents: { id: string; label: string }[]; default_agent_id?: string }>("/agents").then((r) => r.data));
+  const pickableAgents = useMemo(() => catalog?.agents ?? [], [catalog]);
+  const selectedAgent = useMemo(
+    () => pickableAgents.find((a) => a.id === agentKey) ?? null,
+    [pickableAgents, agentKey],
+  );
+  // 本次实际生效的智能体：没选、或选了个已被删掉的，就落到默认智能体。
+  // 默认是哪个由后端说了算（`default_agent_id`），前端只做与 Catalog.default_agent()
+  // 一致的兜底（默认那个被删了就取第一个），否则「界面显示的」和「后端真正用的」
+  // 会在这种边界上分叉。
+  const effectiveAgent = useMemo(() => {
+    if (selectedAgent) return selectedAgent;
+    return pickableAgents.find((a) => a.id === catalog?.default_agent_id)
+      ?? pickableAgents[0]
+      ?? null;
+  }, [selectedAgent, pickableAgents, catalog]);
+  // 本次对话用哪个模型（?model=<模型预设名>，空 = 跟随设置页的全局模型）。
+  // 候选就是设置页存的那些预设（各自一套 模型名+端点+Key），所以能跨供应商切换。
+  const [modelPreset, setModelPreset] = useQueryState("model", { defaultValue: "" });
+  const { data: presetList } = useModelPresets();
+  const modelPresets = useMemo(() => presetList ?? [], [presetList]);
+  const selectedPreset = useMemo(
+    () => modelPresets.find((p) => p.name === modelPreset) ?? null,
+    [modelPresets, modelPreset],
+  );
   useEffect(() => {
     if (permissionMode === "read_only") setPermissionMode("workspace_write");
   }, [permissionMode, setPermissionMode]);
@@ -101,9 +136,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
     interrupt,
     resumeInterrupt,
     ensureThreadId,
-    todos,
-    files,
-    ui,
     isLoadingHistory,
     hasOlderMessages,
     loadOlderMessages,
@@ -126,77 +158,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
     handlePaste,
   } = useFileUpload(undefined, currentThreadId ?? undefined, ensureThreadId);
 
-  const WORKSPACE_STORAGE_KEY = "smart-test-platform-workspaces";
-  // 记住用户显式选择（含「平台默认工作区」），刷新后不回退
-  const WORKSPACE_SELECTED_KEY = "smart-test-platform-selected-workspace";
-
-  const rememberWorkspaceChoice = useCallback((path: string) => {
-    localStorage.setItem(WORKSPACE_SELECTED_KEY, path || "__default__");
-  }, []);
-
-  // 工作区候选：localStorage 里手动加过的 + 平台「代码图谱」页登记过的目录
-  // （那些目录本来就是"我常分析的工程"），合并去重。
-  useEffect(() => {
-    let local: string[] = [];
-    try {
-      const saved = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-      if (saved) local = JSON.parse(saved);
-    } catch {}
-    let savedChoice: string | null = null;
-    try {
-      savedChoice = localStorage.getItem(WORKSPACE_SELECTED_KEY);
-    } catch {}
-    apiClient
-      .get<{ repos: { repo_path: string }[] }>("/codebase/repos")
-      .then((res) => {
-        const platform: string[] = (res.data?.repos ?? []).map((r) => r.repo_path);
-        const merged = [...new Set([...local, ...platform])];
-        setWorkspaceList(merged);
-        setSelectedWorkspace((prev) => {
-          if (prev) return prev;
-          if (!savedChoice || savedChoice === "__default__") return "";
-          return merged.includes(savedChoice) ? savedChoice : "";
-        });
-      })
-      .catch(() => {
-        setWorkspaceList(local);
-        setSelectedWorkspace((prev) => {
-          if (prev) return prev;
-          return savedChoice && savedChoice !== "__default__" && local.includes(savedChoice)
-            ? savedChoice
-            : "";
-        });
-      });
-  }, []);
-
-  const saveWorkspaceList = useCallback((paths: string[]) => {
-    setWorkspaceList(paths);
-    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(paths));
-  }, []);
-
-  const handleAddWorkspace = useCallback(() => {
-    const path = newWorkspacePath.trim();
-    if (!path || workspaceList.includes(path)) return;
-    saveWorkspaceList([...workspaceList, path]);
-    setSelectedWorkspace(path);
-    rememberWorkspaceChoice(path);
-    setNewWorkspacePath("");
-    setWorkspaceDialogOpen(false);
-  }, [newWorkspacePath, workspaceList, saveWorkspaceList, rememberWorkspaceChoice]);
-
-  const handleRemoveWorkspace = useCallback((path: string) => {
-    const next = workspaceList.filter((p) => p !== path);
-    saveWorkspaceList(next);
-    if (selectedWorkspace === path) {
-      setSelectedWorkspace("");
-      rememberWorkspaceChoice("");
-    }
-  }, [workspaceList, selectedWorkspace, saveWorkspaceList, rememberWorkspaceChoice]);
-
-  const handleSelectWorkspace = useCallback((path: string) => {
-    setSelectedWorkspace(path);
-    rememberWorkspaceChoice(path);
-  }, [rememberWorkspaceChoice]);
+  // 任务清单：从消息里的 write_todos 工具调用派生（见 hooks/useTodos.ts）。
+  // 原先是从 chat context 读一个恒为空的数组，面板因此永不渲染。
+  const todos = useTodos(messages);
 
   // 子智能体实时操作面板（右侧抽屉）
   const [activitySubAgent, setActivitySubAgent] = useState<SubAgent | null>(null);
@@ -211,6 +175,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
   const submitDisabled = isLoading || !assistantId;
   // 审批等待期间不允许并发发消息（dsh：审批接管输入区）
   const approvalPending = !!interrupt;
+  // 列表末尾的「生成中」指示器：只由 run 是否活跃驱动（isLoading 即
+  // isCurrentThreadLoading），不看"最近有没有新 token"——模型思考、长工具
+  // 调用期间一个 token 都不来，按文本到达驱动会误判成卡死，而这正是要解决的
+  // 场景。审批挂起时 run 停在等用户决策（不是在干活），不能继续转。
+  const showGenerating = isLoading && !approvalPending;
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -230,18 +199,21 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
         toast.error("文件还在上传中，请等待上传完成后再发送");
         return;
       }
-      // 工作区可选：不挂载就用平台默认工作区，不阻断发送。
-      // 工作区通过 configurable.workspace_path 传给后端（成为 agent 的 cwd），
-      // 不再往消息里塞「[代码分析上下文] 仓库路径: …」——那段前缀既污染消息、
-      // 又暗示"必须读这个仓库"，而工作区只是干活的地方。
+      // 挂了仓库就把它的绝对路径交给 agent（configurable.workspace_path）：
+      // 后端据此把 cwd 指到该仓库，并按挂载与否决定图谱工具出不出现。
+      // 没挂载则一律走平台默认工作区（后端 resolve_workspace_dir 的兜底）。
       isNearBottomRef.current = true;
       sendMessage(messageText, contentBlocks, {
-        workspacePath: selectedWorkspace,
+        workspacePath: selectedRepo?.repo_path,
+        // 传实际生效的那个：触发器显示谁就发谁，避免"看到通用、实际走默认"这种
+        // 只在边界上（目录被改过）才暴露的不一致。目录没加载出来时仍留空，
+        // 交给后端按默认智能体解析。
+        agentId: effectiveAgent?.id,
       });
       setInput("");
       clearContentBlocks();
     },
-    [input, contentBlocks, isLoading, isUploading, approvalPending, sendMessage, submitDisabled, clearContentBlocks, selectedWorkspace],
+    [input, contentBlocks, isLoading, isUploading, approvalPending, sendMessage, submitDisabled, clearContentBlocks, selectedRepo, effectiveAgent],
   );
 
   const handleKeyDown = useCallback(
@@ -255,111 +227,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
     [handleSubmit, submitDisabled],
   );
 
-  // Extract tool calls from messages
-  const processedMessages = useMemo(() => {
-    if (!messages) return [];
-    const messageMap = new Map<
-      string,
-      { message: Message; toolCalls: ToolCall[] }
-    >();
+  // Extract tool calls from messages (shared with the codebase analysis panel)
+  const processedMessages = useProcessedMessages(messages, isLoading, subagentVersion);
 
-    messages.forEach((message: Message) => {
-      if (!message) return;
-      if (message.type === "ai") {
-        const toolCallsInMessage: Array<{
-          id?: string;
-          function?: { name?: string; arguments?: unknown };
-          name?: string;
-          type?: string;
-          args?: unknown;
-          input?: unknown;
-        }> = [];
-
-        if (
-          message.additional_kwargs?.tool_calls &&
-          Array.isArray(message.additional_kwargs.tool_calls)
-        ) {
-          toolCallsInMessage.push(...message.additional_kwargs.tool_calls);
-        } else if (message.tool_calls && Array.isArray(message.tool_calls)) {
-          toolCallsInMessage.push(
-            ...message.tool_calls.filter(
-              (tc: { name?: string }) => tc.name !== "",
-            ),
-          );
-        } else if (Array.isArray(message.content)) {
-          const toolUseBlocks = (message.content as Array<{ type?: string }>).filter(
-            (block) => block.type === "tool_use",
-          );
-          toolCallsInMessage.push(...(toolUseBlocks as typeof toolCallsInMessage));
-        }
-
-        const toolCallsWithStatus = toolCallsInMessage.map(
-          (tc, i): ToolCall => {
-            const name =
-              tc.function?.name || tc.name || tc.type || "unknown";
-            const args =
-              tc.function?.arguments || tc.args || tc.input || {};
-            return {
-              // Deterministic fallback id: random ids remount tool cards on
-              // every recompute and break React reconciliation.
-              id: tc.id || `tool-${name}-${i}`,
-              name,
-              args: typeof args === "object" && args !== null ? args as Record<string, unknown> : {},
-              status: "pending" as const,
-            };
-          },
-        );
-
-        messageMap.set(message.id!, { message, toolCalls: toolCallsWithStatus });
-      } else if (message.type === "tool") {
-        // 历史消息从 SQLite 加载时 tool_call_id 曾并入 additional_kwargs 返回，两处都读
-        const toolMsg = message as Message & { tool_call_id?: string };
-        const toolCallId =
-          toolMsg.tool_call_id ??
-          (message.additional_kwargs as { tool_call_id?: string } | undefined)
-            ?.tool_call_id;
-        if (!toolCallId) return;
-        for (const [, data] of Array.from(messageMap.entries())) {
-          const idx = data.toolCalls.findIndex((tc) => tc.id === toolCallId);
-          if (idx === -1) continue;
-          const content =
-            typeof message.content === "string"
-              ? message.content
-              : Array.isArray(message.content)
-                ? message.content
-                    .map((b) =>
-                      typeof b === "string" ? b : (b as { text?: string }).text ?? "",
-                    )
-                    .join("")
-                : "";
-          data.toolCalls[idx] = {
-            ...data.toolCalls[idx],
-            status: "completed" as const,
-            result: content,
-          };
-          break;
-        }
-      } else if (message.type === "human") {
-        // Shared constant: a fresh [] literal per message would defeat
-        // React.memo on ChatMessage for every historical message.
-        messageMap.set(message.id!, { message, toolCalls: EMPTY_TOOLCALLS });
-      }
-    });
-
-    // 流已结束（或纯历史查看）时，仍未等到结果的工具调用按已完成渲染：
-    // 旧数据缺少 tool_call_id 时结果永远匹配不上，子智能体会一直转「执行中」
-    if (!isLoading) {
-      for (const [, data] of Array.from(messageMap.entries())) {
-        // 跳过空数组：human 消息共享 EMPTY_TOOLCALLS，重新 map 会破坏 memo
-        if (data.toolCalls.length === 0) continue;
-        data.toolCalls = data.toolCalls.map((tc) =>
-          tc.status === "pending" ? { ...tc, status: "completed" as const } : tc,
-        );
-      }
-    }
-
-    return Array.from(messageMap.values());
-  }, [messages, isLoading, subagentVersion]);
 
   // 面板显示的子智能体实时化：点击传入的是当时的快照（status/output 停在
   // 点击那一刻），这里从当前消息流重建，状态与最终输出随流更新
@@ -394,23 +264,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
   }), [todos]);
 
   const hasTasks = todos.length > 0;
-  const hasFiles = typeof files === "object" && files !== null && Object.keys(files).length > 0;
-
-  // Filter UI components per message
-  const uiMap = useMemo(() => {
-    if (!ui || !Array.isArray(ui)) return new Map<string, unknown[]>();
-    const map = new Map<string, unknown[]>();
-    for (const u of ui) {
-      const meta = (u as Record<string, unknown>)?.metadata as Record<string, unknown> | undefined;
-      const msgId = meta?.message_id as string | undefined;
-      if (msgId) {
-        const arr = map.get(msgId) ?? [];
-        arr.push(u);
-        map.set(msgId, arr);
-      }
-    }
-    return map;
-  }, [ui]);
 
   // Auto-scroll to bottom on new messages — ONLY when the user is already
   // near the bottom. Streaming in background (subagent/tool results) must
@@ -466,7 +319,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
   const renderItem = useCallback(
     (index: number, data: { message: Message; toolCalls: ToolCall[] }) => {
       const isLastMessage = index === processedMessages.length - 1;
-      const messageUi = uiMap.get(data.message.id ?? "");
       // min-h: an empty streaming placeholder (no content/tool_calls yet)
       // otherwise measures 0px, which react-virtuoso warns about.
       return (
@@ -475,16 +327,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
             message={data.message}
             toolCalls={data.toolCalls}
             isStreaming={isLastMessage && isLoading}
-            ui={messageUi}
-            stream={undefined}
-            graphId={isLastMessage ? assistantId : undefined}
             onSubAgentActivity={handleSubAgentActivity}
             isSubAgentClosed={isSubAgentTaskClosed}
           />
         </div>
       );
     },
-    [processedMessages.length, uiMap, isLoading, assistantId, handleSubAgentActivity, isSubAgentTaskClosed],
+    [processedMessages.length, isLoading, assistantId, handleSubAgentActivity, isSubAgentTaskClosed],
   );
 
   const ListHeader = useMemo(
@@ -510,7 +359,35 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
     [hasOlderMessages, loadOlderMessages, isLoadingHistory],
   );
 
-  const virtuosoComponents = useMemo(() => ({ Header: ListHeader }), [ListHeader]);
+  /**
+   * 「生成中」指示器：挂在 Virtuoso 的 Footer 上——位于最后一条消息之下、
+   * 列表流之内，不裹进任何消息气泡。图标是 lucide 的 Loader（8 道辐条，
+   * 与参考图的经典 spinner 一致）。
+   * 组件身份用 useMemo 钉住：给 Footer 传一个新的函数=新的组件类型，React 会
+   * 卸载重挂，CSS 动画被重置回第一帧；流式期间每 50ms 一次重渲染，spinner
+   * 看起来就是卡死不动。身份只在显示/隐藏切换时变一次，正好配动画生命周期。
+   */
+  const ListFooter = useMemo(
+    () =>
+      function VirtuosoListFooter() {
+        if (!showGenerating) return null;
+        return (
+          <div className="mx-auto w-full max-w-[1024px] px-6 pb-4 pt-1">
+            {/* 左对齐（与 assistant 消息同一起始边），不用居中/右对齐 */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader className="h-4 w-4 animate-spin" />
+              <span>生成中</span>
+            </div>
+          </div>
+        );
+      },
+    [showGenerating],
+  );
+
+  const virtuosoComponents = useMemo(
+    () => ({ Header: ListHeader, Footer: ListFooter }),
+    [ListHeader, ListFooter],
+  );
 
   return (
     // 行布局：主列（消息+输入）+ 右侧子智能体面板并排，互不遮挡；
@@ -567,8 +444,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
             isDragging && "border-2 border-dotted border-brand",
           )}
         >
-          {/* Task progress + files bar */}
-          {(hasTasks || hasFiles) && (
+          {/* 任务进度条（模型用 write_todos 列的计划） */}
+          {hasTasks && (
             <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-muted empty:hidden">
               {!metaOpen && (
                 <div className="grid grid-cols-[1fr_auto_auto] items-center">
@@ -611,20 +488,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
                       </button>
                     );
                   })()}
-                  {hasFiles && (
-                    <button
-                      type="button"
-                      onClick={() => setMetaOpen((prev) => prev === "files" ? null : "files")}
-                      className="flex flex-shrink-0 cursor-pointer items-center gap-2 px-[18px] py-3 text-left text-sm"
-                      aria-expanded={metaOpen === "files"}
-                    >
-                      <FileIcon size={16} />
-                      文件
-                      <span className="h-4 min-w-4 rounded-full bg-[#2F6868] px-0.5 text-center text-[10px] leading-[16px] text-white">
-                        {Object.keys(files!).length}
-                      </span>
-                    </button>
-                  )}
                 </div>
               )}
 
@@ -649,16 +512,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
                         </div>
                       ))
                   )}
-                  {metaOpen === "files" && (
-                    <div className="space-y-1">
-                      {Object.keys(files!).map((path) => (
-                        <div key={path} className="flex items-center gap-2 rounded border border-border bg-muted/30 px-3 py-1.5 text-xs">
-                          <FileIcon size={14} className="text-muted-foreground" />
-                          <span className="font-mono">{path}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                   <button
                     type="button"
                     className="mt-2 text-xs text-muted-foreground hover:text-foreground"
@@ -674,37 +527,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
           <form onSubmit={handleSubmit} className="flex flex-col">
             {/* 审批卡片：越权操作等待用户决策（dsh 式接管输入区） */}
             {interrupt && (
-              <div className="mx-3 mt-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-amber-600">
-                  <ShieldAlert className="h-4 w-4 shrink-0" />
-                  <span>
-                    {interrupt.toolName === "execute"
-                      ? "命令执行需要审批"
-                      : "文件写入需要审批（只读模式）"}
-                  </span>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    （{interrupt.toolName}）
-                  </span>
-                </div>
-                <pre className="mt-2 max-h-32 overflow-auto rounded bg-muted px-3 py-2 text-xs whitespace-pre-wrap break-all">
-                  {interrupt.command ||
-                    String(interrupt.args?.file_path ?? interrupt.args?.path ?? "") ||
-                    JSON.stringify(interrupt.args, null, 2)}
-                </pre>
-                <div className="mt-3 flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => resumeInterrupt("reject")}
-                  >
-                    拒绝
-                  </Button>
-                  <Button type="button" size="sm" onClick={() => resumeInterrupt("approve")}>
-                    允许一次
-                  </Button>
-                </div>
-              </div>
+              <ApprovalCard
+                interrupt={interrupt}
+                onDecide={resumeInterrupt}
+                className="mx-3 mt-3"
+              />
             )}
             <UploadProgressList uploads={uploads} />
             <ContentBlocksPreview
@@ -739,47 +566,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
                   className="hidden"
                 />
                 <div className="flex flex-wrap items-center gap-2 border-l border-border pl-4">
-                  {/* 智能体模式选择器（dsh 风格：模式在输入框旁，不在顶部栏） */}
-                  <AgentPicker
-                    activeAgent={activeAgent}
-                    onAgentChange={onAgentChange}
-                    disabled={isLoading}
-                  />
-                  {/* 工作区选择器（dsh 风格）：本次对话挂载的目录 = agent 的 cwd。
-                      留空表示用平台默认工作区。 */}
-                  <div className="flex shrink-0 items-center gap-1">
-                    <FolderOpen size={14} className="text-muted-foreground" />
-                    <Select
-                      value={selectedWorkspace || "__default__"}
-                      onValueChange={(v) => handleSelectWorkspace(!v || v === "__default__" ? "" : v)}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className="h-7 max-w-48 gap-1 truncate border border-border bg-transparent px-1.5 text-xs text-foreground"
-                        title={selectedWorkspace || "平台默认工作区（workspace/default/<模式>）"}
-                      >
-                        <SelectValue placeholder="选择工作区">
-                          {selectedWorkspace || "平台默认工作区"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent className="w-80">
-                        <SelectItem value="__default__">平台默认工作区</SelectItem>
-                        {workspaceList.map((w) => (
-                          <SelectItem key={w} value={w} title={w} className="font-mono text-xs">
-                            <span className="block max-w-full truncate">{w}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <button
-                      type="button"
-                      onClick={() => setWorkspaceDialogOpen(true)}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                      title="管理工作区"
-                    >
-                      <Settings size={12} />
-                    </button>
-                  </div>
+                  {/* 模式选择器已移除：对话页只有一个通用智能体，专项能力全挂在
+                      它的工具面上，由它自己判断该用哪一类。装配清单见「智能体装配」页。
+                      历史会话（旧的单能力 graph）仍按自己的 graph 续跑，顶部只读显示。 */}
                   {/* Reasoning effort chip (per conversation, ?effort=) */}
                   <div className="flex shrink-0 items-center gap-1">
                     <Brain size={14} className="text-muted-foreground" />
@@ -805,7 +594,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
                       </SelectContent>
                     </Select>
                   </div>
-                  {/* 权限档位（per conversation, ?permission=）—— 工作区/完全访问 */}
+                  {/* 权限档位（per conversation, ?permission=）—— 受限/完全访问。
+                      文案说清"免审批区"到底是什么：平台自己的工作目录
+                      （workspace/default/…），不是某个用户挂载的仓库。 */}
                   <div className="flex shrink-0 items-center gap-1 border-l border-border pl-4">
                     <ShieldAlert
                       size={14}
@@ -827,18 +618,104 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
                       <SelectTrigger
                         size="sm"
                         className="h-7 gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
-                        title="权限档位：工作区=文件限工作区、只读命令白名单自动放行、其余命令审批；完全访问=全部放行"
+                        title="权限档位：受限=写入限于平台工作目录、只读命令白名单自动放行、其余命令与越界写入需审批；完全访问=全部放行"
                       >
-                        <SelectValue placeholder="工作区">
-                          {permissionMode === "full_access" ? "完全访问" : "工作区"}
+                        <SelectValue placeholder="受限">
+                          {permissionMode === "full_access" ? "完全访问" : "受限"}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="workspace_write">工作区</SelectItem>
+                        <SelectItem value="workspace_write">受限（越界需审批）</SelectItem>
                         <SelectItem value="full_access">完全访问</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
+                  {/* 智能体（per conversation, ?agentId=）—— 用装配目录里的哪一个。
+                      每个智能体有自己的一套能力/工具/技能/审批，见「智能体装配」页。
+                      候选就是目录本身，没有额外的「默认」项：缺省时生效的就是列表里的
+                      默认智能体，触发器直接把它的名字显示出来。 */}
+                  <div className="flex shrink-0 items-center gap-1 border-l border-border pl-4">
+                    <Bot size={14} className="text-muted-foreground" />
+                    <Select value={effectiveAgent?.id ?? ""} onValueChange={(v) => setAgentKey(v ?? "")}>
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 max-w-[200px] gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
+                        title={effectiveAgent
+                          ? `本次对话用「${effectiveAgent.label}」（它的能力清单见「智能体装配」页）`
+                          : "用哪个智能体：各自的能力/工具/技能/审批在「智能体装配」页配置"}
+                      >
+                        <SelectValue placeholder="智能体">
+                          {effectiveAgent?.label ?? "智能体"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pickableAgents.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>{a.label || a.id}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {/* 模型（per conversation, ?model=）—— 用设置页存的哪个「模型预设」。
+                      预设各自带 模型名+端点+Key，所以能跨供应商切；留空跟着设置页的全局模型。 */}
+                  <div className="flex shrink-0 items-center gap-1 border-l border-border pl-4">
+                    <Cpu size={14} className="text-muted-foreground" />
+                    <Select value={modelPreset} onValueChange={(v) => setModelPreset(v ?? "")}>
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 max-w-[200px] gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
+                        title={selectedPreset
+                          ? `本次对话用预设「${selectedPreset.name}」的模型与端点（${selectedPreset.values.llm_model ?? "默认模型名"}）；只影响本会话`
+                          : "本次对话用哪个模型：候选是「设置」页里存的模型预设；留空跟随设置页的全局模型"}
+                      >
+                        <SelectValue placeholder="模型：默认">
+                          {selectedPreset ? selectedPreset.name : "模型：默认"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">模型：默认（跟随设置）</SelectItem>
+                        {modelPresets.map((p) => (
+                          <SelectItem key={p.name} value={p.name}>
+                            {p.name}{p.values.llm_model ? `（${p.values.llm_model}）` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {/* 代码图谱仓库（per conversation, ?repo=）—— 挂上哪个，代码分析就作用于它。
+                      候选来自「代码图谱」页注册的仓库；挂上后写它仍需审批（只读分析对象）。
+                      叫「代码图谱仓库」而不是「仓库」：这里的仓库只有一个来源、也只服务
+                      一件事（代码图谱），跟一般意义上的"代码目录"不是一回事。 */}
+                  {repos.length > 0 && (
+                    <div className="flex shrink-0 items-center gap-1 border-l border-border pl-4">
+                      <FolderGit2 size={14} className="text-muted-foreground" />
+                      <Select
+                        value={repoId}
+                        onValueChange={(v) => setRepoId(v ?? "")}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          className="h-7 max-w-[220px] gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
+                          title={selectedRepo
+                            ? `本次对话的工作目录：${selectedRepo.repo_path}（未建索引时图谱工具不可用，退回 grep/read_file）`
+                            : "挂一个代码图谱仓库：它的绝对路径成为工作目录，代码分析类工具按它解析目标。候选是「代码图谱」页里注册的仓库（未建索引的会标出来，那种情况下图谱工具用不了，只能 grep/read_file）"}
+                        >
+                          <SelectValue placeholder="代码图谱仓库：不挂载">
+                            {selectedRepo
+                              ? (selectedRepo.display_name || selectedRepo.repo_path)
+                              : "代码图谱仓库：不挂载"}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">代码图谱仓库：不挂载</SelectItem>
+                          {repos.map((r) => (
+                            <SelectItem key={r.id} value={r.id}>
+                              {(r.display_name || r.repo_path)}{r.indexed ? "" : "（未建索引）"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex justify-end gap-2">
@@ -880,8 +757,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
             <DialogTitle>开启完全访问？</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            完全访问模式下，智能体执行任何命令（含白名单外的 shell 命令）都不再需要你的确认。
-            仅在自己完全信任当前任务时使用。
+            完全访问模式下，智能体执行任何命令（含白名单外的 shell 命令）与读写任何路径
+            都不再需要你的确认。仅在自己完全信任当前任务时使用。
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" size="sm" onClick={() => setFullAccessConfirmOpen(false)}>
@@ -901,49 +778,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
         </DialogContent>
       </Dialog>
 
-      {/* 管理工作区（本地列表，仅存 localStorage） */}
-      <Dialog open={workspaceDialogOpen} onOpenChange={setWorkspaceDialogOpen}>
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle>管理工作区</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-3 py-2">
-            <p className="text-xs leading-5 text-muted-foreground">
-              工作区就是本次对话的目录：选定后它就是智能体的工作目录（shell 的 cwd，
-              相对路径都相对它解析）。它不是「必须分析的仓库」——只是你让它干活的地方。
-              完全访问档下智能体也能操作工作区之外的路径。留空则用平台默认工作区。
-            </p>
-            {workspaceList.length > 0 && (
-              <div className="space-y-1.5">
-                {workspaceList.map((path) => (
-                  <div key={path} className="flex items-center justify-between rounded border border-border px-3 py-1.5">
-                    <span className="truncate text-xs font-mono">{path}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveWorkspace(path)}
-                      className="ml-2 text-xs text-muted-foreground hover:text-destructive"
-                    >
-                      删除
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="输入目录路径，如 /Users/you/projects/m72 或 E:/m72-publish/m72"
-                value={newWorkspacePath}
-                onChange={(e) => setNewWorkspacePath(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddWorkspace()}
-                className="font-mono text-xs"
-              />
-              <Button size="sm" onClick={handleAddWorkspace} disabled={!newWorkspacePath.trim()}>
-                添加
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
       </div>{/* 主列结束 */}
 
       {/* 子智能体实时操作面板：与主列并排（大屏）/覆盖（小屏）。

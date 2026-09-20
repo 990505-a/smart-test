@@ -1,68 +1,12 @@
-"""TestCase Agent context schema and context injection middleware."""
+"""平台共用的会话上下文中间件（飞书只读检索指引 + 工作区/上传目录注入）。
 
-from dataclasses import dataclass, field
+原 `TestCaseAgentContext` / `ContextInjectionMiddleware` 是课堂期的运行时上下文注入
+（project_identifier / folder_id），随用例存储 MD 化一并失效，2026-09-18 删除。
+"""
+
 from typing import Callable
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-
-
-@dataclass
-class TestCaseAgentContext:
-    """Runtime context for the TestCase Agent.
-
-    Passed from frontend via stream.submit({ messages, context }).
-    Injected into system prompt by ContextInjectionMiddleware so tools
-    can use these values without asking the user.
-    """
-    project_identifier: str = ""
-    folder_id: str = ""
-    current_user_id: str = "00000000-0000-0000-0000-000000000001"
-
-
-class ContextInjectionMiddleware(AgentMiddleware):
-    """Injects runtime context (project, folder, user) into the system prompt.
-
-    Matches the classroom's APIContextInjectionMiddleware pattern:
-    reads fields from request.runtime.context and appends them to system_message
-    so the agent automatically uses correct project/folder when calling tools.
-    """
-
-    async def awrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse],
-    ) -> ModelResponse:
-        ctx = request.runtime.context
-        if not ctx:
-            return await handler(request)
-
-        project_id = getattr(ctx, "project_identifier", "") or ""
-        folder_id = getattr(ctx, "folder_id", "") or ""
-
-        if not project_id and not folder_id:
-            return await handler(request)
-
-        context_block = f"""
-
----
-## 运行时上下文
-
-**当前会话参数（调用工具时必须使用）：**
-- `project_identifier`: `{project_id}`
-- `folder_id`: `{folder_id}`
-
-**重要提示：** 这些参数由系统自动注入，不要询问用户提供。
----
-"""
-        if isinstance(request.system_message.content, list):
-            request.system_message.content = [
-                *request.system_message.content,
-                {"type": "text", "text": context_block},
-            ]
-        else:
-            request.system_message.content = request.system_message.content + context_block
-
-        return await handler(request)
 
 
 class FeishuReadonlyMiddleware(AgentMiddleware):
@@ -128,11 +72,18 @@ class ThreadContextMiddleware(AgentMiddleware):
     过去的虚拟路径 ``/uploads/{thread_id}/``。
 
     工作区说明复用 ``middleware/workspace_context.py``（其他智能体也挂它），
-    这里只补"本会话的上传目录"这一条 testcase 特有的信息。
+    这里只补"本会话的上传目录"这条信息。
     """
 
-    def __init__(self, agent_name: str = "testcase") -> None:
+    def __init__(self, agent_name: str = "testcase",
+                 uploads_namespace: str | None = None) -> None:
+        # agent_name 决定**默认工作目录**（未挂载仓库时的落点），
+        # uploads_namespace 决定**上传目录命名空间**。两者分开是因为合并成通用智能体后
+        # 工作目录改叫 agent 了，但上传目录必须沿用历史的 testcase —— 前端
+        # （utils/multimodal.ts）与上传接口都写死了这个值，改了会让已上传文件的
+        # 路径失效。
         self._agent_name = agent_name
+        self._uploads_namespace = uploads_namespace or agent_name
 
     def _uploads_dir(self) -> tuple[str, str]:
         from langgraph.config import get_config
@@ -147,7 +98,7 @@ class ThreadContextMiddleware(AgentMiddleware):
         thread_id = (config.get("configurable") or {}).get("thread_id", "") or ""
         if not thread_id:
             return "", ""
-        base = settings.workspace_dir / get_space_id() / self._agent_name
+        base = settings.workspace_dir / get_space_id() / self._uploads_namespace
         return str((base / "uploads" / thread_id).resolve()), thread_id
 
     async def awrap_model_call(

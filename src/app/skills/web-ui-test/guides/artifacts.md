@@ -71,6 +71,21 @@ GET {平台}/api/v2/web-ui-auto/report/{run_id}/{share_sig}/index.html   # 官�
 授权放在 URL 里是必须的：`<img>` / `<video>` / 新标签页由浏览器自己发请求，
 带不上自定义请求头；签名只对那一条执行有效，默认 7 天过期。
 
+### ⚠️ 对话页的临时执行签不出链接
+
+上面两条签名路由**只对 `/web-ui-auto` 页里那些有执行记录的运行有效**
+（签名由 `web_ui_script_runs` 那一行算出）。用 `webui_run_spec` 直接在对话里
+跑的属于**临时执行**：产物文件确实落到了同一个 runs 根目录下的运行目录里，
+但平台没有它的记录，因此
+
+- 拿不到 `share_sig`，拼不出上两条 URL；
+- 它也不会出现在 `/web-ui-auto` 页的执行列表里。
+
+所以报告里写 **`webui_run_spec` 返回的 `runner_run_id` + 相对路径**
+（如 `artifacts/首页.png`）就够了，**不要**输出 `/artifact/...` 这类地址——
+那是死链接。需要能分享/回看的链接，就把脚本 `webui_save_script` 入库后到
+`/web-ui-auto` 页跑一遍，那边每次执行都有记录和签名。
+
 ## trace 的用法
 
 `trace: 'retain-on-failure'`（默认）只在失败时保留，`test-results/**/trace.zip`。

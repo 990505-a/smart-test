@@ -12,7 +12,7 @@
  *                        JSON reporter output plus an artifact manifest
  *   POST /screenshot   → run `playwright screenshot <url> <file>` (one-shot
  *                        visual evidence, no spec needed)
- *   POST /cli          → allow-listed `playwright <subcommand>` passthrough
+ *   POST /cli          → allow-listed `playwright <subcommand>` passthrough (install / pdf / cr)
  *
  * Each `/run` gets a fresh directory under RUNS_ROOT, so items are isolated
  * exactly like the eval runner isolates harness processes. Artifacts (traces,
@@ -517,7 +517,11 @@ async function opScreenshot(body) {
 }
 
 /** `POST /cli` — allow-listed `playwright <subcommand>` passthrough. */
-const CLI_ALLOWLIST = new Set(['--version', 'install', 'screenshot', 'pdf', 'cr', 'test'])
+// 只留**没有专用工具**的子命令。`--version` / `screenshot` / `test` 曾也在表里，
+// 但平台分别有 webui_runner_status / webui_screenshot / webui_run_spec——那几个
+// 返回结构化结果（report / artifacts / dataUri），比读 CLI stdout 可靠。留着它们
+// 等于给 agent 留了一条绕开结构化工具、拿到难解析输出的路。
+const CLI_ALLOWLIST = new Set(['install', 'pdf', 'cr'])
 
 async function opCli(body) {
   const args = body.args

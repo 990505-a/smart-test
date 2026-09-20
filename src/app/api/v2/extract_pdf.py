@@ -16,9 +16,10 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationInfo, field_validator
 
 from src.app.core.config import settings
+from src.app.core.workspace import safe_segment
 from src.app.processors.pdf import PDFProcessor
 
 logger = logging.getLogger(__name__)
@@ -29,18 +30,6 @@ router = APIRouter()
 _pdf_processor = PDFProcessor(enable_cache=True)
 
 
-class ExtractPdfRequest(BaseModel):
-    data: str  # base64 encoded PDF
-    filename: str = "document.pdf"
-
-
-class ExtractPdfResponse(BaseModel):
-    text: str
-    filename: str
-    size: int
-    chars: int
-
-
 class UploadToWorkspaceRequest(BaseModel):
     data: str  # base64 encoded file
     filename: str
@@ -48,6 +37,26 @@ class UploadToWorkspaceRequest(BaseModel):
     space_id: str = "default"
     agent_name: str = "testcase"
     thread_id: str = ""  # thread-scoped upload subdirectory
+
+    @field_validator("space_id", "agent_name", "thread_id")
+    @classmethod
+    def _segments_must_be_single_dir(cls, value: str, info: ValidationInfo) -> str:
+        """三个字段都会成为落盘路径的一层目录名，必须挡掉目录穿越。
+
+        过去它们是无校验的裸 ``str``，直接拼进
+        ``settings.workspace_dir / space_id / agent_name / uploads / thread_id``：
+        一个 ``space_id="../../../../tmp/x"`` 的请求就能把文件写到 workspace 之外
+        任意位置。``filename`` 那侧本来是安全的（``/`` 与 ``\\`` 被替换成 ``_``），
+        漏的正是这三个片段。
+
+        校验放在 Pydantic 层，非法输入直接 422（而不是走到一半抛 500）。
+        """
+        if not value:
+            # thread_id 允许为空 = 本次上传不做会话隔离；另两个有默认值，不会为空
+            if info.field_name == "thread_id":
+                return ""
+            raise ValueError(f"{info.field_name} 不能为空")
+        return safe_segment(value, field=info.field_name or "segment")
 
 
 class UploadToWorkspaceResponse(BaseModel):
@@ -58,40 +67,6 @@ class UploadToWorkspaceResponse(BaseModel):
     chars: int
     text_preview: str  # First 200 chars for display
     text_file_path: str = ""  # 提取出的文本文件的绝对路径
-
-
-@router.post("/extract-pdf-text", response_model=ExtractPdfResponse)
-async def extract_pdf_text_endpoint(req: ExtractPdfRequest):
-    """Extract text from a base64-encoded PDF using PyMuPDF4LLM."""
-    try:
-        pdf_bytes = base64.b64decode(req.data)
-    except Exception as e:
-        return ExtractPdfResponse(
-            text=f"[base64 decode error: {e}]",
-            filename=req.filename,
-            size=0,
-            chars=0,
-        )
-
-    try:
-        # Run in a worker thread — PyMuPDF4LLM parsing is CPU-bound and must
-        # not block the event loop (it would freeze every other endpoint).
-        text = await asyncio.to_thread(_pdf_processor.extract_text, pdf_bytes, req.filename)
-    except Exception as e:
-        logger.error("PDF extraction failed: %s", e)
-        text = f"[PDF extraction error: {e}]"
-
-    # Truncate if too long
-    max_chars = 50_000
-    if len(text) > max_chars:
-        text = text[:max_chars] + f"\n\n[... truncated, original {len(text)} chars]"
-
-    return ExtractPdfResponse(
-        text=text,
-        filename=req.filename,
-        size=len(pdf_bytes),
-        chars=len(text),
-    )
 
 
 @router.post("/upload-to-workspace", response_model=UploadToWorkspaceResponse)

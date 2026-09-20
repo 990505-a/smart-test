@@ -22,12 +22,36 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from deepagents.backends import FilesystemBackend
 from deepagents.backends.local_shell import LocalShellBackend
+
+from src.app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 #: 对话页传来的挂载字段（``repo_path`` 是 2026-09 之前的旧名，保留兼容）
 _WORKSPACE_KEYS = ("workspace_path", "repo_path")
+
+#: 平台产物的路由前缀。必须与 ``CompositeBackend(artifacts_root=...)`` 一致。
+ARTIFACTS_ROUTE = "/artifacts/"
+
+
+def artifacts_backend() -> FilesystemBackend:
+    """承载 deepagents 内部产物的 backend（摘要 offload / 超大工具结果）。
+
+    为什么需要它：``CompositeBackend.artifacts_root`` 默认是 ``"/"``，而我们的
+    默认 backend 是 ``virtual_mode=False`` 的**真实路径**语义——两者一叠加，
+    摘要 offload 与工具结果淘汰就会往 ``/conversation_history``、
+    ``/large_tool_results`` 写，也就是**文件系统根目录**：本机普通用户权限失败；
+    容器里（root）写进容器根目录，**重建即丢**（既不进卷，也不在 workspace 里，
+    排查时根本想不到去看那里）。
+
+    把它挂成一个路由前缀 + 显式 ``artifacts_root="/artifacts"``：产物落在
+    ``<repo>/workspace/.artifacts/`` 下，跟 workspace 卷一起持久化，可查可清。
+    """
+    root = settings.workspace_dir / ".artifacts"
+    root.mkdir(parents=True, exist_ok=True)
+    return FilesystemBackend(root_dir=root, virtual_mode=True)
 
 
 def _run_configurable() -> dict:
@@ -89,7 +113,3 @@ class WorkspaceShellBackend(LocalShellBackend):
     @cwd.setter
     def cwd(self, value: Path | str) -> None:
         self.__dict__["_fallback_dir"] = Path(value)
-
-    # -- 提示词/展示用：告诉模型"当前工作区在哪" ---------------------------------
-    def workspace_label(self) -> str:
-        return str(self.cwd)

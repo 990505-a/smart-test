@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { useQueryState, parseAsString } from "nuqs";
-import { getConfig, getDeploymentUrl, StandaloneConfig } from "@/lib/config";
+import { getDeploymentUrl } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { ClientProvider } from "@/providers/ClientProvider";
 import { ChatProvider } from "@/providers/ChatProvider";
@@ -12,7 +12,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { AGENT_CONFIG, AgentKey } from "@/app/types/types";
+import { AGENT_CONFIG, DEFAULT_AGENT_KEY, agentKeyForGraph, AgentKey } from "@/app/types/types";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { ThreadList } from "@/app/components/ThreadList";
 import { Assistant } from "@langchain/langgraph-sdk";
@@ -26,8 +26,10 @@ function HomePageInner() {
   const [, setThreadId] = useQueryState("threadId");
   // "1" (default) shows the session list, "0" hides it.
   const [sidebar, setSidebar] = useQueryState("sidebar", parseAsString.withDefault("1"));
+  // 智能体（graph）选择：新会话恒为通用智能体；只有点开历史会话时才会变成它当初
+  // 记录的旧单能力 graph（否则老会话没法续跑）。用户不再手动切换模式。
   const [activeAgent, setActiveAgent] = useQueryState("agent", {
-    defaultValue: "testcase",
+    defaultValue: DEFAULT_AGENT_KEY,
   });
 
   // Thread list mutation callback
@@ -41,20 +43,11 @@ function HomePageInner() {
     mutateThreadsRef.current?.();
   }, []);
 
-  const handleAgentChange = (value: string) => {
-    setActiveAgent(value);
-    setThreadId(null); // Clear thread on agent switch to prevent state leakage
-  };
-
-  // 点开会话时把模式切回这条会话自己的 agent（dsh：会话记着自己的模式）。
-  // 旧会话（agent 为空）保持当前模式不动。
+  // 点开会话时把模式切回这条会话自己的 agent：历史会话记着旧的单能力 graph，
+  // 要回到它才能续跑；新会话（无记录或记录为通用智能体）一律走通用智能体。
   const handleThreadSelect = useCallback(
     (id: string, threadAgent?: string) => {
-      const match = threadAgent
-        ? (Object.keys(AGENT_CONFIG) as AgentKey[]).find(
-            (key) => AGENT_CONFIG[key].graphKey === threadAgent,
-          )
-        : undefined;
+      const match = agentKeyForGraph(threadAgent);
       if (match && match !== activeAgent) {
         setActiveAgent(match);
       }
@@ -65,11 +58,13 @@ function HomePageInner() {
 
   const handleNewChat = useCallback(() => {
     setThreadId(null);
-  }, [setThreadId]);
+    // 新对话回到通用智能体 —— 否则旧会话的模式会一直粘着
+    setActiveAgent(DEFAULT_AGENT_KEY);
+  }, [setThreadId, setActiveAgent]);
 
   // Construct activeAssistant from agent config
-  const currentConfig = AGENT_CONFIG[activeAgent as AgentKey];
-  const assistantId = currentConfig?.graphKey ?? "testcase_agent";
+  const currentConfig = AGENT_CONFIG[activeAgent as AgentKey] ?? AGENT_CONFIG[DEFAULT_AGENT_KEY];
+  const assistantId = currentConfig.graphKey;
 
   const activeAssistant = useMemo<Assistant>(
     () => ({
@@ -90,8 +85,8 @@ function HomePageInner() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Slim chat header：左：侧边栏开关；中：当前模式名（只读提示，切换在输入框旁）；
-          右：新对话。模式选择移进输入区了——它属于"这次对话的配置"，不是导航。 */}
+      {/* Slim chat header：左：侧边栏开关；中：当前智能体名（只读）；
+          右：新对话。没有模式选择器 —— 对话页只有一个通用智能体。 */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b bg-background px-4">
         <Button
           variant="ghost"
@@ -108,7 +103,7 @@ function HomePageInner() {
         </Button>
         <div className="flex min-w-0 flex-1 items-center justify-center gap-2 text-sm">
           <span className="truncate text-muted-foreground">
-            {currentConfig?.label ?? "用例生成"}
+            {currentConfig?.label ?? "通用测试助手"}
           </span>
           <span className="hidden font-mono text-[11px] text-muted-foreground/60 sm:inline">
             {assistantId}
@@ -157,8 +152,7 @@ function HomePageInner() {
               >
                 <ChatInterface
                   assistantId={assistantId}
-                  activeAgent={activeAgent ?? "testcase"}
-                  onAgentChange={handleAgentChange}
+                  activeAgent={activeAgent ?? DEFAULT_AGENT_KEY}
                 />
               </ChatProvider>
             </ResizablePanel>
@@ -172,7 +166,7 @@ function HomePageInner() {
 // HomePageContent — resolves optional address overrides, wraps ClientProvider
 // ---------------------------------------------------------------------------
 function HomePageContent() {
-  const [config, setConfig] = useState<StandaloneConfig | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   // Log unhandled promise rejections for debugging
   useEffect(() => {
@@ -183,13 +177,13 @@ function HomePageContent() {
     return () => window.removeEventListener("unhandledrejection", handler);
   }, []);
 
-  // Resolve localStorage overrides once after mount (avoids SSR/localStorage
-  // hydration mismatch); defaults are used when nothing is stored.
+  // 挂载后再渲染：服务地址解析依赖 window（回环 → 直连端口，公网 → 同源子路径），
+  // SSR 首帧拿不到，提前渲染会造成 hydration 不匹配。
   useEffect(() => {
-    setConfig(getConfig() ?? {});
+    setMounted(true);
   }, []);
 
-  if (!config) {
+  if (!mounted) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground">加载中…</p>

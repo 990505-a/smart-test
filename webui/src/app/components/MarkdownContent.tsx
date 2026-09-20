@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from "rehype-sanitize";
 import { cn } from "@/lib/utils";
 
 interface MarkdownContentProps {
@@ -438,6 +439,56 @@ function StreamingMarkdownContent({ content }: { content: string }) {
   );
 }
 
+/**
+ * 消息里的内嵌 HTML 白名单（在默认 schema 上扩展）。
+ *
+ * rehype-raw 是必要的（LLM/技能文档会直出 <br>、截图 <img> 等），但它不做
+ * 任何过滤：不加这一层，<iframe>/<style>/<form> 会原样进 DOM。
+ *
+ * 为什么不能直接用默认 schema：它按 GitHub 标签集来，不认 mark/abbr，还会
+ * 剥掉 className（code 上的 language-xxx 没了 → 代码块语言识别失效）。
+ *
+ * 为什么必须显式写 strip：hast-util-sanitize 对不在 tagNames 的标签是「拆
+ * 外壳、留子节点」——<style> 的 CSS 文本、<form>/<button> 里的文字会当正文
+ * 显示出来；只有列进 strip 的标签才整棵子树丢弃。
+ * 注意 strip 只对**不在 tagNames** 的标签生效，所以要从默认 schema 里额外
+ * 摘掉 input（默认为了 GFM 任务清单放行 <input type=checkbox>）。
+ * 未列入 attributes 的属性（含全部 on* 事件处理器与 style）由白名单机制
+ * 自动丢弃；src/href 仍走默认 protocols 限制（javascript: 等协议被拦）。
+ */
+const MARKDOWN_SANITIZE_SCHEMA: SanitizeSchema = {
+  ...defaultSchema,
+  strip: [
+    ...(defaultSchema.strip ?? ["script"]),
+    "style",
+    "iframe",
+    "object",
+    "embed",
+    "form",
+    "input",
+    "button",
+    "link",
+    "meta",
+    "base",
+  ],
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []).filter((name) => name !== "input"),
+    // 默认 schema 没有的两个行内标签（LLM 输出里常见）
+    "mark",
+    "abbr",
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    // 语言类名（language-xxx）与高亮类名：markdownComponents.code 靠它取语言
+    code: ["className"],
+    pre: ["className"],
+    div: ["className"],
+    span: ["className"],
+    // 截图/插图：src 只放行相对路径与 http(s)（默认 protocols），javascript: 拦掉
+    img: ["src", "alt", "title", "width", "height"],
+  },
+};
+
 const markdownComponents = {
   code({
     className,
@@ -500,8 +551,16 @@ const markdownComponents = {
   },
 };
 
+/*
+ * prose 的默认色板是给浅色背景用的（--tw-prose-bold/code/headings 都是 #101828），
+ * 只有 prose-invert 把它们换成白。正文靠 text-inherit 夺回颜色不受影响，但
+ * strong / code / h1-h6 没有工具类覆盖，漏掉 dark:prose-invert 就会在暗色下
+ * 变成近黑字——所以这一条不能删。
+ * 行内代码自带背景色块，插件默认的 `` 伪元素反引号是多余的，一并关掉。
+ */
 const PROSE_CLASS =
-  "prose min-w-0 max-w-full overflow-hidden break-words text-sm leading-relaxed text-inherit " +
+  "prose dark:prose-invert prose-code:before:content-none prose-code:after:content-none " +
+  "min-w-0 max-w-full overflow-hidden break-words text-sm leading-relaxed text-inherit " +
   "[&_h1:first-child]:mt-0 [&_h1]:mb-4 [&_h1]:mt-6 [&_h1]:font-semibold " +
   "[&_h2:first-child]:mt-0 [&_h2]:mb-4 [&_h2]:mt-6 [&_h2]:font-semibold " +
   "[&_h3:first-child]:mt-0 [&_h3]:mb-4 [&_h3]:mt-6 [&_h3]:font-semibold " +
@@ -527,7 +586,12 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
 
     return (
       <div className={containerClassName}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+        {/* 顺序不能反：raw 先解析内嵌 HTML，sanitize 必须在其后清洗整棵树 */}
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeRaw, [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA]]}
+          components={markdownComponents}
+        >
           {content}
         </ReactMarkdown>
       </div>

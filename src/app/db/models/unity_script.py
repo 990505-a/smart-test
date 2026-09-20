@@ -1,7 +1,8 @@
 """Unity UI automation scripts (Unity 自动化模块).
 
-Playwright-style UI test scripts driving the game's Lua UI controls via the
-vendored unity-ui-test skill (HTTP LuaRemoteServer on :16666).
+Playwright-style UI test scripts driving Unity through the platform's Unity MCP
+bridge (``services/unity_bridge.py`` → 标准 MCP；prelude 注入 ``u`` 客户端).
+旧版靠游戏侧 LuaRemoteServer（:16666）执行 Lua，已随通用桥替换删除。
 
 本模块原名「UI 自动化」，2026-09 与新增的 Web-UI 自动化（浏览器 + Playwright
 CLI）并列后改名 Unity 自动化。表名由 ``init_db()`` 从 ui_scripts /
@@ -50,6 +51,11 @@ class UnityScriptRun(Base, UUIDMixin, TimestampMixin):
     output: Mapped[str | None] = mapped_column(Text, nullable=True)
     screenshots: Mapped[str | None] = mapped_column(Text, nullable=True,
                                                     comment="JSON list of screenshot paths")
+    #: 这次执行的工作目录（入队时就定好并落库）。**执行中**靠它读实时产物与步骤轨迹 ——
+    #: 产物清单要到跑完才写回 ``screenshots``，光看那一列，运行中的记录永远是
+    #: "0 步 / 0 图"，前端那句"轨迹实时刷新"就成了一句空话。
+    workdir: Mapped[str | None] = mapped_column(Text, nullable=True,
+                                                comment="运行目录（执行期间读实时产物用）")
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     triggered_by: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
 

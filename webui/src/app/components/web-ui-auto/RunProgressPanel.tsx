@@ -39,15 +39,30 @@ export function RunProgressPanel({
 }) {
   const progress = useWebUiRunProgress(run.id, true, 2000);
   const data = progress.data;
-  const [tick, setTick] = useState(0);
   const logRef = useRef<HTMLPreElement>(null);
   const finishedRef = useRef(false);
 
-  // 秒表：接口每 2 秒才回一次，没有本地 tick 的话耗时显示会一跳一跳
+  const running = data?.running ?? run.status === "running";
+  const stale = data?.stale ?? run.stale_running ?? false;
+
+  // 秒表：接口 2 秒才回一次 elapsed_ms，光靠它耗时是一跳一跳的。这里记住
+  // "服务端说跑到多少毫秒"以及"收到它的本地时刻"，两次轮询之间按墙上时钟续算，
+  // 轮询回来再对齐服务端（权威值仍然是服务端的）。
+  const [now, setNow] = useState(() => Date.now());
+  const serverElapsedRef = useRef<{ ms: number; at: number }>({ ms: 0, at: 0 });
+  const serverMs = data?.elapsed_ms;
+
   useEffect(() => {
-    const timer = setInterval(() => setTick((value) => value + 1), 1000);
+    if (typeof serverMs === "number") {
+      serverElapsedRef.current = { ms: serverMs, at: Date.now() };
+    }
+  }, [serverMs]);
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [running]);
 
   // 日志尾自动滚到底部（用户往上翻时不打扰——只在接近底部时才跟随）
   useEffect(() => {
@@ -55,10 +70,7 @@ export function RunProgressPanel({
     if (!node) return;
     const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 60;
     if (nearBottom) node.scrollTop = node.scrollHeight;
-  }, [data?.log_tail, tick]);
-
-  const running = data?.running ?? run.status === "running";
-  const stale = data?.stale ?? run.stale_running ?? false;
+  }, [data?.log_tail, now]);
 
   useEffect(() => {
     if (data && !data.running && !finishedRef.current) {
@@ -68,7 +80,10 @@ export function RunProgressPanel({
     }
   }, [data, onFinished, progress]);
 
-  const elapsed = (data?.elapsed_ms ?? 0) + tick * 0;
+  const base = serverElapsedRef.current;
+  const elapsed = running
+    ? base.ms + Math.max(0, now - base.at)
+    : (typeof serverMs === "number" ? serverMs : base.ms);
   const done = data?.done ?? 0;
   const total = data?.total ?? null;
   const percent = total && total > 0 ? Math.min(100, Math.round((done / total) * 100)) : null;

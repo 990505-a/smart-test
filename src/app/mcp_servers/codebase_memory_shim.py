@@ -9,6 +9,9 @@ langchain-mcp-adapters / mcp SDK）在 Windows 上全部走 asyncio → 全部�
 SDK 连接本垫片（python.exe 的 stdio 对 overlapped 管道无兼容问题）。
 代价是每条连接多一个轻量 python 进程。
 
+非 Windows 平台本不需要它，但平台一律走这条路（codebase_service.shim_command）：
+一条代码路径比"按平台分叉"少一类只在某个系统上复现的 bug。
+
 Run as the MCP command::
 
     python -m src.app.mcp_servers.codebase_memory_shim
@@ -21,8 +24,10 @@ import subprocess
 import sys
 import threading
 
-DEFAULT_EXE = "C:/codebase/codebase-memory-mcp/build/c/codebase-memory-mcp.exe"
-EXE = os.environ.get("CODEBASE_MEMORY_EXE", DEFAULT_EXE)
+from src.app.core.config import settings
+
+DEFAULT_EXE = os.environ.get("CODEBASE_MEMORY_EXE") or settings.codebase_memory_exe
+EXE = DEFAULT_EXE
 
 
 def main() -> None:

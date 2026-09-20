@@ -107,6 +107,23 @@ export default function GraphView({ data, edgeFilter, search, showStructural = f
     return g;
   }, [data, edgeFilter, showStructural]);
 
+  // 空图诊断：graph.order === 0 时画布是纯空白，用户只会以为“图谱坏了”，而实际
+  // 原因有两种、处置完全不同 —— 必须说出来，否则只能靠翻源码才能定位：
+  //  · 一条边都没有：/api/layout 对超大图是**随机采样**，取到的节点彼此不相连，
+  //    而本组件不画度数为 0 的节点，于是全军覆没。正解是改用范围视图（按目录/
+  //    符号名取真实子图）或调大上限，而不是刷新。
+  //  · 有边但节点全被过滤：结构节点开关关着，或连线过滤把类型全隐藏了。
+  const emptyReason = useMemo(() => {
+    if (!data || !graph || graph.order > 0) return null;
+    if (data.nodes.length === 0) return "这个范围里没有任何节点，换个目录前缀或符号名试试。";
+    if (data.edges.length === 0) {
+      return `取到 ${data.nodes.length} 个节点但一条连线都没有 —— 超大图的随机采样会得到互不相连的散点。`
+        + "请改用「范围视图」（按目录或符号名取真实子图），或调大上限后重试。";
+    }
+    return `取到 ${data.nodes.length} 个节点、${data.edges.length} 条边，但过滤后没有可见节点：`
+      + "试试打开「结构节点」开关，或清空上方的连线过滤。";
+  }, [data, graph]);
+
   // 布局 + 渲染(每次数据/过滤变化重建)
   useEffect(() => {
     if (!containerRef.current || !graph || graph.order === 0) return;
@@ -218,7 +235,12 @@ export default function GraphView({ data, edgeFilter, search, showStructural = f
   return (
     <div className="relative">
       <div ref={containerRef} className="h-[620px] w-full rounded-lg border bg-background" />
-      {layoutBusy && (
+      {emptyReason && (
+        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/85 p-8">
+          <p className="max-w-xl text-center text-sm text-muted-foreground">{emptyReason}</p>
+        </div>
+      )}
+      {layoutBusy && !emptyReason && (
         <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/70 text-sm text-muted-foreground">
           正在计算力导向布局（节点越多越慢,通常 1-3 秒）…
         </div>

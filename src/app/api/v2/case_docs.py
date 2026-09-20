@@ -43,11 +43,6 @@ class WorkflowActionRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 
 
-class RequirementPackageRequest(BaseModel):
-    package: dict[str, object]
-    expected_revision: int | None = Field(default=None, ge=0)
-
-
 @router.get(
     "",
     response_model=SuccessResponse,
@@ -96,13 +91,11 @@ async def save_case_doc(name: str, data: SaveDocRequest, user: CurrentUserDep):
             expected_hash=data.expected_hash,
         )
         if data.workflow_mode:
-            # Re-run strict lint for new workflow callers while retaining the
-            # draft on disk even when the gate fails.
+            # Re-run lint for new workflow callers while retaining the draft on
+            # disk even when the gate fails. 强度取平台配置，不由请求方指定。
             metadata = case_workflow_service.load_metadata(name)
-            report = case_docs_service.lint_case_document(
-                data.content, metadata, strict=True
-            )
-            metadata = case_workflow_service.record_lint(name, report, strict=True)
+            report = case_docs_service.lint_case_document(data.content, metadata)
+            metadata = case_workflow_service.record_lint(name, report)
             result.update({
                 "lint_status": metadata["lint_status"],
                 "lifecycle_status": metadata["lifecycle_status"],
@@ -125,33 +118,6 @@ async def delete_case_doc(name: str, user: CurrentUserDep):
 
 
 @router.post(
-    "/{name}/requirement-package",
-    response_model=SuccessResponse,
-    summary="Save requirement package",
-)
-async def save_requirement_package(
-    name: str,
-    data: RequirementPackageRequest,
-    user: CurrentUserDep,
-):
-    _require_case_role(user, action="保存需求包")
-    try:
-        metadata = case_workflow_service.save_requirement_package(
-            name,
-            dict(data.package),
-            expected_revision=data.expected_revision,
-        )
-    except case_workflow_service.WorkflowConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except (ValueError, case_workflow_service.WorkflowError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return SuccessResponse(
-        success=True,
-        data=case_workflow_service.public_metadata(metadata),
-    )
-
-
-@router.post(
     "/{name}/lint",
     response_model=SuccessResponse,
     summary="Lint case document",
@@ -166,11 +132,8 @@ async def lint_case_doc(
     if doc is None:
         raise HTTPException(status_code=404, detail="用例文档不存在")
     metadata = case_workflow_service.load_metadata(name)
-    strict = bool(metadata.get("package_strict", False))
-    report = case_docs_service.lint_case_document(
-        doc["content"], metadata, strict=strict
-    )
-    metadata = case_workflow_service.record_lint(name, report, strict=strict)
+    report = case_docs_service.lint_case_document(doc["content"], metadata)
+    metadata = case_workflow_service.record_lint(name, report)
     return SuccessResponse(
         success=True,
         data={
@@ -196,7 +159,9 @@ async def review_case_doc(
 ):
     _require_case_role(user, action="评审用例")
     metadata = case_workflow_service.load_metadata(name)
-    if "package_strict" not in metadata:
+    # 评审要有可评审的对象：需求包是溯源与覆盖率的分母，没有它评审无从判起。
+    # （过去这里判断的是 package_strict 这个已删除的自述字段，语义上其实是"有没有包"。）
+    if not metadata.get("requirements"):
         raise HTTPException(status_code=400, detail="请先保存需求包后再提交评审")
     try:
         report = await review_case_document(name)

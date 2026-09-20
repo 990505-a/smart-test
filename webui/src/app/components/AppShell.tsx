@@ -22,20 +22,24 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Sparkles,
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const COLLAPSE_KEY = "stp-nav-collapsed";
 
+// 主入口：不归入下面的分类。
+// 2026-09 移除了「工作台」分组——它原本还装着「项目管理」，该项目并进「测试用例」页的
+// 项目管理器后，分组只剩一个子项，成了一个点不动、名字还和子项对不上的分类标签，
+// 纯属导航噪音。对话是主工作面，用例文档是它的产物、也是人工批准/发布闸门所在，
+// 两者并列放在分类之上。
+const PRIMARY_NAV = [
+  { href: "/chat", label: "AI 对话", icon: MessageSquare },
+  { href: "/cases", label: "测试用例", icon: ListChecks },
+] as const;
+
 const NAV_GROUPS = [
-  {
-    title: "工作台",
-    items: [
-      // 项目管理已合并进「测试用例」页的项目管理器（2026-08）
-      { href: "/cases", label: "测试用例", icon: ListChecks },
-    ],
-  },
   {
     title: "自动化",
     items: [
@@ -48,6 +52,7 @@ const NAV_GROUPS = [
     title: "智能与知识",
     items: [
       // 自进化已移除（2026-08）：经验沉淀由记忆模块（AGENTS.md/MEMORY.md/…）接管
+      { href: "/agents", label: "智能体装配", icon: Sparkles },
       { href: "/skills", label: "技能库", icon: Wand2 },
       { href: "/rag", label: "知识库", icon: BookOpen },
       { href: "/codebase", label: "代码图谱", icon: Network },
@@ -156,9 +161,11 @@ function NavSidebar() {
         )}
       </div>
 
-      {/* Chat entry — the primary surface, kept above the groups */}
-      <div className={cn("pb-2", collapsed ? "px-2" : "px-2.5")}>
-        <NavRow href="/chat" label="AI 对话" icon={MessageSquare} collapsed={collapsed} />
+      {/* Primary entries — the working surfaces, kept above the groups */}
+      <div className={cn("space-y-0.5 pb-2", collapsed ? "px-2" : "px-2.5")}>
+        {PRIMARY_NAV.map((item) => (
+          <NavRow key={item.href} {...item} collapsed={collapsed} />
+        ))}
       </div>
 
       {/* Grouped navigation */}

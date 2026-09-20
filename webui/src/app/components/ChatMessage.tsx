@@ -45,9 +45,6 @@ interface ChatMessageProps {
   };
   toolCalls?: ToolCall[];
   isStreaming?: boolean;
-  ui?: unknown[];
-  stream?: unknown;
-  graphId?: string;
   /** 打开子智能体实时操作面板（右侧抽屉） */
   onSubAgentActivity?: (subAgent: SubAgent) => void;
   /** task 调用是否已结束（结果已返回或 run 已结束）——执行中状态的收敛通道 */
@@ -163,7 +160,7 @@ function stripInternalContent(text: string): string {
 }
 
 export const ChatMessage = React.memo<ChatMessageProps>(
-  ({ message, toolCalls = [], isStreaming = false, ui, stream, graphId, onSubAgentActivity, isSubAgentClosed }) => {
+  ({ message, toolCalls = [], isStreaming = false, onSubAgentActivity, isSubAgentClosed }) => {
     const isUser = message.type === "human";
     const isAi = message.type === "ai";
     const isTool = message.type === "tool";
@@ -195,19 +192,6 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 : "active",
         }));
     }, [toolCalls, isSubAgentClosed]);
-
-    // Map UI components to tool call IDs for GenUI rendering
-    const uiMap = useMemo(() => {
-      if (!ui) return new Map<string, unknown>();
-      const map = new Map<string, unknown>();
-      for (const u of ui) {
-        const meta = (u as Record<string, unknown>)?.metadata as Record<string, unknown> | undefined;
-        if (meta?.tool_call_id) {
-          map.set(meta.tool_call_id as string, u);
-        }
-      }
-      return map;
-    }, [ui]);
 
     // Images: image_url blocks in message.content
     const imageUrlBlocks = useMemo(() => {
@@ -358,13 +342,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 {visibleToolCalls.length > 0 && (
                   <div className="mb-2 space-y-0.5">
                     {visibleToolCalls.map((tc) => (
-                      <ToolCallBox
-                        key={tc.id}
-                        toolCall={tc}
-                        uiComponent={uiMap.get(tc.id)}
-                        stream={stream}
-                        graphId={graphId}
-                      />
+                      <ToolCallBox key={tc.id} toolCall={tc} />
                     ))}
                   </div>
                 )}

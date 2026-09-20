@@ -11,8 +11,9 @@
     DECISIONS.md 决策记录：需求裁决与用例评审结论
 
 为什么不用向量库：这些文件是人可读、可直接编辑、可进 git 的，检索用关键词就是
-够的（文件总量在几十 KB 量级），而每次注入的是**全文**（受预算裁剪）——这才是
-harness 的做法：把记忆当作提示词的一部分，而不是一个外部服务。旧版 EverOS
+够的（文件总量在几十 KB 量级），而注入的是**启用模块的全文、不做截断**（官方
+MemoryMiddleware 的语义）——这才是 harness 的做法：把记忆当作提示词的一部分，
+而不是一个外部服务。因为它每轮都占上下文，**内容要精炼**；旧版 EverOS
 （本地服务 + SQLite + LanceDB + Windows 垫片）随之移除。
 
 单一事实源是文件本身；``manifest.json`` 只记录"哪些模块启用、顺序、显示名"。
@@ -30,19 +31,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.app.core.config import settings
+from src.app.core.workspace import safe_segment
 
 logger = logging.getLogger(__name__)
 
 #: 记忆模块目录名（在 space 目录下），相对项目根解析
 MEMORY_DIRNAME = "memory"
 MANIFEST_NAME = "manifest.json"
-
-#: 注入预算：超出的部分按模块顺序截断。AGENTS.md 是"指令"，优先级最高，
-#: 单独给更大的额度——它决定 agent 怎么做事，读不全会做错事。
-INSTRUCTION_CHAR_BUDGET = 16_000
-MEMORY_CHAR_BUDGET = 12_000
-#: 单个模块的硬上限，避免一个巨型 файл 把整块注入挤爆
-MAX_MODULE_CHARS = 24_000
 
 _BEIJING = timezone(timedelta(hours=8))
 
@@ -127,8 +122,14 @@ _LEGACY_MARKER = "从旧版记忆迁移"
 
 
 def memory_root(space_id: str = "default") -> Path:
-    """记忆模块目录。默认跟随 ``settings.workspace_dir``（容器里是共享卷）。"""
-    return (settings.workspace_dir / (space_id or "default") / MEMORY_DIRNAME).resolve()
+    """记忆模块目录。默认跟随 ``settings.workspace_dir``（容器里是共享卷）。
+
+    ``space_id`` 会被当作**单层目录名**校验（``safe_segment``）：它来自请求参数
+    ``/api/v2/memories?space=``，过去是裸拼进路径的——传 ``..`` 就能读写 workspace
+    之外的任意目录（包括覆盖别处的 ``*/memory/*.md``）。
+    """
+    space = safe_segment(space_id or "default", field="space_id")
+    return (settings.workspace_dir / space / MEMORY_DIRNAME).resolve()
 
 
 def _manifest_path(space_id: str = "default") -> Path:
@@ -158,13 +159,13 @@ def _builtin_by_id() -> dict[str, MemoryModule]:
 def _load_manifest(space_id: str = "default") -> dict:
     path = _manifest_path(space_id)
     if not path.exists():
-        return {"version": 1, "enabled": True, "modules": []}
+        return {"version": 1, "modules": []}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {"version": 1, "enabled": True, "modules": []}
+        return data if isinstance(data, dict) else {"version": 1, "modules": []}
     except (ValueError, OSError) as exc:
         logger.warning("memory manifest 解析失败（按默认处理）: %s", exc)
-        return {"version": 1, "enabled": True, "modules": []}
+        return {"version": 1, "modules": []}
 
 
 def _write_manifest(space_id: str, data: dict) -> None:
@@ -240,7 +241,6 @@ def _migrate_legacy_profile(space_id: str = "default") -> None:
                     + "> 来源：EverOS user.md（自动迁移，可自行整理或删除）\n\n"
                     + text + "\n",
                     encoding="utf-8")
-                invalidate_cache()
             return
 
 
@@ -279,7 +279,6 @@ def _migrate_legacy_episodes(space_id: str = "default") -> None:
         + "> 来源：EverOS episodes（自动迁移，可自行整理或删除）\n\n"
         + "\n".join(f"- {text}" for text in summaries[:200]) + "\n",
         encoding="utf-8")
-    invalidate_cache()
 
 
 def list_modules(space_id: str = "default") -> list[MemoryModule]:
@@ -344,7 +343,6 @@ def write_module(module_id: str, content: str, space_id: str = "default") -> Mem
     root = memory_root(space_id)
     root.mkdir(parents=True, exist_ok=True)
     (root / module.file).write_text(content, encoding="utf-8")
-    invalidate_cache()
     return get_module(module.id, space_id) or module
 
 
@@ -364,7 +362,6 @@ def set_enabled(module_id: str, enabled: bool, space_id: str = "default") -> Mem
             "description": module.description, "enabled": bool(enabled), "order": module.order,
         })
     _write_manifest(space_id, manifest)
-    invalidate_cache()
     return get_module(module.id, space_id) or module
 
 
@@ -391,7 +388,6 @@ def update_module_meta(module_id: str, *, label: str | None = None,
             "enabled": module.enabled, "order": module.order,
         })
     _write_manifest(space_id, manifest)
-    invalidate_cache()
     return get_module(module.id, space_id)
 
 
@@ -411,7 +407,6 @@ def create_module(label: str, file: str | None = None, content: str = "",
         "enabled": True, "order": 150,
     })
     _write_manifest(space_id, manifest)
-    invalidate_cache()
     module = get_module(module_id, space_id)
     if module is None:
         raise RuntimeError("模块创建后读取失败")
@@ -431,7 +426,6 @@ def delete_module(module_id: str, space_id: str = "default") -> bool:
     path = memory_root(space_id) / module.file
     if path.exists():
         path.unlink()
-    invalidate_cache()
     return True
 
 
@@ -455,7 +449,6 @@ def append_entry(module_id: str, content: str, *, category: str = "",
     text = body.rstrip() + f"\n\n{head}\n\n  " + content.strip().replace("\n", "\n  ") + "\n"
     root.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-    invalidate_cache()
     return get_module(module.id, space_id) or module
 
 
@@ -520,74 +513,6 @@ def search(query: str, limit: int = 8, space_id: str = "default",
 # ---------------------------------------------------------------------------
 # 注入：给 agent 的 <agent_memories> 块
 # ---------------------------------------------------------------------------
-
-INVALIDATE_ON_WRITE = True
-_cached_block: str | None = None
-_cached_at: float = 0.0
-_CACHE_TTL_SECONDS = 30.0
-
-
-def invalidate_cache() -> None:
-    global _cached_block, _cached_at
-    _cached_block = None
-    _cached_at = 0.0
-
-
-def _clip_module(text: str, budget: int) -> tuple[str, bool]:
-    if len(text) <= budget:
-        return text.strip(), False
-    return text[:budget].rstrip(), True
-
-
-def build_context_block(space_id: str = "default") -> str:
-    """拼出注入到 system prompt 的记忆块（按模块开关与预算裁剪）。"""
-    global _cached_block, _cached_at
-    now = time.monotonic()
-    if _cached_block is not None and now - _cached_at < _CACHE_TTL_SECONDS:
-        return _cached_block
-
-    root = memory_root(space_id)
-    if not settings.memory_enabled or not root.exists():
-        _cached_block, _cached_at = "", now
-        return ""
-
-    sections: list[str] = []
-    instruction_left = INSTRUCTION_CHAR_BUDGET
-    memory_left = MEMORY_CHAR_BUDGET
-    for module in list_modules(space_id):
-        if not module.enabled:
-            continue
-        path = root / module.file
-        if not path.exists():
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace").strip()
-        if not text:
-            continue
-        if module.id == "agents":
-            text, clipped = _clip_module(text, min(instruction_left, MAX_MODULE_CHARS))
-            instruction_left -= len(text)
-            title = "工作区指令（AGENTS.md，必须遵守）"
-        else:
-            text, clipped = _clip_module(text, min(memory_left, MAX_MODULE_CHARS))
-            memory_left -= len(text)
-            title = f"{module.label}"
-        note = "\n（内容过长已截断，完整内容用 read_memory_module 工具读取）" if clipped else ""
-        sections.append(f"### {title}\n{text}{note}")
-
-    if not sections:
-        _cached_block, _cached_at = "", now
-        return ""
-
-    block = (
-        "\n\n<agent_memories>\n"
-        "以下是本工作区的持久记忆（Markdown 文件，用户可在平台「Agent 记忆」页查看与修改）。\n"
-        "**AGENTS.md 是必须遵守的规则**；其他是历史沉淀，与当前事实冲突时以当前事实为准。\n"
-        "需要更多细节时用 search_memories 检索，用 read_memory_module 读全文。\n\n"
-        + "\n\n".join(sections) + "\n</agent_memories>"
-    )
-    _cached_block, _cached_at = block, now
-    return block
-
 
 def status(space_id: str = "default") -> dict:
     modules = list_modules(space_id)

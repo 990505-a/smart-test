@@ -1,0 +1,10 @@
+{
+  "kbs": [
+    {
+      "key": "default",
+      "label": "默认知识库",
+      "port": 5014,
+      "description": ""
+    }
+  ]
+}

@@ -62,7 +62,7 @@ npx @deepseek-ai/dsh --profile web --patch E:/test_agent/smart-test-platform/dsh
   `analyze_image` 工具直连视觉端点补齐
 - **RAG**：平台启动器已拉起 LightRAG(:5014)
 - **代码图谱**：仓库已在平台「代码图谱」页建索引
-- **Unity**：Editor 打开 + LuaTestTool Server(:16666) + Play Mode
+- **Unity**：启动器启动 `unity-mcp`(:5016) + Unity 工程里的「MCP for Unity」包连上它 + 需要运行时对象时进 Play Mode
 
 ## 工具清单（29 + 5）
 
@@ -72,8 +72,11 @@ npx @deepseek-ai/dsh --profile web --patch E:/test_agent/smart-test-platform/dsh
 `get_case_workflow_status`
 **飞书** `export_project_mindmap`（按 project_name 读 MD 导出思维导图）`check_feishu_status`
 **知识** `search_codebase`（代码图谱，repo_path 为显式参数）`save_memory` `search_memories`
-**Unity** `unity_status` `unity_exec_lua` `unity_eval_lua` `unity_screenshot`
-`unity_list_windows` `unity_run_skill_script`
+**Unity**（通用 MCP 桥）`unity_status` `unity_find_objects` `unity_object` `unity_console`
+`unity_editor` `unity_click` `unity_set_text` `unity_wait_for` `unity_screenshot`
+`unity_exec_csharp` `unity_run_tests` `unity_mcp_tools` `unity_mcp_call`
+`unity_generate_script` `unity_run_script` `unity_save_script` `unity_get_script`
+`unity_list_scripts`
 **视觉** `analyze_image`（截图核验，modlens 式视觉桥）
 **自进化** `evolution_trigger`（手动触发标注反思）`evolution_runs` `evolution_schedule`
 **API 自动化** `api_doc_import`（飞书文档→接口清单）`api_script_generate`（生成 pytest）

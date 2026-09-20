@@ -155,8 +155,20 @@ async def init_db() -> None:
         for stmt in (
             "ALTER TABLE thread_infos ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE thread_infos ADD COLUMN agent VARCHAR(64) NOT NULL DEFAULT ''",
+            # 代码图谱：增量影响分析（commit 基线 + 每仓库参与开关）
+            "ALTER TABLE codebase_repos ADD COLUMN last_commit VARCHAR(64)",
+            "ALTER TABLE codebase_repos ADD COLUMN auto_analyze BOOLEAN NOT NULL DEFAULT 0",
+            # Unity 执行记录：运行目录（执行中读实时产物与步骤轨迹用）
+            "ALTER TABLE unity_script_runs ADD COLUMN workdir TEXT",
         ):
             try:
                 await conn.execute(text(stmt))
             except Exception:
                 pass
+
+        # 「工作区」模块已整体删除（选目录 UI + workspaces CRUD + 表）。
+        # 表留在库里只会让后来者以为还有东西在用，直接清掉。
+        try:
+            await conn.execute(text("DROP TABLE IF EXISTS workspaces"))
+        except Exception:
+            pass

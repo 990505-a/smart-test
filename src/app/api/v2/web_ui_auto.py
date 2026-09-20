@@ -189,14 +189,12 @@ async def generate(data: GenerateRequest, user: CurrentUserDep, db: DbSessionDep
 
     payload = {"content": result["content"], "target_url": result["target_url"]}
     if data.save:
-        script = WebUiScript(
-            name=data.name, module=data.module, description=data.intent,
-            content=result["content"], target_url=result["target_url"],
-            options=json.dumps({"device": "iPhone 13"} if "douban" in result["target_url"] else {}),
-            status="draft",
-        )
-        db.add(script)
-        await db.commit()
+        # 走统一的写入口：默认设备/状态只在 playwright_service 里定义一次。
+        # （这里曾用 `"device": "iPhone 13" if "douban" in target_url` 猜设备——
+        # 把"被测站点是豆瓣"写进了业务逻辑。）
+        script = await playwright_service.save_script(
+            db, name=data.name, module=data.module, description=data.intent,
+            content=result["content"], target_url=result["target_url"])
         payload["script"] = _script_dict(script, full=True)
     return SuccessResponse(success=True, data=payload)
 
@@ -205,13 +203,13 @@ async def generate(data: GenerateRequest, user: CurrentUserDep, db: DbSessionDep
 
 @router.post("/scripts", response_model=SuccessResponse, status_code=201, summary="创建 Web-UI 脚本")
 async def create_script(data: ScriptCreate, user: CurrentUserDep, db: DbSessionDep):
-    script = WebUiScript(
-        name=data.name, module=data.module, description=data.description,
+    script = await playwright_service.save_script(
+        db, name=data.name, module=data.module, description=data.description,
         content=data.content, spec_file=data.spec_file, target_url=data.target_url,
-        options=_dump(data.options), project_id=data.project_id,
-    )
-    db.add(script)
-    await db.commit()
+        options=data.options)
+    if data.project_id:
+        script.project_id = data.project_id
+        await db.commit()
     return SuccessResponse(success=True, data=_script_dict(script, full=True))
 
 
@@ -234,18 +232,20 @@ async def get_script(script_id: str, user: CurrentUserDep, db: DbSessionDep):
 
 @router.put("/scripts/{script_id}", response_model=SuccessResponse, summary="更新 Web-UI 脚本")
 async def update_script(script_id: str, data: ScriptUpdate, user: CurrentUserDep, db: DbSessionDep):
-    row = (await db.execute(
-        select(WebUiScript).where(WebUiScript.id == UUID(script_id)))).scalars().first()
-    if row is None:
-        raise HTTPException(status_code=404, detail="脚本不存在")
-    changed = data.model_dump(exclude_none=True)
-    if "options" in changed:
-        changed["options"] = _dump(changed["options"])
-    for field, value in changed.items():
-        setattr(row, field, value)
-    if data.content is not None:
-        row.version += 1
-    await db.commit()
+    # 与「对话页入库」走同一个写入口：字段缺省=不改；只在 content 真的变了才
+    # version+1（过去只要传了 content 就加版本，无改动保存也会把版本推上去）。
+    try:
+        row = await playwright_service.save_script(
+            db, script_id=script_id, name=data.name, module=data.module,
+            description=data.description, content=data.content,
+            spec_file=data.spec_file, target_url=data.target_url,
+            options=data.options, status=data.status)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    # updated_at 由 onupdate=func.now() 生成，UPDATE 后该属性被 expire；异步会话里
+    # 直接读它会触发同步懒加载并抛 MissingGreenlet，故在 commit 后显式 refresh 一次
+    # （INSERT 路径不受影响：server_default 在 flush 时就已取回）。
+    await db.refresh(row)
     return SuccessResponse(success=True, data=_script_dict(row))
 
 
@@ -317,8 +317,24 @@ async def _run_and_record(script_id: str, auto_repair: bool | None,
                 repair_attempt=attempt["repair_attempt"],
                 runner_run_id=attempt.get("runner_run_id"),
             ))
-        script.status = "active" if attempts[-1]["status"] == "passed" else "broken"
+        # 「用例失败」不等于「脚本坏了」。断言失败说明被测系统有问题——那正是回归要
+        # 发现的东西，脚本本身是好的；只有运行器层面的 error（调用失败、没有用例被
+        # 匹配到、被超时杀掉）才说明这个脚本需要人修。
+        script.status = "broken" if attempts[-1]["status"] == "error" else "active"
         await db.commit()
+
+        # 执行结果回灌：把这次回归的失败蒸馏进 failures.md，
+        # 下一次生成用例时不会再写出同样行不通的断言。
+        try:
+            from src.app.services import regression_lessons
+
+            regression_lessons.record_regression_lessons(
+                attempts[-1].get("output") or "",
+                target=script.target_url or "",
+                script_name=script.name or "",
+            )
+        except Exception as exc:  # noqa: BLE001 — 回灌失败不影响执行记录本身
+            logger.warning("回归失败回灌记忆失败：%s", exc)
 
 
 @router.post("/scripts/{script_id}/run", response_model=SuccessResponse,

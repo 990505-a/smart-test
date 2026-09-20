@@ -88,7 +88,7 @@ function TestRow({ run, test }: { run: WebUiScriptRun; test: WebUiTestRow }) {
             {test.error && (
               <div>
                 <div className="mb-1 text-[11px] font-medium text-red-600">失败原因</div>
-                <pre className="max-h-56 overflow-auto rounded bg-destructive/10 p-2 text-[11px] text-destructive">
+                <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words rounded bg-destructive/10 p-2 text-[11px] text-destructive">
                   {test.error}
                 </pre>
               </div>
@@ -101,7 +101,7 @@ function TestRow({ run, test }: { run: WebUiScriptRun; test: WebUiTestRow }) {
                 <summary className="cursor-pointer text-muted-foreground">
                   spec 的控制台输出（console.log）
                 </summary>
-                <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 text-[11px]">{test.stdout}</pre>
+                <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-[11px]">{test.stdout}</pre>
               </details>
             )}
             {images.length > 0 && (
@@ -170,8 +170,10 @@ export function RunDetailDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl p-0 sm:max-w-5xl">
-        <div className="flex max-h-[88vh] flex-col">
+      <DialogContent className="max-w-5xl overflow-hidden p-0 sm:max-w-5xl">
+        {/* min-w-0 是必须的：DialogContent 是 grid，grid item 默认 min-width:auto ——
+            输出里那些超长的绝对路径会把卡片顶宽、正文画到卡片外面。 */}
+        <div className="flex max-h-[88vh] w-full min-w-0 flex-col">
           {/* 头部：结论 */}
           <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
             <StatusBadge status={run.status} fallbackLabel={run.status} />
@@ -236,7 +238,7 @@ export function RunDetailDialog({
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div className="min-w-0 flex-1 overflow-y-auto px-4 py-3">
             {/* 还在跑：先给实时进度，而不是"空表格 + 等刷新" */}
             {run.status === "running" && (
               <div className="mb-3">
@@ -277,7 +279,7 @@ export function RunDetailDialog({
                   <Terminal className="h-3.5 w-3.5" />
                   playwright CLI 的人读输出（含失败堆栈与 stderr）
                 </div>
-                <pre className="max-h-[60vh] overflow-auto rounded bg-muted p-3 text-[11px]">
+                <pre className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-[11px]">
                   {run.output || "（无输出）"}
                 </pre>
               </div>

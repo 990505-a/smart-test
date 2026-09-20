@@ -58,7 +58,9 @@ const TONE_CLASS: Record<StatusTone, string> = {
 /** Central registry: add new raw values here instead of inlining maps in pages. */
 const STATUS_MAP: Record<string, { label: string; tone: StatusTone }> = {
   // generic
-  active: { label: "运行中", tone: "brand" },
+  // `active` 是**用例/脚本**的状态（跑通一次后置上），不是"正在跑"——运行态用 `running`。
+  // 两者以前都写成「运行中」：一条从没执行过的用例顶着"运行中"，人只会以为界面坏了。
+  active: { label: "可用", tone: "success" },
   running: { label: "运行中", tone: "brand" },
   pending: { label: "待处理", tone: "neutral" },
   queued: { label: "排队中", tone: "info" },

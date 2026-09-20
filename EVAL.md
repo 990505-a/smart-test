@@ -143,7 +143,6 @@ all(tool_sequence)            每条都为真
 name: douban-webui
 description: 豆瓣电影移动站 Web-UI 自动化测评
 agent: webui_agent          # LangGraph 图名，--agent 可覆盖
-max_repair: 1               # 每条用例允许的自修复轮数
 items:
   - id: smoke-001
     input: 交给被测 agent 的任务（会作为 human message 发过去）
@@ -298,5 +297,7 @@ items:
   会当场报错（`模型不存在`），而不是等批次跑到一半才发现（那时每条用例会变成执行异常）。
   建议真正做回归时把 judge 指到另一个模型，否则同一套偏好会同时影响被测行为和评判。
 - **trace 里的工具输出会截断**（单个 span 4k 字符），这是有意的：trace 不是日志。
-- **没有实现重试**：单条用例失败就是失败，重试语义交给数据集里的 `max_repair`
-  由 agent 自己修——那才是被测能力的一部分。
+- **没有实现重试**：单条用例失败就是失败。自修复的重试语义属于**被测能力**本身——
+  Web-UI 能力由 `WEB_UI_MAX_REPAIR` 驱动 agent 自己改 spec 重跑，评测侧不再叠一层重试。
+  （早期数据集里有个 `max_repair` 字段，从未接到任何执行路径上，2026-09-18 已从
+  数据集 schema、设置页和 `EVAL_MAX_REPAIR` 环境变量中删除。）

@@ -138,3 +138,64 @@ def test_legacy_execute_approval_off_maps_to_full_access(monkeypatch):
 def test_full_access_never_interrupts(monkeypatch):
     _set_mode(monkeypatch, {"permission_mode": "full_access"})
     assert gate._needs_execute_approval(_request("rm -rf /")) is False
+
+
+# ---------------------------------------------------------------------------
+# 文件写入审批：平台工作区是自由区，挂载进来的**分析仓库不是**（2026-09 收敛）
+#
+# 过去 configurable.workspace_path 也算自由区，那是"工作区 = 我随手改的地方"时代的
+# 语义。工作区选择器删除后，能挂进来的只有代码仓库，而平台铁律是"不改被测仓库"。
+# ---------------------------------------------------------------------------
+
+def _write_request(path: str) -> SimpleNamespace:
+    return SimpleNamespace(tool_call={"args": {"file_path": path}})
+
+
+@pytest.fixture
+def ws(tmp_path, monkeypatch):
+    """平台工作区 = tmp/workspace（自由区），默认没有挂载仓库。"""
+    monkeypatch.setattr(gate.settings, "workspace_dir", tmp_path / "workspace")
+    (tmp_path / "workspace").mkdir()
+    _set_mode(monkeypatch, {"permission_mode": "workspace_write"})
+    _mount(monkeypatch, None)
+    return tmp_path
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    """挂载的仓库 = tmp/repo（只读分析对象：改写要走审批）。"""
+    path = tmp_path / "repo"
+    (path / "src").mkdir(parents=True)
+    _mount(monkeypatch, path)
+    return path
+
+
+def _mount(monkeypatch, path) -> None:
+    from src.app.agents import workspace_backend
+
+    monkeypatch.setattr(workspace_backend, "mounted_workspace_path",
+                        lambda: str(path) if path else "")
+
+
+def test_write_inside_platform_workspace_is_free(ws):
+    target = ws / "workspace" / "default" / "agent" / "notes.md"
+    assert gate._needs_write_approval(_write_request(str(target))) is False
+
+
+def test_write_inside_mounted_repo_needs_approval(ws, repo):
+    assert gate._needs_write_approval(_write_request(str(repo / "src" / "Main.cs"))) is True
+
+
+def test_relative_path_resolves_against_mounted_repo(ws, repo):
+    """相对路径按挂载仓库解析（与 backend 一致），因此同样要审批。"""
+    assert gate._resolve_write_target("src/Main.cs") == (repo / "src" / "Main.cs").resolve()
+    assert gate._needs_write_approval(_write_request("src/Main.cs")) is True
+
+
+def test_write_outside_everything_needs_approval(ws):
+    assert gate._needs_write_approval(_write_request("/etc/hosts")) is True
+
+
+def test_full_access_skips_write_approval(ws, repo, monkeypatch):
+    _set_mode(monkeypatch, {"permission_mode": "full_access"})
+    assert gate._needs_write_approval(_write_request(str(repo / "a.txt"))) is False

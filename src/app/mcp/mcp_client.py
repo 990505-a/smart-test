@@ -35,6 +35,10 @@ async def get_mcp_client() -> MultiServerMCPClient:
             # codebase-memory MCP → stdio 经 python 垫片直连 exe（按需拉起；
             # 垫片解决 exe 在 asyncio overlapped 管道下无响应的兼容问题）
             "codebase-memory": _cbm_entry(),
+            # Unity MCP（外部：Unity 工程里装 MCP for Unity 包）。这里只用于
+            # /mcp 页的诊断（tools/list）；真正的操作路径在 services/unity_bridge.py
+            # ——那边脚本侧也要用，所以只依赖标准库（见该模块 docstring）。
+            "unity": {"transport": "streamable_http", "url": settings.unity_mcp_url},
         }
     )
     return client

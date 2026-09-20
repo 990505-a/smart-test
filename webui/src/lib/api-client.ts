@@ -101,8 +101,13 @@ class ApiClient {
     });
   }
 
-  async delete(path: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>(path, { method: "DELETE" });
+  /**
+   * DELETE。默认按 ``MessageResponse``（`{success, message}`）解，
+   * 但**允许指定返回类型** —— 有些删除会回报"顺带清掉了什么"
+   * （如删除 Unity 用例：执行记录数与磁盘产物数），那些字段在 ``data`` 里。
+   */
+  async delete<T = MessageResponse>(path: string): Promise<T> {
+    return this.request<T>(path, { method: "DELETE" });
   }
 }
 

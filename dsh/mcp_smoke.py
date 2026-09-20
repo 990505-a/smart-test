@@ -32,9 +32,12 @@ EXPECTED_TOOLS = {
     "export_project_mindmap", "check_feishu_status",
     # 记忆 / 代码图谱
     "save_memory", "search_memories", "search_codebase",
-    # Unity
-    "unity_status", "unity_exec_lua", "unity_eval_lua", "unity_screenshot",
-    "unity_list_windows", "unity_run_skill_script",
+    # Unity（通用 MCP 桥）
+    "unity_status", "unity_find_objects", "unity_object", "unity_console",
+    "unity_editor", "unity_click", "unity_set_text", "unity_wait_for",
+    "unity_screenshot", "unity_exec_csharp", "unity_run_tests",
+    "unity_mcp_tools", "unity_mcp_call", "unity_generate_script",
+    "unity_run_script", "unity_save_script", "unity_get_script", "unity_list_scripts",
     # 视觉
     "analyze_image",
     # 自进化（dsh-suite 扩展）

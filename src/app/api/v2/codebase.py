@@ -1,8 +1,9 @@
 """Codebase-graph routes: managed repos, indexing, graph data, scheduling.
 
-Standalone platform module (no agent coupling). The exe is reached over
-stdio MCP for management ops and via its built-in HTTP UI (:9749, spawned
-on demand) for precomputed graph layout data.
+Platform module. The exe is reached over stdio MCP for management ops and via
+its built-in HTTP UI (:9749, spawned on demand) for precomputed graph layout
+data. The optional post-index impact analysis (增量影响分析) runs the codebase
+agent headlessly — see services/codebase_analysis_service.py.
 """
 
 from fastapi import APIRouter, BackgroundTasks, Query
@@ -21,6 +22,7 @@ class RepoCreate(BaseModel):
     file_type_mode: str = "all"  # all | include | exclude
     file_types: list[str] = []
     auto_increment: bool = True
+    auto_analyze: bool = False
 
 
 class RepoUpdate(BaseModel):
@@ -28,6 +30,7 @@ class RepoUpdate(BaseModel):
     file_type_mode: str | None = None
     file_types: list[str] | None = None
     auto_increment: bool | None = None
+    auto_analyze: bool | None = None
 
 
 class IndexRequest(BaseModel):
@@ -37,11 +40,25 @@ class IndexRequest(BaseModel):
 class ScheduleUpdate(BaseModel):
     enabled: bool
     interval_hours: int
+    # 缺省 None = 不改动该开关（老客户端只传前两个字段时保持现状）
+    analyze_enabled: bool | None = None
 
 
 @router.get("/status", response_model=SuccessResponse, summary="服务状态 + 已索引项目 + 图守护")
 async def codebase_status(user: CurrentUserDep):
     return SuccessResponse(success=True, data=await codebase_service.status())
+
+
+@router.post("/install", response_model=SuccessResponse,
+             summary="下载并安装/升级官方 codebase-memory（按当前平台）")
+async def codebase_install(force: bool = Query(False, description="true = 重装/升级到配置的版本"),
+                           version: str | None = Query(None, description="留空用 CODEBASE_VERSION")):
+    from src.app.services import cbm_install
+
+    result = await cbm_install.install_async(version, force=force)
+    if not result.get("success") and "success" in result:
+        return SuccessResponse(success=False, data=result)
+    return SuccessResponse(success=True, data=result)
 
 
 @router.get("/repos", response_model=SuccessResponse, summary="受管仓库列表（含建库状态）")
@@ -54,7 +71,8 @@ async def codebase_add_repo(req: RepoCreate, user: CurrentUserDep):
     return SuccessResponse(success=True,
                            data=await codebase_service.add_repo(
                                req.repo_path, req.display_name,
-                               req.file_type_mode, req.file_types, req.auto_increment))
+                               req.file_type_mode, req.file_types, req.auto_increment,
+                               req.auto_analyze))
 
 
 @router.patch("/repos/{repo_id}", response_model=SuccessResponse, summary="更新仓库配置")
@@ -64,7 +82,8 @@ async def codebase_update_repo(repo_id: str, req: RepoUpdate, user: CurrentUserD
                                repo_id, display_name=req.display_name,
                                file_type_mode=req.file_type_mode,
                                file_types=req.file_types,
-                               auto_increment=req.auto_increment))
+                               auto_increment=req.auto_increment,
+                               auto_analyze=req.auto_analyze))
 
 
 @router.delete("/repos/{repo_id}", response_model=SuccessResponse, summary="移除仓库（可选删索引）")
@@ -119,10 +138,47 @@ async def codebase_schedule(user: CurrentUserDep):
 async def codebase_save_schedule(req: ScheduleUpdate, user: CurrentUserDep):
     return SuccessResponse(success=True,
                            data=await codebase_service.save_schedule(
-                               req.enabled, req.interval_hours))
+                               req.enabled, req.interval_hours, req.analyze_enabled))
 
 
 @router.post("/schedule/trigger", response_model=SuccessResponse, summary="立即执行一轮增量（后台）")
 async def codebase_trigger_round(background: BackgroundTasks, user: CurrentUserDep):
     background.add_task(codebase_service.run_incremental_round, trigger="manual")
+    return SuccessResponse(success=True, data={"success": True, "started": True})
+
+
+# ---------------------------------------------------------------------------
+# 增量影响分析（无头 codebase_agent 的产物）
+# ---------------------------------------------------------------------------
+
+@router.get("/impact-reports", response_model=SuccessResponse, summary="影响报告列表")
+async def codebase_impact_reports(user: CurrentUserDep, repo_id: str | None = None,
+                                  limit: int = Query(50, ge=1, le=200)):
+    from src.app.services import codebase_analysis_service as analysis
+    return SuccessResponse(success=True,
+                           data=await analysis.list_reports(repo_id, limit))
+
+
+@router.get("/impact-reports/{report_id}", response_model=SuccessResponse, summary="影响报告详情")
+async def codebase_impact_report(report_id: str, user: CurrentUserDep):
+    from src.app.services import codebase_analysis_service as analysis
+    return SuccessResponse(success=True, data=await analysis.get_report(report_id))
+
+
+@router.delete("/impact-reports/{report_id}", response_model=SuccessResponse, summary="删除影响报告")
+async def codebase_delete_impact_report(report_id: str, user: CurrentUserDep):
+    from src.app.services import codebase_analysis_service as analysis
+    return SuccessResponse(success=True, data=await analysis.delete_report(report_id))
+
+
+@router.post("/repos/{repo_id}/analyze", response_model=SuccessResponse, summary="立即生成影响分析（后台）")
+async def codebase_analyze_repo(repo_id: str, background: BackgroundTasks,
+                               user: CurrentUserDep):
+    """手动触发：即使本轮没有文件变更也照跑（force=True）。
+
+    仓库未开启 auto_analyze 也能手动跑——手动是显式意图，不受定时开关限制。
+    """
+    from src.app.services import codebase_analysis_service as analysis
+    background.add_task(analysis.run_impact_analysis, repo_id,
+                        trigger="manual", force=True)
     return SuccessResponse(success=True, data={"success": True, "started": True})

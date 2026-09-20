@@ -64,7 +64,15 @@ def test_testcase_workflow_has_stages():
     assert "交付" in content, "Missing delivery stage"
 
 
-def test_unity_ui_test_has_remoteserver():
-    """unity-ui-test must document the LuaRemoteServer integration."""
+def test_unity_ui_test_documents_the_generic_bridge():
+    """unity-ui-test 讲的是通用 MCP 桥，不是某款游戏的 Lua 桥。
+
+    旧版这技能整包依赖游戏侧的 LuaRemoteServer（执行 Lua、GM 命令、窗口名全是
+    那款游戏的知识）；换游戏就作废。现在的契约是：标准 MCP + `u` 客户端 +
+    用例脚本沉淀，所以这里既断言新内容在，也断言旧的 Lua 客户端层不再回来。
+    """
     content = (SKILLS_DIR / "unity-ui-test" / "SKILL.md").read_text(encoding="utf-8")
-    assert "LuaRemoteServer" in content or "16666" in content, "Missing LuaRemoteServer reference"
+    assert "MCP" in content and "unity-ui-test" in content
+    assert "u.expect_exists" in content and "u.click" in content, "用例写法契约缺失"
+    assert "from unity_api import" not in content, "旧的 Lua 客户端层又回来了"
+    assert "unity_exec_lua" not in content and "GameServer:gm" not in content

@@ -28,11 +28,14 @@ import {
   type EvalDatasetDetail, type EvalGenerateResult,
 } from "@/lib/api/useNewModules";
 
+// 通用智能体是对话页的默认入口，新数据集应该用它；下面三个旧的单能力 graph
+// 只为历史会话与既有数据集保留。
 const AGENT_OPTIONS = [
-  { value: "testcase_agent", label: "用例生成" },
-  { value: "unity_agent", label: "Unity 自动化" },
-  { value: "webui_agent", label: "Web-UI 自动化" },
-  { value: "code_analyst_agent", label: "代码分析" },
+  { value: "smart_test_agent", label: "通用测试助手" },
+  { value: "testcase_agent", label: "用例生成（旧）" },
+  { value: "unity_agent", label: "Unity 自动化（旧）" },
+  { value: "webui_agent", label: "Web-UI 自动化（旧）" },
+  { value: "codebase_agent", label: "代码分析" },
 ];
 
 export function AiDatasetDialog({

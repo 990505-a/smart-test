@@ -160,16 +160,19 @@ async def search_memories(query: str, limit: int = 10) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 代码图谱（与 agents/testcase/tools/codebase_tools 逻辑一致，但 repo_path
-# 改为显式参数——MCP 进程内没有 langgraph configurable 上下文）
+# 代码图谱（与 agents/codebase/tools 逻辑一致，但 repo_path 改为显式参数——
+# MCP 进程内没有 langgraph configurable 上下文，拿不到本次会话选中的仓库）
 # ---------------------------------------------------------------------------
 
 _MAX_RESULT_CHARS = 12000
 
 
 def _project_name(repo_path: str) -> str:
-    """E:/m72-publish/m72 -> E-m72-publish-m72（codebase-memory 默认项目命名）。"""
-    return repo_path.replace(":/", "-").replace("/", "-")
+    """项目名规则唯一实现在 codebase_service.project_name（realpath + 去首斜杠，
+    对着官方 v0.11.0 实测过）；这里只转发，不再复制第二份规则。"""
+    from src.app.services.codebase_service import project_name
+
+    return project_name(repo_path)
 
 
 def _clip(payload: dict) -> str:
@@ -209,10 +212,11 @@ async def search_codebase(
         keywords = [k for k in pattern.replace(",", " ").split() if k]
         result = await codebase_service.cbm_call(
             "search_graph",
-            {"project": project, "semantic_query": keywords or [pattern], "limit": 20},
+            {"project": project, "semantic_query": keywords or [pattern],
+             "limit": 20, "format": "json"},
         )
     else:
-        args: dict = {"project": project, "pattern": pattern, "limit": 20}
+        args: dict = {"project": project, "pattern": pattern, "limit": 20, "format": "json"}
         if file_pattern:
             args["file_pattern"] = file_pattern
         result = await codebase_service.cbm_call("search_code", args)
@@ -225,32 +229,59 @@ async def search_codebase(
 
 
 # ---------------------------------------------------------------------------
-# Unity UI 自动化（复用 agents/unity/tools）
+# Unity 自动化（复用 agents/unity/tools）—— 通用 MCP 桥，不依赖任何游戏侧代码
 # ---------------------------------------------------------------------------
 
 @mcp.tool
 async def unity_status() -> dict:
-    """检查 Unity Editor / LuaRemoteServer 连接状态与 Play Mode 状态。
-
-    执行任何 UI 操作前必须先调用本工具确认连接正常且游戏处于 Play Mode。
-    """
+    """检查 Unity 自动化桥（MCP 服务器 + Unity 编辑器）状态与 Play Mode。"""
     return await unity_tools.unity_status.ainvoke({})
 
 
 @mcp.tool
-async def unity_exec_lua(code: str, sync: bool = False) -> dict:
-    """在游戏运行时执行 Lua 代码（需要 Play Mode）。
-
-    sync=False 异步协程方式（支持 yield/网络等待，适合 UI.open）；
-    sync=True 同步方式（适合纯查询）。print() 内容作为 output 返回。
-    """
-    return await unity_tools.unity_exec_lua.ainvoke({"code": code, "sync": sync})
+async def unity_find_objects(name: str = "", path: str = "", component: str = "",
+                             tag: str = "", limit: int = 50) -> dict:
+    """在 Unity 场景里按名字/层级路径/组件查对象（含未激活对象）。"""
+    return await unity_tools.unity_find_objects.ainvoke(
+        {"name": name, "path": path, "component": component, "tag": tag, "limit": limit})
 
 
 @mcp.tool
-async def unity_eval_lua(expression: str) -> dict:
-    """求值一个 Lua 表达式并返回结果（适合读取游戏数据）。"""
-    return await unity_tools.unity_eval_lua.ainvoke({"expression": expression})
+async def unity_object(target: str, component: str = "") -> dict:
+    """读一个 Unity 对象的组件与字段（text/value/interactable 等）。"""
+    return await unity_tools.unity_object.ainvoke({"target": target, "component": component})
+
+
+@mcp.tool
+async def unity_console(action: str = "get", filter_text: str = "", limit: int = 50) -> dict:
+    """读/清 Unity Console（操作后必看：Unity 侧异常不会让调用失败）。"""
+    return await unity_tools.unity_console.ainvoke(
+        {"action": action, "filter_text": filter_text, "limit": limit})
+
+
+@mcp.tool
+async def unity_editor(action: str) -> dict:
+    """控制 Unity 编辑器：play / pause / stop / state / refresh。"""
+    return await unity_tools.unity_editor.ainvoke({"action": action})
+
+
+@mcp.tool
+async def unity_click(target: str) -> dict:
+    """点一个 UGUI 控件（Button 优先 onClick，其次 ExecuteEvents 指针点击）。"""
+    return await unity_tools.unity_click.ainvoke({"target": target})
+
+
+@mcp.tool
+async def unity_set_text(target: str, text: str) -> dict:
+    """给带文本的控件写值（反射找可写 text 属性，TMPro / 旧版 UI 都行）。"""
+    return await unity_tools.unity_set_text.ainvoke({"target": target, "text": text})
+
+
+@mcp.tool
+async def unity_wait_for(target: str, timeout_s: float = 10.0, state: str = "present") -> dict:
+    """等对象出现（present）或消失（absent），超时返回 success=False。"""
+    return await unity_tools.unity_wait_for.ainvoke(
+        {"target": target, "timeout_s": timeout_s, "state": state})
 
 
 @mcp.tool
@@ -260,34 +291,79 @@ async def unity_screenshot(save_path: str | None = None) -> dict:
 
 
 @mcp.tool
-async def unity_list_windows() -> dict:
-    """列出当前显示/隐藏的 UI 窗口。"""
-    return await unity_tools.unity_list_windows.ainvoke({})
+async def unity_exec_csharp(code: str) -> dict:
+    """在 Unity 编辑器里执行任意 C# 语句（通用逃逸口；结果用 Debug.Log("UNITY_BRIDGE:"+json) 回传）。"""
+    return await unity_tools.unity_exec_csharp.ainvoke({"code": code})
 
 
 @mcp.tool
-async def unity_run_skill_script(script_relpath: str, args: str = "") -> dict:
-    """运行 unity-ui-test skill 自带脚本（如 enter_game.py / explore_ui.py）。"""
-    return await unity_tools.unity_run_skill_script.ainvoke(
-        {"script_relpath": script_relpath, "args": args})
+async def unity_run_tests(mode: str = "PlayMode", filter_text: str = "",
+                          timeout_s: float = 300.0) -> dict:
+    """跑工程里已有的 Unity Test Framework 测试（PlayMode / EditMode）。"""
+    return await unity_tools.unity_run_tests.ainvoke(
+        {"mode": mode, "filter_text": filter_text, "timeout_s": timeout_s})
+
+
+@mcp.tool
+async def unity_mcp_tools(refresh: bool = False) -> dict:
+    """列出 Unity MCP 服务器提供的全部工具与入参 schema（换服务器/版本时的第一现场）。"""
+    return await unity_tools.unity_mcp_tools.ainvoke({"refresh": refresh})
+
+
+@mcp.tool
+async def unity_mcp_call(tool: str, args: str = "{}") -> dict:
+    """原样调用 Unity MCP 服务器上的任意工具（args 为 JSON 字符串）。"""
+    return await unity_tools.unity_mcp_call.ainvoke({"tool": tool, "args": args})
+
+
+@mcp.tool
+async def unity_generate_script(intent: str, extra_requirements: str = "") -> dict:
+    """把测试意图写成第一版 Unity 用例脚本（草稿，需实跑验证后入库）。"""
+    return await unity_tools.unity_generate_script.ainvoke(
+        {"intent": intent, "extra_requirements": extra_requirements})
+
+
+@mcp.tool
+async def unity_run_script(script_id: str = "", content: str = "", name: str = "") -> dict:
+    """跑一份 Unity 用例脚本（同步；0=通过 1=断言失败 其余=环境问题）。"""
+    return await unity_tools.unity_run_script.ainvoke(
+        {"script_id": script_id, "content": content, "name": name})
+
+
+@mcp.tool
+async def unity_save_script(name: str, content: str, module: str = "",
+                            description: str = "", script_id: str = "") -> dict:
+    """把跑通过的 Unity 用例入库（带 script_id 即更新那条，版本号自动 +1）。"""
+    return await unity_tools.unity_save_script.ainvoke(
+        {"name": name, "content": content, "module": module,
+         "description": description, "script_id": script_id})
+
+
+@mcp.tool
+async def unity_get_script(script_id: str) -> dict:
+    """读取已入库 Unity 用例的完整源码。"""
+    return await unity_tools.unity_get_script.ainvoke({"script_id": script_id})
+
+
+@mcp.tool
+async def unity_list_scripts() -> dict:
+    """列出已入库的 Unity 用例（id / 名称 / 状态 / 版本）。"""
+    return await unity_tools.unity_list_scripts.ainvoke({})
 
 
 # ---------------------------------------------------------------------------
-# 视觉分析（modlens 式视觉桥）：dsh 宿主模型无视觉能力时，由本工具直连
-# OpenAI 兼容视觉端点（.env 的 VISION_* 配置，回退 LLM_* / DEEPSEEK_*）。
+# 视觉分析（modlens 式视觉桥）：dsh 宿主模型无视觉能力时，由本工具直连平台主模型
+# （.env 的 LLM_*，回退 DEEPSEEK_*）去读图。平台只保留一套模型配置，所以这里不再
+# 有独立的视觉端点——主模型本身支持读图就用得上，不支持则会由服务端报错。
 # 典型场景：unity_screenshot 后的界面核验、UI 走查、截图取证。
 # ---------------------------------------------------------------------------
-
-def _vision_config() -> tuple[str, str, str]:
-    """返回 (model, base_url, api_key)；未配置视觉模型时 model 为空。"""
-    model = (os.environ.get("VISION_MODEL") or "").strip()
-    base_url = (
-        (os.environ.get("VISION_BASE_URL") or "").strip()
-        or (os.environ.get("LLM_BASE_URL") or "").strip()
-    )
+def _image_model_config() -> tuple[str, str, str]:
+    """返回 (model, base_url, api_key)：平台主模型的配置。"""
+    model = (os.environ.get("LLM_MODEL") or "").strip() or \
+        (os.environ.get("DEEPSEEK_MODEL") or "").strip()
+    base_url = (os.environ.get("LLM_BASE_URL") or "").strip()
     api_key = (
-        (os.environ.get("VISION_API_KEY") or "").strip()
-        or (os.environ.get("LLM_API_KEY") or "").strip()
+        (os.environ.get("LLM_API_KEY") or "").strip()
         or (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
     )
     return model, base_url, api_key
@@ -299,25 +375,25 @@ _GO_SESSION_ID = uuid.uuid4().hex
 
 @mcp.tool
 async def analyze_image(image_path: str, prompt: str = "") -> dict:
-    """调用视觉模型分析一张本地图片（截图核验 / UI 走查 / 界面取证）。
+    """调用平台主模型分析一张本地图片（截图核验 / UI 走查 / 界面取证）。
 
     典型用法：unity_screenshot 截图后，把返回的保存路径传给本工具，
     prompt 写明要核验的内容（如"检查活动入口按钮是否可见、有无报错弹窗"），
     再根据描述判断断言是否通过。
 
-    需要 .env 配置 VISION_MODEL（端点/Key 走 VISION_BASE_URL / VISION_API_KEY，
-    留空时回退 LLM_* 再回退 DEEPSEEK_API_KEY）。未配置时返回 skipped。
+    需要 .env 的主模型配置（LLM_MODEL / LLM_BASE_URL / LLM_API_KEY，回退
+    DEEPSEEK_*），且该模型要支持读图；否则由服务端返回错误。
     """
-    model, base_url, api_key = _vision_config()
+    model, base_url, api_key = _image_model_config()
     if not model:
         return {
             "success": False,
             "skipped": True,
-            "error": "未配置视觉模型（.env 的 VISION_MODEL），无法分析图片。",
+            "error": "未配置主模型（.env 的 LLM_MODEL），无法分析图片。",
         }
     if not api_key:
         return {"success": False, "skipped": True,
-                "error": "视觉模型缺少 API Key（VISION_API_KEY）。"}
+                "error": "主模型缺少 API Key（LLM_API_KEY / DEEPSEEK_API_KEY）。"}
 
     path = Path(image_path)
     if not path.is_file():

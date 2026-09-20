@@ -7,6 +7,9 @@
  * 和 error-context.md，但此前页面上只显示「文件名 · 大小」的灰色徽章，等于
  * 存证存了个寂寞。这里把图片直接渲染出来（点击开大图、左右键切换），
  * trace/视频给可点的入口，其它文件给下载。
+ *
+ * 两个模块共用（Web-UI 的 Playwright 产物、Unity 的截图/录像）：所以取文件的
+ * URL 由调用方通过 ``urlFor`` 注入，默认还是 Web-UI 那套签名路径。
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -17,13 +20,32 @@ import {
   Dialog, DialogContent,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { webUiArtifactUrl, type WebUiArtifact, type WebUiScriptRun } from "@/lib/api/useNewModules";
+import { webUiArtifactUrl, type WebUiScriptRun } from "@/lib/api/useNewModules";
 import { cn } from "@/lib/utils";
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif)$/i;
-const VIDEO_EXT = /\.(webm|mp4)$/i;
+const VIDEO_EXT = /\.(webm|mp4|mov)$/i;
 const TRACE_EXT = /\.zip$/i;
-const TEXT_EXT = /\.(md|txt|json|log)$/i;
+const TEXT_EXT = /\.(md|txt|json|jsonl|log)$/i;
+
+/** 产物取文件的 URL 解析器（默认 Web-UI 的签名 URL）。 */
+export type ArtifactUrlFor = (path: string) => string;
+
+/**
+ * 画廊只依赖这三个字段，所以两个模块的产物结构都能喂进来（Web-UI 的
+ * ``{name,path,size}`` 与 Unity 的 ``UnityArtifact``）。``size`` 允许为空 ——
+ * 产物文件被清理后后端就是给 null（那时名字旁边没有大小，别显示成 0B）。
+ */
+export interface GalleryArtifact {
+  name?: string;
+  path: string;
+  size?: number | null;
+}
+
+function urlOf(run: Pick<WebUiScriptRun, "id" | "share_sig">,
+               path: string, urlFor?: ArtifactUrlFor): string {
+  return urlFor ? urlFor(path) : webUiArtifactUrl(run, path);
+}
 
 export function artifactKind(path: string): "image" | "video" | "trace" | "text" | "file" {
   if (IMAGE_EXT.test(path)) return "image";
@@ -33,10 +55,16 @@ export function artifactKind(path: string): "image" | "video" | "trace" | "text"
   return "file";
 }
 
-function humanSize(bytes: number): string {
+function humanSize(bytes?: number | null): string {
+  if (bytes == null) return "";
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
   return `${bytes}B`;
+}
+
+/** 「名字 · 大小」——大小缺失时不留孤零零的分隔符。 */
+function label(name: string, size?: number | null): string {
+  return [name, humanSize(size)].filter(Boolean).join(" · ");
 }
 
 /** 去掉 test-results 里的随机目录前缀，让名字能读。 */
@@ -46,14 +74,15 @@ function shortName(path: string): string {
 }
 
 export function ArtifactThumb({
-  run, path, size, onOpen,
+  run, path, size, onOpen, urlFor,
 }: {
   run: Pick<WebUiScriptRun, "id" | "share_sig">;
   path: string;
-  size?: number;
+  size?: number | null;
   onOpen?: () => void;
+  urlFor?: ArtifactUrlFor;
 }) {
-  const url = webUiArtifactUrl(run, path);
+  const url = urlOf(run, path, urlFor);
   // 单个文件也可能被单独删掉（目录还在），所以除了「整目录已清理」之外，
   // 每张图还要自己兜住加载失败：显示占位而不是破图 + alt 文本。
   const [broken, setBroken] = useState(false);
@@ -83,15 +112,20 @@ export function ArtifactThumb({
         </>
       )}
       <span className="block truncate px-1.5 py-1 text-[10px] text-muted-foreground">
-        {shortName(path)}{size ? ` · ${humanSize(size)}` : ""}
+        {label(shortName(path), size)}
       </span>
     </button>
   );
 }
 
 /** 产物整目录被清理时的说明块 —— 比一排破图诚实。 */
-export function ArtifactsPrunedNotice({ run }: { run: Pick<WebUiScriptRun, "artifacts_pruned"> }) {
-  if (!run.artifacts_pruned) return null;
+export function ArtifactsPrunedNotice({
+  run, pruned,
+}: {
+  run?: Pick<WebUiScriptRun, "artifacts_pruned">;
+  pruned?: boolean;
+}) {
+  if (!(pruned ?? run?.artifacts_pruned)) return null;
   return (
     <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
       这次执行的产物文件已不在服务器上（运行目录被清理或磁盘回收），截图 / 录像 / trace
@@ -102,13 +136,14 @@ export function ArtifactsPrunedNotice({ run }: { run: Pick<WebUiScriptRun, "arti
 
 /** 大图查看器：左右键切换、Esc 关闭。抽出来给「用例失败截图」单独复用。 */
 export function ImageViewer({
-  run, paths, index, onIndex, onClose,
+  run, paths, index, onIndex, onClose, urlFor,
 }: {
   run: Pick<WebUiScriptRun, "id" | "share_sig">;
   paths: string[];
   index: number | null;
   onIndex: (next: number) => void;
   onClose: () => void;
+  urlFor?: ArtifactUrlFor;
 }) {
   useEffect(() => {
     if (index === null) return;
@@ -132,7 +167,7 @@ export function ImageViewer({
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={webUiArtifactUrl(run, paths[index])}
+              src={urlOf(run, paths[index], urlFor)}
               alt={shortName(paths[index])}
               className="max-h-[76vh] w-full object-contain"
             />
@@ -142,7 +177,7 @@ export function ImageViewer({
                 <ChevronLeft className="mr-1 h-3.5 w-3.5" />上一张
               </Button>
               <a
-                href={webUiArtifactUrl(run, paths[index])}
+                href={urlOf(run, paths[index], urlFor)}
                 target="_blank" rel="noreferrer"
                 className="text-xs text-primary hover:underline"
               >
@@ -161,10 +196,13 @@ export function ImageViewer({
 }
 
 export function ArtifactGallery({
-  run, artifacts,
+  run, artifacts, urlFor, videoHint,
 }: {
   run: Pick<WebUiScriptRun, "id" | "share_sig" | "artifacts_pruned">;
-  artifacts: WebUiArtifact[];
+  artifacts: GalleryArtifact[];
+  urlFor?: ArtifactUrlFor;
+  /** 没有录像时给一句解释（两个模块的录制策略不同，由调用方说清） */
+  videoHint?: string;
 }) {
   const groups = useMemo(() => {
     const images = artifacts.filter((a) => artifactKind(a.path) === "image");
@@ -176,7 +214,7 @@ export function ArtifactGallery({
   }, [artifacts]);
 
   const [lightbox, setLightbox] = useState<number | null>(null);
-  const [textPreview, setTextPreview] = useState<WebUiArtifact | null>(null);
+  const [textPreview, setTextPreview] = useState<GalleryArtifact | null>(null);
 
   if (run.artifacts_pruned) {
     // 详细说明由详情页顶部统一给（那里还解释了为什么报告按钮不见了），
@@ -210,6 +248,7 @@ export function ArtifactGallery({
                 run={run}
                 path={a.path}
                 size={a.size}
+                urlFor={urlFor}
                 onOpen={() => setLightbox(index)}
               />
             ))}
@@ -218,9 +257,7 @@ export function ArtifactGallery({
       )}
 
       {groups.videos.length === 0 && groups.images.length > 0 && (
-        <p className="text-[11px] text-muted-foreground">
-          没有录像：默认只在用例失败时保留（用例可在编辑器里改成「始终录制」）。
-        </p>
+        <p className="text-[11px] text-muted-foreground">{videoHint}</p>
       )}
 
       {groups.videos.length > 0 && (
@@ -235,11 +272,11 @@ export function ArtifactGallery({
                 <video
                   controls
                   preload="metadata"
-                  src={webUiArtifactUrl(run, a.path)}
+                  src={urlOf(run, a.path, urlFor)}
                   className="w-full rounded-md border bg-black"
                 />
                 <p className="mt-1 truncate text-[10px] text-muted-foreground">
-                  {shortName(a.path)} · {humanSize(a.size)}
+                  {label(shortName(a.path), a.size)}
                 </p>
               </div>
             ))}
@@ -256,11 +293,11 @@ export function ArtifactGallery({
             {groups.traces.map((a) => (
               <a
                 key={a.path}
-                href={webUiArtifactUrl(run, a.path)}
+                href={urlOf(run, a.path, urlFor)}
                 className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] hover:bg-muted"
               >
                 <Download className="h-3 w-3" />
-                {shortName(a.path)} · {humanSize(a.size)}
+                {label(shortName(a.path), a.size)}
               </a>
             ))}
           </div>
@@ -280,7 +317,7 @@ export function ArtifactGallery({
                 onClick={() => setTextPreview(a)}
                 className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] hover:bg-muted"
               >
-                {shortName(a.path)} · {humanSize(a.size)}
+                {label(shortName(a.path), a.size)}
               </button>
             ))}
           </div>
@@ -294,6 +331,7 @@ export function ArtifactGallery({
         index={lightbox}
         onIndex={setLightbox}
         onClose={() => setLightbox(null)}
+        urlFor={urlFor}
       />
 
       {/* 文本文件预览（error-context.md 之类） */}
@@ -306,7 +344,7 @@ export function ArtifactGallery({
             </button>
           </div>
           {textPreview && (
-            <ArtifactText run={run} path={textPreview.path} />
+            <ArtifactText run={run} path={textPreview.path} urlFor={urlFor} />
           )}
         </DialogContent>
       </Dialog>
@@ -316,22 +354,23 @@ export function ArtifactGallery({
 
 /** 文本产物按需拉取（签名 URL 是普通 GET，可以直接 fetch 成文本）。 */
 function ArtifactText({
-  run, path, className,
+  run, path, className, urlFor,
 }: {
   run: Pick<WebUiScriptRun, "id" | "share_sig">;
   path: string;
   className?: string;
+  urlFor?: ArtifactUrlFor;
 }) {
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch(webUiArtifactUrl(run, path))
+    fetch(urlOf(run, path, urlFor))
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((t) => alive && setText(t))
       .catch((e) => alive && setError(String(e)));
     return () => { alive = false; };
-  }, [run, path]);
+  }, [run, path, urlFor]);
   return (
     <pre className={cn("max-h-[70vh] overflow-auto rounded bg-muted p-3 text-[11px]", className)}>
       {error ? `读取失败：${error}` : text ?? "加载中…"}

@@ -1,0 +1,103 @@
+/* 「RAG 设置」页样式。刻意做成跟随系统深浅色的中性风格：这个页面挂在 LightRAG
+   自带界面下（:50xx/webui/rag-settings.html），不该看起来像另一个产品。 */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1a1d23;
+  --muted: #6b7280;
+  --card: #f8f9fb;
+  --border: #e3e6ec;
+  --input: #ffffff;
+  --primary: #2563eb;
+  --primary-fg: #ffffff;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --warn: #d97706;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --fg: #e6e8ee;
+    --muted: #8b93a7;
+    --card: #161a22;
+    --border: #232936;
+    --input: #0b0d12;
+    --primary: #2563eb;
+    --danger: #f87171;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.6 system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; }
+.head { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+h2 { font-size: 15px; margin: 0; }
+.sub, .note { color: var(--muted); font-size: 12.5px; margin: 4px 0 0; }
+.note { margin: 8px 0 14px; }
+.links a { color: var(--primary); text-decoration: none; font-size: 12.5px; margin-left: 14px; }
+.links a:hover { text-decoration: underline; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin: 16px 0;
+}
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+label { display: block; font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
+input {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 8px 10px;
+  background: var(--input);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+}
+input:focus { outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent); outline-offset: 0; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.tbl td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.tbl input { margin: 0; padding: 6px 8px; font-size: 13px; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg);
+  border-radius: 7px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--primary); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-fg); }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.mono, code { font-family: uimonospace, ui-monospace, Consolas, monospace; font-size: 12px; }
+code { background: color-mix(in srgb, var(--fg) 8%, transparent); padding: 1px 5px; border-radius: 4px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #6b7280; }
+.dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.dot.off { background: var(--danger); }
+.alert {
+  margin: 14px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--warn) 12%, var(--card));
+  font-size: 13px;
+}
+.alert.err { background: color-mix(in srgb, var(--danger) 12%, var(--card)); border-color: var(--danger); }
+.alert.ok { background: color-mix(in srgb, var(--ok) 12%, var(--card)); border-color: var(--ok); }
+.foot { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.hint-cell { color: var(--muted); font-size: 12px; }

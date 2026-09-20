@@ -26,9 +26,7 @@ interface CheckResult {
   endpoint?: string;
 }
 
-function ServerCard({ server, onChecked }: {
-  server: McpServer; onChecked: (r: CheckResult) => void;
-}) {
+function ServerCard({ server }: { server: McpServer }) {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
 
@@ -37,7 +35,6 @@ function ServerCard({ server, onChecked }: {
     try {
       const res = await apiClient.get<CheckResult>(`/mcp/servers/${server.name}/check`);
       setResult(res.data);
-      onChecked(res.data);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "检测失败");
     } finally {
@@ -116,7 +113,7 @@ export default function McpPage() {
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {(data ?? []).map((s) => (
-                <ServerCard key={s.name} server={s} onChecked={() => {}} />
+                <ServerCard key={s.name} server={s} />
               ))}
             </div>
           )}

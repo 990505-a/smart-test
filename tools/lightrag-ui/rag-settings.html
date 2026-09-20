@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RAG 设置 · 智能测试平台</title>
+<link rel="icon" type="image/png" href="favicon.png" />
+<link rel="stylesheet" href="./rag-settings.css" />
+<script src="./rag-settings-config.js"></script>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <div>
+      <h1>RAG 设置</h1>
+      <p class="sub">
+        LightRAG 本体的模型与知识库配置。改完需要<b>重启知识库实例</b>才生效
+        （LightRAG 的 LLM / Embedding 绑定是启动环境变量，官方 WebUI 改不了，这个页面
+        由智能测试平台注入）。
+      </p>
+    </div>
+    <nav class="links">
+      <a href="./">LightRAG 管理界面</a>
+      <a href="/workspace/">检索入口</a>
+      <a id="platform-link" href="#" target="_blank" rel="noreferrer">平台知识库页</a>
+    </nav>
+  </header>
+
+  <div id="alert" class="alert" hidden></div>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>知识库（每个库一个实例）</h2>
+      <div class="row-actions">
+        <button class="btn" id="add-kb">添加一行</button>
+        <button class="btn primary" id="save-kbs">保存清单</button>
+      </div>
+    </div>
+    <p class="note">
+      一个知识库 = 一个独立的 lightrag-server 进程（独立端口 + 独立 workspace）。
+      数据目录是 <code>&lt;工作目录&gt;/&lt;workspace&gt;</code>，两个库互不可见——
+      这就是"两个项目不要混在一起"的做法。删除一个库<b>不会</b>删数据，数据留在
+      <code>数据目录</code> 里，把同一行加回来即可恢复。
+    </p>
+    <table class="tbl" id="kb-table">
+      <thead>
+        <tr>
+          <th style="width:12%">key</th>
+          <th style="width:18%">名称</th>
+          <th style="width:9%">端口</th>
+          <th style="width:22%">数据目录</th>
+          <th style="width:12%">状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="kb-rows"></tbody>
+    </table>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <div class="card-head"><h2>LLM（实体抽取 / 生成）</h2></div>
+      <p class="note">
+        入库时的实体关系抽取、以及需要生成答案的检索都走这里。
+        留空则跟随<b>平台主模型</b>：<span id="llm-inherit" class="mono">—</span>
+      </p>
+      <label>API 地址（OpenAI 兼容）<input id="llm_base_url" placeholder="https://…/v1" /></label>
+      <label>模型<input id="llm_model" placeholder="deepseek-chat" /></label>
+      <label>API Key<input id="llm_api_key" type="password" placeholder="留空 = 用平台主模型的 key" /></label>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Embedding</h2></div>
+      <p class="note">
+        向量化模型。<b>维度必须与模型一致</b>（bge-m3 = 1024），改了维度老库检不出来，
+        需要重新入库。本机 MLX 版示例：<code>http://127.0.0.1:7997/v1</code>
+      </p>
+      <label>API 地址<input id="embedding_base_url" placeholder="https://api.siliconflow.cn/v1" /></label>
+      <label>模型<input id="embedding_model" placeholder="BAAI/bge-m3" /></label>
+      <label>维度<input id="embedding_dim" placeholder="1024" /></label>
+      <label>API Key<input id="embedding_api_key" type="password" /></label>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <div class="row-actions">
+      <button class="btn" id="save-values">保存模型配置</button>
+      <button class="btn primary" id="save-restart">保存并重启所有知识库</button>
+      <button class="btn" id="reload">重新读取</button>
+    </div>
+    <p class="note" id="service-info"></p>
+  </footer>
+</main>
+<script src="./rag-settings.js"></script>
+</body>
+</html>

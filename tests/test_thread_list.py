@@ -39,10 +39,11 @@ async def db_factory(monkeypatch):
     await engine.dispose()
 
 
-async def _thread(factory, title: str = "无标题对话", deleted: bool = False) -> str:
+async def _thread(factory, title: str = "无标题对话", deleted: bool = False,
+                  agent: str = "") -> str:
     tid = str(uuid.uuid4())
     async with factory() as s:
-        s.add(ThreadInfo(thread_id=tid, title=title, deleted=deleted))
+        s.add(ThreadInfo(thread_id=tid, title=title, deleted=deleted, agent=agent))
         await s.commit()
     return tid
 
@@ -116,6 +117,57 @@ class TestListThreadsVisibility:
         await _msg(db_factory, tid)  # 首条消息保存
         res = await _list()
         assert res["total"] == 1
+
+
+class TestExcludeAgent:
+    """「代码图谱 → AI 分析」的会话不属于对话页，由后端按 agent 排除。
+
+    必须后端排除：前端过滤会让 20 条一页的分页出现"整页被滤空"，
+    isReachingEnd 提前结束、total 计数错、空页误报"暂无对话"。
+    """
+
+    @pytest.mark.asyncio
+    async def test_excluded_agent_hidden_from_list_and_total(self, db_factory):
+        chat = await _thread(db_factory, title="用例会话", agent="testcase_agent")
+        await _msg(db_factory, chat)
+        code = await _thread(db_factory, title="代码问答", agent="codebase_agent")
+        await _msg(db_factory, code)
+
+        res = await messages_api.list_threads(limit=20, offset=0,
+                                              exclude_agent=["codebase_agent"])
+        assert res["total"] == 1
+        assert [t["thread_id"] for t in res["threads"]] == [chat]
+
+    @pytest.mark.asyncio
+    async def test_without_param_everything_is_listed(self, db_factory):
+        for agent in ("testcase_agent", "codebase_agent"):
+            tid = await _thread(db_factory, title=agent, agent=agent)
+            await _msg(db_factory, tid)
+        res = await messages_api.list_threads(limit=20, offset=0)
+        assert res["total"] == 2
+
+    @pytest.mark.asyncio
+    async def test_empty_and_blank_entries_do_not_filter_anything(self, db_factory):
+        """`?exclude_agent=` 空串不该变成"排除 agent=''"而误伤旧数据。"""
+        tid = await _thread(db_factory, title="旧会话")  # agent 默认空
+        await _msg(db_factory, tid)
+        res = await messages_api.list_threads(limit=20, offset=0, exclude_agent=[""])
+        assert res["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_pagination_stays_consistent_after_exclusion(self, db_factory):
+        """排除后页大小与总数都按可见集合算，不会出现空页。"""
+        for i in range(4):
+            tid = await _thread(db_factory, title=f"代码{i}", agent="codebase_agent")
+            await _msg(db_factory, tid)
+        keep = await _thread(db_factory, title="保留", agent="testcase_agent")
+        await _msg(db_factory, keep)
+
+        page = await messages_api.list_threads(limit=20, offset=0,
+                                               exclude_agent=["codebase_agent"])
+        assert page["total"] == 1
+        assert len(page["threads"]) == 1
+        assert page["threads"][0]["thread_id"] == keep
 
 
 class TestTitleDerivation:

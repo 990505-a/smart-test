@@ -6,33 +6,27 @@ Aggregates all v2 API routers under /api/v2 prefix.
 from fastapi import APIRouter
 
 from src.app.api.v2 import (
+    agents,
     api_auto,
-    attachments,
     auth,
     case_docs,
     codebase,
-    configurations,
     eval as eval_api,
     extract_pdf,
     feishu,
+    integrations,
     mcp,
     memories,
     messages,
-    projects,
     rag,
     settings,
     skills,
     unity_auto,
     web_ui_auto,
-    workspaces,
 )
 
 api_router = APIRouter(prefix="/api/v2")
-api_router.include_router(projects.router, tags=["Projects"])
 api_router.include_router(case_docs.router, tags=["Case Docs (用例 MD 文档)"])
-api_router.include_router(attachments.router, tags=["Attachments"])
-api_router.include_router(workspaces.router, tags=["Workspaces"])
-api_router.include_router(configurations.router, tags=["Configurations"])
 api_router.include_router(messages.router, tags=["Messages"])
 api_router.include_router(extract_pdf.router, tags=["PDF Extraction"])
 api_router.include_router(memories.router, tags=["Memories"])
@@ -49,3 +43,5 @@ api_router.include_router(eval_api.router, tags=["Eval (测评模块)"])
 api_router.include_router(mcp.router, tags=["MCP (MCP 模块)"])
 api_router.include_router(rag.router, tags=["RAG (知识库本体)"])
 api_router.include_router(codebase.router, tags=["Codebase (代码图谱本体)"])
+api_router.include_router(agents.router, tags=["Agents (智能体装配)"])
+api_router.include_router(integrations.router, tags=["Integrations (外部依赖就绪)"])

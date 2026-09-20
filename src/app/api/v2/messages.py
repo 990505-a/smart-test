@@ -24,7 +24,7 @@ import json
 import logging
 import re
 from datetime import timezone
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -105,6 +105,9 @@ def _invalid_cursor(cursor: str) -> HTTPException:
 async def list_threads(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    exclude_agent: Annotated[list[str] | None, Query(
+        description="排除的 assistant id（可重复），如 exclude_agent=codebase_agent",
+    )] = None,
 ) -> dict[str, Any]:
     async with async_session_factory() as session:
         # 只返回有消息的会话：零消息的空壳线程（历史预创建遗留、上传文件
@@ -118,6 +121,13 @@ async def list_threads(
             .scalar_subquery()
         )
         visible = and_(ThreadInfo.deleted.is_(False), msg_count > 0)
+        # codebase_agent 的会话不属于对话页（现在只被无头影响分析使用，跑在独立
+        # 线程上；页面内的「AI 分析」Tab 2026-09 已删除），按 agent 排除。
+        # 必须由后端排除（而不是前端过滤）：limit/offset 分页与 total 都在这一层，
+        # 前端过滤会让空页误报"暂无对话"、提前终止无限滚动、总数也算错。
+        excluded = [a for a in (exclude_agent or []) if a]
+        if excluded:
+            visible = and_(visible, ThreadInfo.agent.notin_(excluded))
 
         total_stmt = select(func.count()).select_from(ThreadInfo).where(visible)
         total = (await session.execute(total_stmt)).scalar() or 0
@@ -626,15 +636,15 @@ async def sync_thread_messages(
     raw_messages = state_values.get("messages", []) if isinstance(state_values, dict) else []
 
     if not raw_messages:
+        # **空状态不做 prune**：权威源为空几乎只有两种原因 —— agent 服务重启
+        # （inmem 运行时，检查点本来就丢）或线程刚建。这两种情况下"权威源为空"
+        # 不等于"这段对话没有内容"，而 prune 是按权威源覆盖本地的，一删就是整段
+        # 记录（实测踩过：重启 agent 服务后前端重连触发 prune，平台库里那轮对话
+        # 直接消失）。真要清空线程走删除接口（有 tombstone），不靠这条空状态路径。
         if prune:
-            async with async_session_factory() as session:
-                result = await session.execute(
-                    delete(ThreadMessage).where(ThreadMessage.thread_id == thread_id)
-                )
-                pruned = result.rowcount or 0
-                await session.commit()
-            return {"synced": 0, "total": 0, "pruned": pruned}
-        return {"synced": 0, "total": 0, "pruned": 0}
+            logger.warning("线程 %s 的 LangGraph state 为空，跳过 prune（多半是 agent "
+                           "服务重启丢了内存态），本地消息保持不变", thread_id)
+        return {"synced": 0, "total": 0, "pruned": 0, "skipped_prune": bool(prune)}
 
     serialized = [_serialize_message(m) for m in raw_messages]
     counts = await _backfill_local_store(thread_id, serialized, prune=prune)

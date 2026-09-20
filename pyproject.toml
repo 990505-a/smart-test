@@ -9,6 +9,13 @@ dependencies = [
     "deepagents>=0.7.9",
     "fastapi>=0.136.1",
     "fastmcp>=3.1.1",
+    # SQLAlchemy 声明性依赖。它自带的 marker 只认 platform_machine 为
+    # AMD64/aarch64/WIN32 等，而 Apple Silicon 上 platform.machine() 返回的是
+    # **arm64**（只有 Linux 才叫 aarch64）——于是 uv sync 会跳过 greenlet，
+    # 而 sqlalchemy.ext.asyncio 少了它会直接抛
+    # "ValueError: the greenlet library is required"。
+    # 显式声明（不带 marker）就把这个平台差异绕过去了。
+    "greenlet>=3.5.0",
     "httpx>=0.28.1",
     "langchain>=1.2.0",
     "langchain-deepseek>=1.0.1",
@@ -30,6 +37,18 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv]
+# lightrag-hku 1.5.7 把两个传递依赖的上界放宽到了**下一个大版本**
+# （pandas <2.4.0 → <4.0.0，openai <3.0.0 → <4.0.0）。定向升级
+# （uv lock --upgrade-package lightrag-hku）不会碰它们，但在新机器上跑一次
+# 全新 `uv lock` 会直接拉进 pandas 3.x / openai 3.x —— 平台与 langchain-openai
+# 都没在那些大版本上验证过。这里用约束（不新增运行时依赖，只约束解析）把上限
+# 夹住，保证换机器重建 lock 得到的仍是同一套依赖。
+constraint-dependencies = [
+    "pandas<3",
+    "openai<3",
+]
 
 [dependency-groups]
 dev = [

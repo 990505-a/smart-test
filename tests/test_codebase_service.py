@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.app.services import codebase_service
 from src.app.services.codebase_service import (
     normalize_extensions,
     project_name,
@@ -18,8 +19,30 @@ from src.app.services.codebase_service import (
 # ---------------------------------------------------------------- naming ----
 
 def test_project_name_rule():
-    assert project_name("E:/m72-publish/m72") == "E-m72-publish-m72"
-    assert project_name("D:/projects/my-app") == "D-projects-my-app"
+    """纯字符串规则（与平台无关的那半边）。
+
+    末两个向量是对着官方 v0.11.0 的 `cli index_repository` 实测出来的：
+    /private/tmp/cbm-test/demo-svc → private-tmp-cbm-test-demo-svc。
+    """
+    norm = codebase_service._normalize_project_path  # noqa: SLF001 — 被测的就是这条规则
+    assert norm("E:/m72-publish/m72") == "E-m72-publish-m72"
+    assert norm("D:/projects/my-app") == "D-projects-my-app"
+    assert norm(r"E:\m72-publish\m72") == "E-m72-publish-m72"
+    assert norm("/private/tmp/cbm-test/My_Repo.v2") == "private-tmp-cbm-test-My_Repo.v2"
+    # 旧 GS 定制版的 replace("/", "-") 会留下前导 '-'，官方版不会——这条差别
+    # 就是"换官方版后所有图谱查询失联"的根因，钉在这里防回归。
+    assert not norm("/private/tmp/x").startswith("-")
+
+
+def test_project_name_resolves_symlinks(tmp_path):
+    """exe 先 realpath 再归一化：macOS 上 /tmp → /private/tmp 必须跟着走。"""
+    import os
+
+    link = tmp_path / "link"
+    real = tmp_path / "real"
+    real.mkdir()
+    link.symlink_to(real)
+    assert project_name(str(link)) == project_name(os.path.realpath(str(link)))
 
 
 def test_normalize_extensions():

@@ -1,52 +1,74 @@
 import type { ComponentType } from "react";
-import { Bug, CodeXml, Gamepad2, Globe } from "lucide-react";
+import { Bug, CodeXml, Gamepad2, Globe, Sparkles } from "lucide-react";
 
-export type AgentKey = "testcase" | "unity" | "webui" | "codeanalyst";
+export type AgentKey = "general" | "testcase" | "unity" | "webui" | "codebase";
 
 export interface AgentConfig {
   key: string;
   label: string;
   graphKey: string;
-  /** 选择器里的一句话说明：这个模式挂载了哪些工具/技能 */
+  /** 一句话说明这个 graph 挂载了哪些工具/技能 */
   description: string;
 }
 
 export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
+  // 对话页唯一的智能体。专项能力（用例生成 / Unity / Web-UI）全挂在它的工具面上，
+  // 由它自己判断该用哪一类 —— 用户不再需要先选模式。
+  general: {
+    key: "general",
+    label: "通用测试助手",
+    graphKey: "smart_test_agent",
+    description: "一个入口：需求分析、用例设计与入库、Unity / Web-UI 自动化，按任务自动选能力。",
+  },
+  // 以下三个是**历史会话的兼容 graph**：早先每个能力是独立模式，会话里记着自己的
+  // graph 名。新会话一律用 general；这三个只为让老会话还能续跑而保留。
   testcase: {
     key: "testcase",
-    label: "用例生成",
+    label: "用例生成（旧）",
     graphKey: "testcase_agent",
-    description: "需求澄清 → 用例 MD 文档 → Lint/复核/人工批准；挂飞书导图、代码图谱与记忆工具。",
+    description: "历史模式：只挂用例生成能力。新会话请用「通用测试助手」。",
   },
   unity: {
     key: "unity",
-    label: "Unity 自动化",
+    label: "Unity 自动化（旧）",
     graphKey: "unity_agent",
-    description: "经 Unity Editor 的 LuaTestTool 执行客户端 UI 用例：Lua 执行、截图、窗口检查。",
+    description: "历史模式：只挂 Unity 能力。新会话请用「通用测试助手」。",
   },
   webui: {
     key: "webui",
-    label: "Web-UI 自动化",
+    label: "Web-UI 自动化（旧）",
     graphKey: "webui_agent",
-    description: "用 Playwright CLI 写并跑浏览器 UI 用例，失败自动修复，产物落工作区。",
+    description: "历史模式：只挂 Web-UI 能力。新会话请用「通用测试助手」。",
   },
-  codeanalyst: {
-    key: "codeanalyst",
+  // codebase_agent 现在只被无头「增量影响分析」使用（页面内那个 AI 分析 Tab
+  // 2026-09 已删除，交互式代码问答统一走对话页的「代码图谱仓库」选择器 + 通用智能体）。
+  // 留在 AGENT_CONFIG 是为了让历史会话、测评数据集等共用同一份 graphKey。
+  codebase: {
+    key: "codebase",
     label: "代码分析",
-    graphKey: "code_analyst_agent",
-    description: "只读代码问答：功能定位、调用链、影响面；图谱优先，缺失时降级文件检索。",
+    graphKey: "codebase_agent",
+    description: "代码图谱里的代码问答：功能定位、调用链、影响面；图谱优先，缺失时降级文件检索。",
   },
 };
 
-/** 下拉里的展示顺序（与智能体在平台里的常用度一致） */
-export const AGENT_ORDER: AgentKey[] = ["testcase", "unity", "webui", "codeanalyst"];
+/** 对话页默认（也是新会话唯一）使用的智能体。 */
+export const DEFAULT_AGENT_KEY: AgentKey = "general";
 
-/** 智能体图标（选择器与列表共用；之前放在 AgentTabs 里，那个组件已删除） */
+/** 由 graph 名反查配置键；未知 graph（例如已被移除的模式）返回 undefined。 */
+export function agentKeyForGraph(graphKey?: string): AgentKey | undefined {
+  if (!graphKey) return undefined;
+  return (Object.keys(AGENT_CONFIG) as AgentKey[]).find(
+    (key) => AGENT_CONFIG[key].graphKey === graphKey,
+  );
+}
+
+/** 智能体图标（会话列表徽标等共用） */
 export const AGENT_ICONS: Record<AgentKey, ComponentType<{ className?: string }>> = {
+  general: Sparkles,
   testcase: Bug,
   unity: Gamepad2,
   webui: Globe,
-  codeanalyst: CodeXml,
+  codebase: CodeXml,
 };
 
 export interface ContentBlock {

@@ -115,7 +115,7 @@ class TestExtraction:
             system_message=SystemMessage(content="System"),
         )
 
-        import app.processors.pdf as pdf_processor_module
+        import src.app.processors.pdf as pdf_processor_module
         with patch.object(
             pdf_processor_module, "extract_pdf_text", return_value="PDF TEXT CONTENT"
         ):
