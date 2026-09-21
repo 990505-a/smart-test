@@ -172,9 +172,72 @@ def _write_manifest(space_id: str, data: dict) -> None:
     root = memory_root(space_id)
     root.mkdir(parents=True, exist_ok=True)
     path = root / MANIFEST_NAME
+    text = json.dumps(data, ensure_ascii=False, indent=2)
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
+    # manifest 也是用户状态（哪些模块启用、顺序、显示名），一样要留副本
+    _refresh_snapshot(space_id, MANIFEST_NAME, text)
+
+
+# ---------------------------------------------------------------------------
+# 记忆快照：让「仓库更新」永远弄不丢用户自己的记忆
+# ---------------------------------------------------------------------------
+# 记忆是**用户数据**，但它住在仓库的工作区里——于是有一类很危险的时刻：这些文件
+# 曾经被 git 跟踪过，某次提交把它们删掉（或改了内容），`git pull` 就会把本地那份
+# 真实记忆一起抹掉。2026-09「记忆不再进 git」那次改动正是这种情况：新 clone 拿到
+# 的是初始化记忆（对的），但**已有的 clone 一拉就会删文件**（不能接受）。
+#
+# 所以每次写正文都顺手在 `.snapshot/` 留一份副本；文件不见了就先从副本恢复，
+# 只有从来没有过副本（= 真正第一次）才写内置种子。于是：
+#   * 第一次拉取 → 没有快照 → 得到**初始化的记忆**；
+#   * 之后的任何更新 → 文件即使被删，下一次启动就从快照原样恢复，**不覆盖、不丢**。
+#
+# 目录名带点号、且是子目录：list_modules 只 glob 根目录的 *.md，不会把它当成模块；
+# 而整个 memory/ 已在 .gitignore 里，仓库更新碰不到它。
+
+_SNAPSHOT_DIR = ".snapshot"
+
+
+def _snapshot_path(space_id: str, filename: str) -> Path:
+    return memory_root(space_id) / _SNAPSHOT_DIR / filename
+
+
+def _refresh_snapshot(space_id: str, filename: str, text: str) -> None:
+    """留一份副本。尽力而为：快照失败不该影响正常的读写。"""
+    try:
+        path = _snapshot_path(space_id, filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:  # noqa: BLE001
+        logger.warning("记忆快照写入失败 %s: %s", filename, exc)
+
+
+def _read_snapshot(space_id: str, filename: str) -> str | None:
+    path = _snapshot_path(space_id, filename)
+    try:
+        return path.read_text(encoding="utf-8") if path.exists() else None
+    except OSError:
+        return None
+
+
+def _write_module_text(space_id: str, filename: str, text: str) -> None:
+    """写模块正文的**唯一入口**：落盘与刷新快照成对出现，避免漏掉一处。"""
+    root = memory_root(space_id)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / filename).write_text(text, encoding="utf-8")
+    _refresh_snapshot(space_id, filename, text)
+
+
+def _missing_text(space_id: str, filename: str) -> str:
+    """文件不见了时该写什么：快照优先，没有快照才用内置种子。"""
+    restored = _read_snapshot(space_id, filename)
+    if restored is not None:
+        logger.info("记忆模块 %s 缺失，已从快照恢复", filename)
+        return restored
+    return next((m.seed for m in _BUILTIN if m.file == filename), "")
 
 
 def _overlay(module: MemoryModule, saved: dict | None) -> MemoryModule:
@@ -193,9 +256,25 @@ def _overlay(module: MemoryModule, saved: dict | None) -> MemoryModule:
 
 
 def ensure_seeded(space_id: str = "default") -> None:
-    """首次使用时落盘内置模块（幂等）。已存在的文件绝不覆盖。"""
+    """首次使用时落盘内置模块（幂等）。**已存在的文件绝不覆盖。**
+
+    文件缺失时的顺序是「快照 → 内置种子」：有快照就原样恢复，没有才写种子。于是
+    第一次拉取仓库（本地还没攒过东西、也就没有快照）拿到的是**初始化的记忆**，
+    而之后的升级/拉取即使把文件删掉，下一次启动也会把用户自己的内容原样恢复回来
+    —— 不覆盖、不丢。详见上面「记忆快照」那一段。
+    """
     root = memory_root(space_id)
     root.mkdir(parents=True, exist_ok=True)
+    # manifest 一起曾被跟踪，也可能被一次 pull 删掉。它存的是"哪些模块启用/顺序"，
+    # 同样是用户状态：先尝试从快照恢复，恢复不了才由下面的逻辑按默认重建。
+    manifest_path = _manifest_path(space_id)
+    if not manifest_path.exists():
+        saved_manifest = _read_snapshot(space_id, MANIFEST_NAME)
+        if saved_manifest is not None:
+            try:
+                manifest_path.write_text(saved_manifest, encoding="utf-8")
+            except OSError as exc:  # noqa: BLE001
+                logger.warning("manifest 恢复失败: %s", exc)
     manifest = _load_manifest(space_id)
     known = {m.get("id") for m in manifest.get("modules") or []}
     changed = False
@@ -210,13 +289,59 @@ def ensure_seeded(space_id: str = "default") -> None:
         changed = True
     if changed:
         _write_manifest(space_id, manifest)
-    for module in _BUILTIN:
-        path = root / module.file
-        if not path.exists() and module.seed:
+
+    # 一、先把现存正文全部存档（不只是内置模块：用户手写的 .md 同样要保住）。
+    #     这一步让「升级后第一次启动」就把当前记忆都留了底，之后仓库怎么改都不怕。
+    for path in sorted(root.glob("*.md")):
+        try:
+            _refresh_snapshot(space_id, path.name, path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+    # manifest 也要存档，且要**无条件**存一次：它只在内容变化时才被 _write_manifest
+    # 重写，光靠那条路径的话，一个内容早已稳定的部署升级上来时根本没有 manifest 副本
+    # ——偏偏这个时候最需要它（接下来那个"停止跟踪"的提交会把它一起删掉）。
+    if manifest_path.exists():
+        try:
+            _refresh_snapshot(space_id, MANIFEST_NAME,
+                              manifest_path.read_text(encoding="utf-8"))
+        except OSError:
+            pass
+
+    # 二、再补齐缺失的模块。三类都算"该在的"：
+    #     * 内置模块 —— 没快照也要写种子（第一次拉取的情形）；
+    #     * manifest 登记过的自定义模块；
+    #     * 快照目录里有副本的文件（含用户手写丢进来的 .md：它们不在 manifest 里，
+    #       但一样是用户数据，一样要能恢复）。
+    #     主动删除的模块之所以不会被复活，是因为 delete_module 把快照一起删了。
+    wanted = [m.file for m in _BUILTIN]
+    for saved in manifest.get("modules") or []:
+        file = str(saved.get("file") or "").strip()
+        try:
+            _safe_file(file)
+        except ValueError:
+            continue
+        if file and file not in wanted:
+            wanted.append(file)
+    snapshot_dir = root / _SNAPSHOT_DIR
+    if snapshot_dir.is_dir():
+        for snapshot in sorted(snapshot_dir.glob("*.md")):
             try:
-                path.write_text(module.seed, encoding="utf-8")
-            except OSError as exc:  # noqa: BLE001 — 只读挂载时不该拦住对话
-                logger.warning("记忆模块 %s 初始化失败: %s", module.file, exc)
+                _safe_file(snapshot.name)
+            except ValueError:
+                continue
+            if snapshot.name not in wanted:
+                wanted.append(snapshot.name)
+    for filename in wanted:
+        path = root / filename
+        if path.exists():
+            continue
+        text = _missing_text(space_id, filename)
+        if not text:
+            continue
+        try:
+            _write_module_text(space_id, filename, text)
+        except OSError as exc:  # noqa: BLE001 — 只读挂载时不该拦住对话
+            logger.warning("记忆模块 %s 初始化失败: %s", filename, exc)
     _migrate_legacy_profile(space_id)
     _migrate_legacy_episodes(space_id)
 
@@ -236,11 +361,11 @@ def _migrate_legacy_profile(space_id: str = "default") -> None:
         if legacy.name.lower() == "user.md" and "users" in legacy.parts:
             text = legacy.read_text(encoding="utf-8", errors="replace").strip()
             if len(text) > 40:
-                target.write_text(
+                _write_module_text(
+                    space_id, "USER.md",
                     body.rstrip() + "\n\n## 从旧版记忆迁移（画像）\n\n"
                     + "> 来源：EverOS user.md（自动迁移，可自行整理或删除）\n\n"
-                    + text + "\n",
-                    encoding="utf-8")
+                    + text + "\n")
             return
 
 
@@ -274,11 +399,11 @@ def _migrate_legacy_episodes(space_id: str = "default") -> None:
                 break
     if not summaries:
         return
-    memory_md.write_text(
+    _write_module_text(
+        space_id, "MEMORY.md",
         current.rstrip() + "\n\n## 从旧版记忆迁移（经历）\n\n"
         + "> 来源：EverOS episodes（自动迁移，可自行整理或删除）\n\n"
-        + "\n".join(f"- {text}" for text in summaries[:200]) + "\n",
-        encoding="utf-8")
+        + "\n".join(f"- {text}" for text in summaries[:200]) + "\n")
 
 
 def list_modules(space_id: str = "default") -> list[MemoryModule]:
@@ -342,7 +467,7 @@ def write_module(module_id: str, content: str, space_id: str = "default") -> Mem
         raise FileNotFoundError(f"记忆模块不存在: {module_id}")
     root = memory_root(space_id)
     root.mkdir(parents=True, exist_ok=True)
-    (root / module.file).write_text(content, encoding="utf-8")
+    _write_module_text(space_id, module.file, content)
     return get_module(module.id, space_id) or module
 
 
@@ -399,7 +524,7 @@ def create_module(label: str, file: str | None = None, content: str = "",
     path = root / file
     if path.exists():
         raise FileExistsError(f"{file} 已存在")
-    path.write_text(content or f"# {label}\n\n", encoding="utf-8")
+    _write_module_text(space_id, file, content or f"# {label}\n\n")
     module_id = _slug(Path(file).stem)
     manifest = _load_manifest(space_id)
     manifest.setdefault("modules", []).append({
@@ -426,6 +551,11 @@ def delete_module(module_id: str, space_id: str = "default") -> bool:
     path = memory_root(space_id) / module.file
     if path.exists():
         path.unlink()
+    # 快照也要一起删：否则下次启动会"文件缺失 → 从快照恢复"，把刚删掉的模块复活。
+    # 这是用户明确的删除动作，不是仓库更新导致的缺失，两者要区分开。
+    snapshot = _snapshot_path(space_id, module.file)
+    if snapshot.exists():
+        snapshot.unlink()
     return True
 
 
@@ -448,7 +578,7 @@ def append_entry(module_id: str, content: str, *, category: str = "",
            (f" · _{source}_" if source and source != "user" else "")
     text = body.rstrip() + f"\n\n{head}\n\n  " + content.strip().replace("\n", "\n  ") + "\n"
     root.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    _write_module_text(space_id, module.file, text)
     return get_module(module.id, space_id) or module
 
 

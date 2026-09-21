@@ -54,6 +54,83 @@ class TestSeedAndManifest:
         memory_service.ensure_seeded()
         assert "改动不应被覆盖" in (memory_root / "MEMORY.md").read_text(encoding="utf-8")
 
+    # ------------------------------------------------------------------
+    # 记忆快照：第一次拉取拿到初始化记忆，之后的任何更新都弄不丢用户的内容
+    # ------------------------------------------------------------------
+
+    def test_first_run_gets_the_seeded_memory(self, memory_root: Path):
+        """第一次拉取仓库：本地没有任何快照，得到的就是**初始化的记忆**。
+
+        这是「记忆不再进 git」之后的正常路径：仓库里不带正文，全靠种子落盘，
+        所以新 clone 不会拿到别人（或自己过去）攒的真实记忆。
+        """
+        assert not (memory_root / memory_service._SNAPSHOT_DIR).exists()
+        memory_service.ensure_seeded()
+        seed = next(m.seed for m in memory_service._BUILTIN if m.file == "USER.md")
+        assert (memory_root / "USER.md").read_text(encoding="utf-8") == seed
+
+    def test_repo_update_deleting_memory_files_restores_user_content(self, memory_root: Path):
+        """仓库更新把记忆文件删掉后，启动要**原样恢复用户内容**，而不是退回种子。
+
+        这正是"记忆不再进 git"那次改动的过渡风险：这些文件曾被 git 跟踪，删除
+        它们的那个提交一旦被 pull 下来，本地真实的记忆就跟着没了。有了快照，
+        「文件消失」只是暂时的——重启即回。
+        """
+        memory_service.ensure_seeded()
+        memory_service.append_entry("memory", "跨天重置必须覆盖 04:59/05:00/05:01")
+        before = (memory_root / "MEMORY.md").read_text(encoding="utf-8")
+        assert "04:59/05:00/05:01" in before
+
+        # 模拟 git pull 应用"删除这些文件"的提交。快照目录是未跟踪的，不受影响。
+        for path in list(memory_root.glob("*.md")):
+            path.unlink()
+        assert not (memory_root / "MEMORY.md").exists()
+
+        memory_service.ensure_seeded()
+        after = (memory_root / "MEMORY.md").read_text(encoding="utf-8")
+        assert "04:59/05:00/05:01" in after, "用户攒下的内容不能因为一次更新就没了"
+        assert after == before, "应当从快照原样恢复，而不是写回种子"
+
+    def test_handwritten_module_is_also_snapshotted(self, memory_root: Path):
+        """用户手写丢进目录的 .md 同样要进快照——它不是内置模块，但一样是用户数据。"""
+        memory_service.ensure_seeded()
+        _write(memory_root, "TOOLS.md", "# 环境速查\n\n- cbm: tools/codebase-memory/\n")
+        memory_service.ensure_seeded()  # 这一步把它存档
+        (memory_root / "TOOLS.md").unlink()
+        memory_service.ensure_seeded()
+        assert "环境速查" in (memory_root / "TOOLS.md").read_text(encoding="utf-8")
+
+    def test_snapshot_dir_is_not_a_memory_module(self, memory_root: Path):
+        """`.snapshot/` 是子目录且带点号，不能被当成一个记忆模块冒出来。"""
+        memory_service.ensure_seeded()
+        memory_service.append_entry("memory", "随手记一条，确保快照已生成")
+        snapshot = memory_root / memory_service._SNAPSHOT_DIR / "MEMORY.md"
+        assert snapshot.exists(), "写入时应当顺手留一份副本"
+        files = {m.file for m in memory_service.list_modules()}
+        assert not any(memory_service._SNAPSHOT_DIR in f for f in files), files
+
+    def test_delete_module_does_not_resurrect_from_snapshot(self, memory_root: Path):
+        """用户**主动删除**的模块不能被快照复活 —— 要区分"被仓库删掉"和"我不想留了"。"""
+        module = memory_service.create_module("临时", file="TMP.md", content="# TMP\n")
+        assert (memory_root / memory_service._SNAPSHOT_DIR / "TMP.md").exists()
+        assert memory_service.delete_module(module.id) is True
+        memory_service.ensure_seeded()
+        assert not (memory_root / "TMP.md").exists()
+
+    def test_manifest_survives_a_repo_update_too(self, memory_root: Path):
+        """manifest 里的启用状态也是用户状态，不该被一次 pull 清回默认。
+
+        它和正文文件在同一个"停止跟踪"的提交里，所以同样会被 pull 删掉。
+        """
+        memory_service.ensure_seeded()
+        memory_service.set_enabled("failures", False)
+        assert memory_service.get_module("failures").enabled is False
+
+        (memory_root / memory_service.MANIFEST_NAME).unlink()  # 模拟 git pull
+        memory_service.ensure_seeded()
+        assert memory_service.get_module("failures").enabled is False, \
+            "启用状态应当从快照恢复，而不是回到默认的全开"
+
     def test_extra_markdown_becomes_module(self, memory_root: Path):
         memory_service.ensure_seeded()
         _write(memory_root, "TOOLS.md", "# 环境速查\n\n- cbm exe: tools/codebase-memory/codebase-memory-mcp\n")
