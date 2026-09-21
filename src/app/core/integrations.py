@@ -270,7 +270,9 @@ INTEGRATIONS: tuple[Integration, ...] = (
         #
         # 文案取"去 GitHub 拿包"而不是包名：它同时出现在就绪中心（前面那句 fix_hint
         # 已经点名了包）和设置页（前面那句自带包名），两处再重复一次包名就啰嗦了。
-        link=("去 GitHub 拿包", "https://github.com/CoplayDev/unity-mcp"),
+        # href 直接给 UPM 可粘贴的完整 git URL（右键「复制链接地址」即得）；
+        # 左键点开时 GitHub 会把 .git 地址重定向到仓库页，不会 404
+        link=("去 GitHub 拿包", "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0"),
         probe=_probe_unity,
         launch="unity-mcp",
         settings_keys=("unity_mcp_url", "unity_mcp_transport",
