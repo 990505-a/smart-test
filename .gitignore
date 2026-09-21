@@ -40,10 +40,9 @@ docker-data/
 # RAG storage
 rag_storage/
 
-# EverOS memory: track the .md/.toml source of truth, not the binary indexes
-workspace/default/memory/.index/
-workspace/default/memory/.tmp/
-workspace/default/memory/.lock
+# 记忆模块：记忆是各台机器自己的，不进仓库（曾随克隆带入上游作者的记忆数据）。
+# 种子模板由 memory_service.ensure_seeded 在启动时自动落盘，不依赖仓库里的文件。
+workspace/default/memory/
 
 # Runtime logs
 *.log
