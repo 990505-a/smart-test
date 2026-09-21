@@ -291,22 +291,6 @@ UnityEngine.Debug.Log("UNITY_BRIDGE:{\"ok\":" + (__src != null ? "true" : "false
 - **名字两端有空白是正常的**（实测 `Button Settings `）—— 平台比对是 Trim 过的，
   按正常名字写就行。
 
-## 大型中文游戏实测（jynew《群侠传，启动！》5.3GB / 3236 脚本）
-
-- **按可见文本点最省事**：中文游戏的对象名是英文/拼音，界面上写的是中文。查找链是
-  名字 → 全路径 → 后缀 → **可见文本**，所以 `u.click("返回游戏")` / `u.click("关 闭")`
-  直接就能点（文本那层会从标签往上找可点对象）。
-- **问"这个面板/列表里有什么"要用 `u.subtree_text(面板)`**，别用 `object_text`：
-  面板自己身上常挂着无关的 text/value（实测 SystemUIPanel 自己回的是 `1023799` 这种 id），
-  `object_text` 会先取到那个。`object_text` 留给单个控件取标签。
-- **界面开关看 `u.is_visible()` / `u.expect_hidden()`**，不要用 `exists()`/`expect_absent()`：
-  真游戏关面板是把对象**停用**（`activeSelf=False`），对象还在场景里 —— `exists()` 永远为真，
-  `expect_absent` 会一直等到超时。
-- **按钮/面板大量出现在运行时克隆对象上**（`MainUIPanel(Clone)`）：服务器 `by_name`
-  对这类对象一个都查不到，桥已自动改走 `by_path`（名字查空会回退一次），所以按名字查
-  照样能用；但别自己拼 `search_method: by_name` 去调原始工具。
-- **`include_inactive` 别传**：实测带这个参数会让查询整个返回空（默认行为本来就含未激活对象）。
-
 ## 常见坑
 
 - **Play Mode 一重启，之前拿到的对象引用全失效**：每次都要重新按路径查，别缓存。
