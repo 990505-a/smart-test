@@ -366,7 +366,10 @@ async def install_info() -> dict:
 
 async def status() -> dict:
     """exe 可用性 + 已索引项目 + 图守护进程状态 + 自管安装状态。"""
-    result = await cbm_cli("list_projects", {})
+    # daemon 空闲几分钟后会自己退出，下一次调用要付约一个 _DAEMON_BOOT_TIMEOUT
+    # 的冷启动成本；机器忙或多个调用并发抢冷启动时，默认 45s 会被冲破——就绪中心
+    # 隔一阵子探一次，恰好每次都撞冷启动。这里给 3 倍余量，冷启动永远兜得住。
+    result = await cbm_cli("list_projects", {}, timeout=_DAEMON_BOOT_TIMEOUT * 3)
     available = bool(result.get("success"))
     projects: list[dict] = []
     if available:
