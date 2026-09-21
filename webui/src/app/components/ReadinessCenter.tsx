@@ -74,6 +74,9 @@ function IntegrationRow({ item, onChanged, waitReady }: {
   // 四态：就绪 / 不适用（这台机器不跑它） / 未配置（选填件，不是故障） / 未就绪
   const unconfigured = item.configured === false;
   const na = item.not_applicable === true;
+  // 启动器(:5010)不在线时，本行的「启动」点了也是转发失败（FastAPI 只做代理，
+  // 没有直接 spawn 服务的能力）——直接置灰，把原因写在这一行上，不让用户白点。
+  const launcherDown = item.launch !== null && item.launcher_up === false;
   const tone = na ? "text-muted-foreground"
     : item.ready ? "text-success"
     : unconfigured ? "text-muted-foreground"
@@ -128,6 +131,13 @@ function IntegrationRow({ item, onChanged, waitReady }: {
             )}
           </p>
         )}
+        {/* 启动器没在跑：本行「启动」已被置灰，把"怎么让它回来"直接写在这一行 */}
+        {launcherDown && !item.ready && (
+          <p className="mt-1 text-xs text-warning">
+            启动器(:5010)未运行，启动按钮已置灰 —— 双击「启动控制台.bat」开起它，
+            再点右上角「重新探活」。
+          </p>
+        )}
         {/* 探针给的"要不要提醒用户可以标记不适用"（如本机未检测到 Unity）：
             决定权在用户，这里只负责让他知道有这个开关 */}
         {!item.ready && !na && item.na_hint && (
@@ -157,7 +167,13 @@ function IntegrationRow({ item, onChanged, waitReady }: {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        {item.launch && !item.ready && !na && (
+        {item.launch && !item.ready && !na && (launcherDown ? (
+          <Button size="sm" variant="outline" disabled
+                  title="启动器(:5010)没在运行，平台只能转发给它，无法直接拉起服务">
+            <CircleSlash className="mr-1 h-3.5 w-3.5" />
+            启动器未运行
+          </Button>
+        ) : (
           <Button size="sm" variant="outline"
                   disabled={busy !== null}
                   onClick={() => run("启动", () => startIntegration(item.key))}>
@@ -165,7 +181,7 @@ function IntegrationRow({ item, onChanged, waitReady }: {
                            : <Play className="mr-1 h-3.5 w-3.5" />}
             {busy === "等待就绪" ? "等待就绪…" : "启动"}
           </Button>
-        )}
+        ))}
         {item.install && (!item.ready || upgradable) && !na && (
           <Button size="sm" variant="outline"
                   disabled={busy !== null}

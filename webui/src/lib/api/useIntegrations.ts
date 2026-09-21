@@ -24,6 +24,8 @@ export interface IntegrationItem {
   fix_hint: string;
   /** 启动器里的服务名；有值就说明平台能一键把它拉起来 */
   launch: string | null;
+  /** 启动器(:5010)是否在线；launch 有值才有意义。false = 本行「启动」应置灰 */
+  launcher_up?: boolean;
   /** 平台能自己装的安装目标（目前只有 codebase-memory） */
   install: string | null;
   /**

@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal
 
@@ -376,22 +377,33 @@ async def probe(key: str) -> dict:
     except Exception as exc:  # noqa: BLE001 — 探针失败不该让整页 500
         logger.warning("集成 %s 探针失败: %s", key, exc)
         return {"key": key, "ready": False, "error": f"探针异常：{exc}"}
-    return {"key": key, "label": item.label, "kind": item.kind,
+    base = {"key": key, "label": item.label, "kind": item.kind,
             "optional": item.optional, "summary": item.summary,
             "absent_effect": item.absent_effect,
             "fix_hint": item.fix_hint, "launch": item.launch,
-            "install": item.install, "link": item.link, **result}
+            "install": item.install, "link": item.link}
+    # 有「启动」动作的行才需要知道启动器在不在（走缓存，5s 内不重复打）
+    if item.launch:
+        base["launcher_up"] = await _launcher_up()
+    return {**base, **result}
 
 
 async def probe_all() -> list[dict]:
     """所有依赖的就绪状态（并发探活；页面一屏看完）。"""
     import asyncio
 
-    na_keys, results = await asyncio.gather(
+    na_keys, launcher_up, results = await asyncio.gather(
         not_applicable_keys(),
+        _launcher_up(),
         asyncio.gather(*(probe(i.key) for i in INTEGRATIONS)))
-    return [{**item, "not_applicable": True} if item.get("key") in na_keys else item
-            for item in results]
+    items = []
+    for item in results:
+        if item.get("key") in na_keys:
+            item = {**item, "not_applicable": True}
+        if item.get("launch") and "launcher_up" not in item:
+            item = {**item, "launcher_up": launcher_up}
+        items.append(item)
+    return items
 
 
 # ===========================================================================
@@ -499,6 +511,31 @@ def missing_reason(key: str) -> str:
 # ===========================================================================
 # 浏览器直连启动器会撞跨端口 CORS，所以统一由后端转发——与
 # api/v2/agents.py 的"重启 LangGraph"是同一条路子（那边也改用这个函数）。
+
+#: (monotonic 秒, 是否在线) —— _launcher_up 的短缓存
+_launcher_cache: tuple[float, bool] | None = None
+
+
+async def _launcher_up(ttl: float = 5.0) -> bool:
+    """启动器(:5010)是否在线。
+
+    带短 TTL 缓存：probe_all 每次（含页面 30s 轮询）只打一次启动器，而不是
+    每行各打一次；启动器刚挂/刚起时最多 5 秒才反映到界面上，可接受。
+    """
+    global _launcher_cache
+    now = time.monotonic()
+    if _launcher_cache is not None and now - _launcher_cache[0] < ttl:
+        return _launcher_cache[1]
+    url = f"{settings.launcher_url.rstrip('/')}/api/services"
+    try:
+        async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
+            resp = await client.get(url)
+            up = resp.status_code == 200
+    except Exception:  # noqa: BLE001 — 连不上就是不在线，探活不该抛
+        up = False
+    _launcher_cache = (time.monotonic(), up)
+    return up
+
 
 async def launcher_action(service: str, action: str) -> dict:
     """让启动器对某个服务做 start/stop/restart；永不抛异常。"""
