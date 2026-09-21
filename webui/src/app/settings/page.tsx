@@ -36,7 +36,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { useIntegrations } from "@/lib/api/useIntegrations";
 
 type SettingField = {
   key: string;
@@ -47,6 +48,13 @@ type SettingField = {
   select?: { value: string; label: string }[];
   /** when set, renders a full-width group heading above this field */
   heading?: string;
+  /**
+   * 输入框下面的一行说明（可含链接）。
+   *
+   * 由调用方从后端注册表取，不在字段表里手写 URL —— 同一个依赖的描述只能有一处
+   * （`core/integrations.py`），页面再抄一遍就又会drift成两个说法。
+   */
+  hint?: React.ReactNode;
 };
 
 const MODEL_FIELDS: SettingField[] = [
@@ -160,7 +168,7 @@ function SettingsForm({
       {headerRender?.(form, setForm)}
       <Separator className="my-4" />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {fields.map(({ key, label, secret, placeholder, select, heading }) => (
+        {fields.map(({ key, label, secret, placeholder, select, heading, hint }) => (
           <React.Fragment key={key}>
             {heading && (
               <h4 className="mt-2 text-sm font-medium first:mt-0 md:col-span-2">{heading}</h4>
@@ -191,6 +199,9 @@ function SettingsForm({
                   placeholder={placeholder}
                   onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                 />
+              )}
+              {hint && (
+                <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
               )}
             </div>
           </React.Fragment>
@@ -314,6 +325,40 @@ export default function SettingsPage() {
   const langfuseSettings = useLangfuseSettings();
   const monitorSettings = useMonitorLangfuseSettings();
   const judgeSettings = useJudgeSettings();
+  // 就绪中心与这里读的是同一个 SWR key，不会多打一次请求。
+  const integrations = useIntegrations();
+
+  /**
+   * Unity 那条依赖的「去哪拿」链接，用来挂在桥地址输入框下面。
+   *
+   * 链接来自后端注册表（`core/integrations.py` 的 `link`），不是在这里写死的 URL：
+   * 包地址、版本锚点改一处就该两处都变。就绪中心那行也是同一个字段。
+   */
+  const unityPackageLink = (integrations.data?.items ?? []).find((i) => i.key === "unity")?.link;
+  const platformFields: SettingField[] = React.useMemo(
+    () => PLATFORM_FIELDS.map((field) => (
+      field.key === "unity_mcp_url" && unityPackageLink
+        ? {
+            ...field,
+            hint: (
+              <>
+                Unity 侧还要另装「MCP for Unity」包（版本须与桥一致）：
+                <a
+                  href={unityPackageLink[1]}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-1 inline-flex items-center gap-0.5 text-brand underline"
+                >
+                  {unityPackageLink[0]}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </>
+            ),
+          }
+        : field
+    )),
+    [unityPackageLink],
+  );
 
   const [savingModel, setSavingModel] = useState(false);
   const [savingPlatform, setSavingPlatform] = useState(false);
@@ -665,7 +710,7 @@ export default function SettingsPage() {
           <SettingsForm
             title="平台集成"
             description="飞书 / LightRAG / Unity 的连接信息，以及记忆总开关。代码图谱引擎由平台自管安装（版本与安装按钮在「代码图谱」页），这里不需要填路径。"
-            fields={PLATFORM_FIELDS}
+            fields={platformFields}
             values={platformSettings.data}
             onSave={savePlatform}
             saving={savingPlatform}

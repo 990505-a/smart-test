@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   CheckCircle2, CircleDashed, CircleSlash, Loader2, RefreshCw, Play, Download,
-  AlertTriangle,
+  AlertTriangle, ExternalLink,
 } from "lucide-react";
 import {
   useIntegrations, startIntegration, installIntegration, clearPlatformSetting,
@@ -114,6 +114,18 @@ function IntegrationRow({ item, onChanged, waitReady }: {
             {item.absent_effect}
             <span className="mx-1 text-border">|</span>
             <span className="text-foreground/80">{item.fix_hint}</span>
+            {/* 「去哪拿」的跳转链接也来自注册表（item.link），不在页面里再写一遍 URL */}
+            {item.link && (
+              <a
+                href={item.link[1]}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1 inline-flex items-center gap-0.5 whitespace-nowrap text-brand underline"
+              >
+                {item.link[0]}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
           </p>
         )}
         {/* 探针给的"要不要提醒用户可以标记不适用"（如本机未检测到 Unity）：

@@ -26,6 +26,12 @@ export interface IntegrationItem {
   launch: string | null;
   /** 平台能自己装的安装目标（目前只有 codebase-memory） */
   install: string | null;
+  /**
+   * 「去哪拿」的跳转目标 `[文案, URL]`。注册表给的，页面只负责渲染成链接。
+   *
+   * 与 fix_hint 分开是刻意的：从散文里正则抠 URL 抠不准，抠出来也迟早跟散文对不上。
+   */
+  link?: [string, string] | null;
   ready: boolean;
   detail?: string;
   error?: string | null;

@@ -450,6 +450,49 @@ def test_every_integration_has_probe_and_fix_hint():
     assert not broken, f"这些依赖缺 probe/fix_hint/absent_effect：{broken}"
 
 
+def test_integration_links_are_renderable():
+    """注册表给的 ``link`` 必须是 ``(文案, http(s) URL)`` —— 页面把它直接当 href 用。
+
+    写歪了不会抛异常，只会渲染成一个点不开的链接（或者文案空着只剩个箭头），
+    而"链接点了没反应"是最不容易被当成 bug 报上来的那类问题，所以在这里钉死。
+    """
+    from src.app.core import integrations
+
+    bad = []
+    for item in integrations.INTEGRATIONS:
+        if item.link is None:
+            continue
+        if len(item.link) != 2:
+            bad.append((item.key, item.link, "不是二元组"))
+            continue
+        text, url = item.link
+        if not text.strip():
+            bad.append((item.key, item.link, "文案为空"))
+        elif not url.startswith(("http://", "https://")):
+            bad.append((item.key, item.link, "URL 不是 http(s)"))
+    assert not bad, f"这些依赖的 link 渲染不出来（key, link, 原因）：{bad}"
+
+
+def test_unity_link_points_at_the_package_repo():
+    """Unity 那条必须有跳转链接 —— 它正是"包装不上、又不知道该去哪拿"的那个依赖。
+
+    文案与 URL 都从注册表读，不在这里再写死一份：页面上那个链接点去哪儿，
+    以 core/integrations.py 为准（这条只保证"有、且指向 GitHub"）。
+    """
+    from src.app.core import integrations
+
+    unity = integrations.BY_KEY["unity"]
+    assert unity.link is not None, "Unity 依赖缺 link：用户拿不到「MCP for Unity」包"
+    text, url = unity.link
+    assert text.strip(), "link 文案为空"
+    assert url.startswith("https://github.com/"), (
+        f"Unity 的 link 应该指向包仓库所在的 GitHub：{url}")
+    # 版本锚点必须和 Unity 侧插件、PyPI 上的服务端对得上（见 launcher.py 的
+    # _UNITY_MCP_SERVER_VERSION），fix_hint 里得留一处在讲这件事
+    assert "v10.2.0" in unity.fix_hint, (
+        "Unity 的 fix_hint 里要写清该装哪个版本（别用 #main），否则会装出错版的插件")
+
+
 def test_every_install_key_has_an_installer():
     """注册表声明的 ``install`` 键，API 的分派表里必须有同名实现。
 

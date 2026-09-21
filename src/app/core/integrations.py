@@ -45,6 +45,14 @@ class Integration:
     absent_effect: str
     """没有它时用户会失去什么——就绪中心要显示的就是这句话。"""
     fix_hint: str
+    link: tuple[str, str] | None = None
+    """「去哪拿」的跳转目标 ``(文案, URL)``。
+
+    与 fix_hint 分工：fix_hint 是给人读的散文，这个是**机器可读的跳转目标**。分开是
+    因为页面要把它渲染成可点的链接，而从散文里正则抠 URL 抠不准、也迟早会和散文
+    对不上（同一个依赖两处说法不一致，正是这次收敛要消灭的病）。版本、锚点这类细节
+    仍留在 URL 自己身上。
+    """
     probe: Callable[[], Awaitable[dict]] = field(repr=False, default=None)  # type: ignore[assignment]
     launch: str | None = None
     install: str | None = None
@@ -256,6 +264,12 @@ INTEGRATIONS: tuple[Integration, ...] = (
                  "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0"
                  "（版本要与桥的 10.2.0 对齐，别用 #main）；不通外网就把包文件夹拷过去用 "
                  "Add package from disk。装完 Transport 选 HTTP(Remote) 指向本机 5016",
+        # 跳转链接指向仓库首页而不是那句 manifest URL：点它的是人，落地页（README）
+        # 才是能读安装说明的地方；要复制的那串 URL 已经在 fix_hint 里了。
+        #
+        # 文案取"去 GitHub 拿包"而不是包名：它同时出现在就绪中心（前面那句 fix_hint
+        # 已经点名了包）和设置页（前面那句自带包名），两处再重复一次包名就啰嗦了。
+        link=("去 GitHub 拿包", "https://github.com/CoplayDev/unity-mcp"),
         probe=_probe_unity,
         launch="unity-mcp",
         settings_keys=("unity_mcp_url", "unity_mcp_transport",
@@ -366,7 +380,7 @@ async def probe(key: str) -> dict:
             "optional": item.optional, "summary": item.summary,
             "absent_effect": item.absent_effect,
             "fix_hint": item.fix_hint, "launch": item.launch,
-            "install": item.install, **result}
+            "install": item.install, "link": item.link, **result}
 
 
 async def probe_all() -> list[dict]:
