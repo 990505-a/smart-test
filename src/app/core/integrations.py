@@ -244,8 +244,18 @@ INTEGRATIONS: tuple[Integration, ...] = (
         optional=True,
         summary="通用 Unity 自动化桥（标准 MCP：CoplayDev/unity-mcp 等）；平台工具与沉淀的用例脚本都经它操作 Unity",
         absent_effect="Unity 自动化能力不可用（Web-UI 自动化与其余功能不受影响）",
-        fix_hint="在启动器启动 unity-mcp（:5016，需 uv）；Unity 工程里装「MCP for Unity」包，"
-                 "Transport 选 HTTP(Remote) 并指向本机 5016",
+        # 「包从哪来」以前是缺的：只说"装「MCP for Unity」包"，没说去哪个源装、装哪个
+        # 版本。人在别人机器上照这句话是装不出来的（实测有人卡在这），所以这行补齐。
+        #
+        # 版本号是关键，不能写 #main：启动器里 _UNITY_MCP_SERVER_VERSION 钉了 10.2.0，
+        # Unity 侧插件与 PyPI 上的 mcpforunityserver 是配套发布的一对，错版会连不上或
+        # 行为不一致。内网/无外网机器给的是"拷包文件夹 + Add package from disk"那条路，
+        # 与 git URL 等价（UPM 两种源装出来是同一个包）。
+        fix_hint="在启动器启动 unity-mcp（:5016，需 uv）；Unity 工程里装「MCP for Unity」包："
+                 "Package Manager → Add package from git URL → "
+                 "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.2.0"
+                 "（版本要与桥的 10.2.0 对齐，别用 #main）；不通外网就把包文件夹拷过去用 "
+                 "Add package from disk。装完 Transport 选 HTTP(Remote) 指向本机 5016",
         probe=_probe_unity,
         launch="unity-mcp",
         settings_keys=("unity_mcp_url", "unity_mcp_transport",
