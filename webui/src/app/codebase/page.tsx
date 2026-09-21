@@ -652,8 +652,13 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
       "确定全量删除该仓库？\n将同时删除：受管记录、图谱索引、影响报告与增量基线。\n图谱如需继续使用必须重新索引。")) return;
     setBusy(true);
     try {
-      const res = await apiClient.delete<{ success: boolean; index_deleted?: boolean; index_error?: string }>(
-        `/codebase/repos/${repo.id}?delete_index=true`);
+      // apiClient.delete<T> 的 T 是**整个响应体**（不像 get/post 那样拆出 data），
+      // 所以这里要连外壳一起写：后端返回的是 SuccessResponse(success=True, data=…)。
+      // 里面的 success 与外壳那个不是一回事 —— 外壳恒为 true，内层才表示删除结果。
+      const res = await apiClient.delete<{
+        success: boolean;
+        data: { success: boolean; index_deleted?: boolean; index_error?: string; error?: string };
+      }>(`/codebase/repos/${repo.id}?delete_index=true`);
       if (res.data?.success === false) {
         toast.error(res.data.error ?? "全量删除失败");
       } else if (res.data?.index_deleted === false) {
