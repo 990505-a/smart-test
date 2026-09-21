@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -33,7 +34,8 @@ def test_installed_version_reads_metadata(tmp_path, monkeypatch):
 
 def test_managed_exe_follows_settings(monkeypatch):
     monkeypatch.setattr(settings, "codebase_memory_exe", "/custom/cbm")
-    assert str(cbm_install.managed_exe()) == "/custom/cbm"
+    # 按 Path 比较：Windows 下 str() 给反斜杠，写死 POSIX 分隔符的断言跨不了平台
+    assert cbm_install.managed_exe() == Path("/custom/cbm")
 
 
 def test_binary_version_is_none_when_missing(tmp_path, monkeypatch):

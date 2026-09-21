@@ -66,13 +66,43 @@ _client = None
 _tools: dict | None = None
 
 
+def _cbm_isolated_base() -> Path:
+    """隔离目录的根：用户私有数据区（Windows %LOCALAPPDATA%，POSIX ~/.cache）。
+
+    不能放仓库目录里：exe 对 daemon 运行时目录做「仅当前用户」的 ACL 校验
+    且会检查整条祖先链，仓库路径到盘根的 ACL 通常太宽，直接被拒
+    （"secure CLI coordination could not be created"）。"""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "smart-test-platform" / "cbm"
+
+
+def cbm_process_env() -> dict[str, str]:
+    """平台 exe 的隔离环境（CLI 直调与 stdio 垫片共用一份）。
+
+    同一台机器可能还有别的 codebase 安装（别的版本、其他客户端拉起的
+    daemon）。它们与平台这份共享默认 ~/.cache/codebase-memory-mcp 的激
+    活锁，版本不同就互相拒绝（"conflicting CBM process is active"）。
+    平台固定用自管目录，与机器上其他安装互不可见，也不受其影响。"""
+    runtime, cache = _cbm_isolated_base() / "runtime", _cbm_isolated_base() / "cache"
+    # exe 只在已存在的父目录下创建自己的 cbm-daemon-* 子目录，链必须先建好
+    runtime.mkdir(parents=True, exist_ok=True)
+    cache.mkdir(parents=True, exist_ok=True)
+    return {
+        "CBM_RUNTIME_DIR": str(runtime),
+        "CBM_CACHE_DIR": str(cache),
+    }
+
+
 def shim_command() -> tuple[list[str], dict[str, str]]:
     """stdio 连接命令：经 python 垫片拉起 exe（见 codebase_memory_shim.py 的兼容性说明）。"""
     root = Path(__file__).resolve().parents[3]
     return (
         [sys.executable, "-m", "src.app.mcp_servers.codebase_memory_shim"],
         {"CODEBASE_MEMORY_EXE": settings.codebase_memory_exe,
-         "PYTHONPATH": str(root)},
+         "PYTHONPATH": str(root), **cbm_process_env()},
     )
 
 
@@ -180,7 +210,8 @@ def cbm_cli_sync(tool_name: str, args: dict, timeout: float = _CBM_TIMEOUT,
     try:
         proc = subprocess.Popen(
             [settings.codebase_memory_exe, "cli", tool_name],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env={**os.environ, **cbm_process_env()})
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": f"CLI 启动失败: {exc}"}
     try:

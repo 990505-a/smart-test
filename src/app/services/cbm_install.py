@@ -38,6 +38,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -149,6 +150,65 @@ def _macos_prepare(binary: Path) -> None:
             logger.warning("macOS 预处理失败（忽略）: %s", cmd[0])
 
 
+def _stop_own_processes(dest: Path) -> int:
+    """停掉正在运行的 dest 本体（返回停掉的进程数）。
+
+    Windows 不允许覆盖正在执行的文件：平台的探活/查询每次都会经这个 exe
+    拉起常驻 daemon，CLI 退出后它还活着，换版覆盖时正是它锁着目标文件
+    （WinError 5 拒绝访问）。只按「可执行文件路径等于 dest」精确匹配，
+    机器上其他 codebase 安装（别的路径/别的版本）不受影响。"""
+    pids: list[str] = []
+    try:
+        if os.name == "nt":
+            query = ("Get-CimInstance Win32_Process | Where-Object "
+                     "{ $_.ExecutablePath -eq '%s' } | ForEach-Object { $_.ProcessId }"
+                     % str(dest))
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", query],
+                                 capture_output=True, text=True, timeout=30)
+            pids = out.stdout.split()
+        else:
+            out = subprocess.run(["pgrep", "-f", str(dest)],
+                                 capture_output=True, text=True, timeout=30)
+            pids = out.stdout.split()
+    except (OSError, subprocess.SubprocessError) as exc:
+        # 查不到就当没有：替换失败会走 _replace_binary 的报错路径，不至于装一半
+        logger.warning("查找 %s 的运行进程失败（忽略，继续尝试覆盖）：%s", dest, exc)
+        return 0
+    for pid in pids:
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", pid, "/F", "/T"],
+                               capture_output=True, timeout=15)
+            else:
+                subprocess.run(["kill", "-9", pid], capture_output=True, timeout=15)
+            logger.info("已停止占用 %s 的进程 PID %s", dest.name, pid)
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning("停止 PID %s 失败（继续）：%s", pid, exc)
+    return len(pids)
+
+
+def _replace_binary(staged: Path, dest: Path) -> None:
+    """把 staged 换名到 dest；被占用则先停进程再重试，仍失败给人话。
+
+    daemon 收到 taskkill 后退出有零点几秒延迟，所以停完等一下再试；
+    三轮（立即 / 1.5s / 3s）都失败才放弃——此时报 WinError 5 裸错误
+    用户只会一头雾水，告诉他「daemon 还没退干净，稍等重试」才有用。"""
+    last: PermissionError | None = None
+    for delay in (0.0, 1.5, 3.0):
+        if delay:
+            time.sleep(delay)
+        _stop_own_processes(dest)
+        try:
+            staged.replace(dest)
+            return
+        except PermissionError as exc:
+            last = exc
+    raise InstallError(
+        f"覆盖 {dest.name} 失败：文件仍被占用（平台的图谱 daemon 退出有延迟）。"
+        f"稍等几秒再点一次安装即可；仍失败就到启动器重启 fastapi 后再装。"
+        f"原始错误：{last}") from last
+
+
 def install(version: str | None = None, *, force: bool = False) -> dict:
     """Download + verify + install the official binary. Raises InstallError.
 
@@ -198,7 +258,7 @@ def install(version: str | None = None, *, force: bool = False) -> dict:
             staged.chmod(staged.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             if sys.platform == "darwin":
                 _macos_prepare(staged)
-        staged.replace(dest)
+        _replace_binary(staged, dest)
 
     (CBM_MANAGED_DIR / ".installed.json").write_text(json.dumps({
         "version": version, "asset": asset, "sha256": expect,
