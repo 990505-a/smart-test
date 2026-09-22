@@ -315,11 +315,22 @@ def project_name(repo_path: str) -> str:
     return _normalize_project_path(os.path.realpath(repo_path))
 
 
-async def exe_projects() -> list[dict]:
+#: list_projects 结果的短缓存：图谱页 8s 轮询一次列表，而每次调用都是一次
+#: exe 子进程（数秒级）。索引完成/删库时随探测缓存一起显式失效，TTL 只兜底
+#: 平台外直接改引擎（CLI 手动索引）的情形。
+_projects_cache: tuple[float, list[dict]] | None = None
+_PROJECTS_TTL = 30.0
+
+
+async def exe_projects(*, use_cache: bool = True) -> list[dict]:
     """Indexed projects from the exe (CLI mode); [] when unreachable."""
+    global _projects_cache
+    if (use_cache and _projects_cache is not None
+            and (time.monotonic() - _projects_cache[0]) < _PROJECTS_TTL):
+        return _projects_cache[1]
     result = await cbm_cli("list_projects", {})
     if not result.get("success"):
-        return []
+        return []  # 失败不缓存：daemon 冷启等瞬时问题下次调用应立刻重试
     data = result.get("data") or {}
     raw = data.get("projects") if isinstance(data, dict) else data
     if not isinstance(raw, list):
@@ -334,6 +345,7 @@ async def exe_projects() -> list[dict]:
         elif p:
             out.append({"name": str(p), "root_path": "", "nodes": None,
                         "edges": None, "size_bytes": None})
+    _projects_cache = (time.monotonic(), out)
     return out
 
 
@@ -738,12 +750,16 @@ def _repo_payload(repo: CodebaseRepo, indexed: dict | None) -> dict:
 #: 一次 exe 子进程调用（45s 超时）。仓库一多，刷新一次列表就是 N 次 spawn。
 #: 索引只在“索引完成”那一刻变化，所以 TTL 只需要覆盖页面连续刷新的窗口——
 #: 索引成功与删库都会显式失效（invalidate_probe_cache），不靠 TTL 兜正确性。
+#: TTL 定 120s：图谱页 8s 轮询一次，30s 的旧值让每 4 次刷新就有一次全量重探
+#: （每次探测是一次 exe 调用）——显式失效已经保证了"索引完成立刻可见"。
 _probe_cache: dict[str, tuple[float, dict | None]] = {}
-_PROBE_TTL = 30.0
+_PROBE_TTL = 120.0
 
 
 def invalidate_probe_cache(project: str | None = None) -> None:
     """丢弃探测缓存（project 为 None 时清空）。索引完成 / 删库后调用。"""
+    global _projects_cache
+    _projects_cache = None  # list_projects 的缓存与探测同源失效，别让新库看不见
     if project is None:
         _probe_cache.clear()
     else:
@@ -784,19 +800,25 @@ async def list_repos() -> dict:
     projects = {p["name"]: p for p in await exe_projects()}
     async with async_session_factory() as db:
         rows = (await db.execute(select(CodebaseRepo).order_by(CodebaseRepo.created_at))).scalars().all()
+        # 「枚举到了」不等于「拿到计数」：list_projects 的条目没有 nodes/edges，
+        # 只有 index_status 有。缺计数时必须补探 —— 否则前端拿到 nodes=null，
+        # 大图会被当成小图走全量采样（/api/layout 随机采样巨型图只剩结构节点、
+        # 且边为 0），表现为“图谱一片空白”。
+        # 补探并行发起：每次探测都是一次 exe 调用，逐仓库串行 await 会让
+        # "刷新一次列表"变成 N 次首尾相接的子进程（仓库一多就是十几秒）。
+        names = [project_name(r.repo_path) for r in rows]
+        todo = [n for n in names
+                if (projects.get(n) is None or projects[n].get("nodes") is None)]
+        probed = (dict(zip(todo, await asyncio.gather(
+                    *(_probe_project_cached(n) for n in todo))))
+                  if todo else {})
         repos = []
-        for r in rows:
-            name = project_name(r.repo_path)
+        for r, name in zip(rows, names):
             info = projects.get(name)
-            # 「枚举到了」不等于「拿到计数」：list_projects 的条目没有 nodes/edges，
-            # 只有 index_status 有。缺计数时必须补探 —— 否则前端拿到 nodes=null，
-            # 大图会被当成小图走全量采样（/api/layout 随机采样巨型图只剩结构节点、
-            # 且边为 0），表现为“图谱一片空白”。
             if info is None or info.get("nodes") is None:
-                probed = await _probe_project_cached(name)
                 # 探测失败（exe 不可达/索引不存在）时保留 list_projects 的条目，
                 # 至少还能显示 root_path；探测成功则用带计数的覆盖。
-                info = probed or info
+                info = probed.get(name) or info
             repos.append(_repo_payload(r, info))
         return {"success": True, "repos": repos}
 

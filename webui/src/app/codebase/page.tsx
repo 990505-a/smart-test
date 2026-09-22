@@ -163,7 +163,16 @@ export default function CodebasePage() {
           </main>
         </div>
         <AddRepoDialog open={addOpen} onOpenChange={setAddOpen}
-                       onAdded={(id) => { setSelectedId(id); repos.mutate(); }} />
+                       onAdded={(repo) => {
+                        setSelectedId(repo.id);
+                        // 乐观插入：重新拉取列表要等引擎逐仓探计数（每个都是一次
+                        // exe 调用，数秒级），新仓库在这期间会"不存在"。先把 POST
+                        // 返回的条目塞进缓存，再后台校准；服务端回来时整体替换，
+                        // 不会重复。
+                        repos.mutate(
+                          (cur) => (cur ? { ...cur, repos: [...cur.repos, repo] } : cur),
+                          { revalidate: true });
+                      }} />
       </div>
     </div>
   );
@@ -247,7 +256,7 @@ function ServiceFooter() {
 }
 
 function AddRepoDialog({ open, onOpenChange, onAdded }: {
-  open: boolean; onOpenChange: (v: boolean) => void; onAdded: (id: string) => void;
+  open: boolean; onOpenChange: (v: boolean) => void; onAdded: (repo: CbmRepo) => void;
 }) {
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
@@ -256,13 +265,13 @@ function AddRepoDialog({ open, onOpenChange, onAdded }: {
     if (!path.trim() || busy) return;
     setBusy(true);
     try {
-      const res = await apiClient.post<{ success: boolean; error?: string; repo?: { id: string } }>(
+      const res = await apiClient.post<{ success: boolean; error?: string; repo?: CbmRepo }>(
         "/codebase/repos", { repo_path: path.trim(), display_name: name.trim() || null });
       if (res.data?.success === false) {
         toast.error(res.data.error ?? "添加失败");
       } else {
         toast.success("仓库已添加,去「索引与规则」建立图谱");
-        onAdded(res.data?.repo?.id ?? "");
+        if (res.data?.repo) onAdded(res.data.repo);
         setPath(""); setName("");
         onOpenChange(false);
       }
@@ -759,14 +768,22 @@ function ManageTab({ repo, progress, indexing, onChanged }: {
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">扩展名（空格分隔）</Label>
-            <Input className="h-8 font-mono text-xs" placeholder=".gs .lua .cs"
+            <Input className="h-8 font-mono text-xs" placeholder="例如 .gs .lua .cs"
                    value={effMode === "all" ? "" : effExts}
                    disabled={effMode === "all"}
                    onChange={(e) => setExts(e.target.value)} />
+            {/* 模式为「全部类型」时输入框禁用、又没有任何说明，灰色占位符还长得
+                像已有值——"扩展名改不了"就是这么来的。把原因写在这一行上。 */}
+            {effMode === "all" && (
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                当前是「全部类型」，扩展名不生效 —— 先把上方「模式」切到
+                「仅索引指定类型」或「排除指定类型」，这里才能编辑。
+              </p>
+            )}
             <div className="flex flex-wrap gap-1">
               {COMMON_EXTS.map((ext) => (
-                <button key={ext} type="button"
-                        className="rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+                <button key={ext} type="button" disabled={effMode === "all"}
+                        className="rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                         onClick={() => setExts((prev) => ((prev ?? repo.file_types.join(" ")) ? `${prev ?? repo.file_types.join(" ")} ${ext}` : ext))}>
                   {ext}
                 </button>
