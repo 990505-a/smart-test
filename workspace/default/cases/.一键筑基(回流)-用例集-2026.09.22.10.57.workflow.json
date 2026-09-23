@@ -1,0 +1,1164 @@
+{
+  "schema_version": 1,
+  "document_name": "一键筑基(回流)-用例集-2026.09.22.10.57",
+  "revision": 13,
+  "content_hash": "4fb1aaca46ad7b49e6bb37e57f427da315229e14b26f565581029effc41f0cb5",
+  "lifecycle_status": "approved",
+  "lint_status": "passed",
+  "review_status": "passed",
+  "lint_report": {
+    "ok": true,
+    "errors": [],
+    "warnings": [
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-001（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-002（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-003（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-004（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-005（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-006（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-007（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-008（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-009（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-010（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-011（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-012（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-013（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-014（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-015（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-016（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-017（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-018（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-019（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      },
+      {
+        "code": "REQUIREMENT_ID_NOT_IN_SOURCE",
+        "line": 1,
+        "severity": "warning",
+        "message": "用例引用的编号在需求文档正文里找不到：REQ-OKZJ-020（编号应在事实源中原样出现；若确属新增请先补进需求文档）"
+      }
+    ],
+    "stats": {
+      "case_count": 59,
+      "recognized_cases": 59,
+      "metadata_count": 59,
+      "requirements_covered": 20,
+      "risks_covered": 10,
+      "source_checked": true,
+      "evidence_bound": 20,
+      "evidence_total": 20,
+      "normative_total": 0,
+      "normative_covered": 0,
+      "normative_recall": null,
+      "numeric_unverified": 0
+    },
+    "content_hash": "4fb1aaca46ad7b49e6bb37e57f427da315229e14b26f565581029effc41f0cb5"
+  },
+  "review_report": {
+    "verdict": "pass",
+    "summary": "59条用例与覆盖计划一一对应，20条需求均有可执行断言；10项风险与15个待裁决问题在用例内显式映射，已裁决项（Q1/Q2/Q9/Q11）按裁决口径断言并标注差异，未裁决项采用记录+偏差上报，未发现重复用例、业务规则矛盾或不可观察预期；边界、异常、权限、并发、恢复覆盖充分，受限覆盖（CASE-047/055）均登记兜底方案。遗留4项低危问题：自然关闭日志断言缺证据、自动吐纳对照GM未证实、goal",
+    "issues": [
+      {
+        "severity": "low",
+        "code": "UNSUPPORTED_ASSERTION",
+        "case_id": "CASE-OKZJ-045",
+        "requirement_id": "REQ-OKZJ-020",
+        "evidence": "用例断言「手动完成结束标记任务后查询日志表⇒落库一条记录，触发类型字段为自然关闭标识」。现有证据仅显示等级达标关闭会写 n1=0 日志（Q-OKZJ-006，OneKeyZhujiD.gs:57-70）；结束标记任务关闭是否落库、自然关闭枚举取值均无需求或代码证据，REQ-OKZJ-020 只定义了日志名 one_key_zhuji_log。",
+        "recommendation": "执行前从 tools/gen_log/logs/one_key_zhuji_log.xlsx 导出并固化枚举值写入用例；若实现无结束标记任务关闭日志，该步骤改为观察记录，并作为 REQ-OKZJ-020 口径缺口上报产品，不要默认断言落库。"
+      },
+      {
+        "severity": "low",
+        "code": "UNEXECUTABLE_STEP",
+        "case_id": "CASE-OKZJ-029",
+        "requirement_id": "REQ-OKZJ-015",
+        "evidence": "步骤要求「用 GM 为同境界对照角色开启自动吐纳作为对照账号」，但附录 GM 锚点仅登记 gm_return_activity 的 open_one_key_zhuji/activate_one_key_zhuji/open_new/open_old 四条指令，无任何自动吐纳 GM 指令存在的证据。",
+        "recommendation": "执行前向开发确认自动吐纳 GM 指令名并补入附录锚点；若无该指令，改为使用已自然解锁自动吐纳的同境界账号作对照，并在前置中写明构造手段，避免执行时该步骤无法落地。"
+      },
+      {
+        "severity": "low",
+        "code": "MISSING_COVERAGE",
+        "case_id": "CASE-OKZJ-019",
+        "requirement_id": "REQ-OKZJ-010",
+        "evidence": "附录配置基准明确 goal_exp=52064（direct_zhuji.json:44-54，Q-OKZJ-003 证据），但全部用例仅断言「修为为圆满状态」（CASE-OKZJ-012/019），无任何步骤断言筑基后修为数值等于 goal_exp 配置，RISK-OKZJ-010 中 exp 配置错误的场景缺少精确拦截点。",
+        "recommendation": "在 CASE-OKZJ-019 增加一步：读取角色修为值并断言等于 goal_level 对应的 goal_exp 配置值（当前 52064），与等级/子等级断言并列执行。"
+      },
+      {
+        "severity": "low",
+        "code": "OTHER",
+        "case_id": "CASE-OKZJ-056",
+        "requirement_id": "REQ-OKZJ-002",
+        "evidence": "CASE-OKZJ-056/057 对 Q13（解锁后标记清除/活动结束的资格表现）与 Q14（逐账号/逐角色生效）仅「记录实际表现并与产品确认」，无缺省通过标准；二者属 RISK-OKZJ-001 的 P0 风险边界，裁决悬置期间这些用例无法给出 pass/fail 结论。",
+        "recommendation": "为每个未裁决问题设定裁决截止时间并写入测试计划；到期未裁决时按需求文字口径（新区创角解锁、资格一次性消费）作为缺省预期执行判定，偏差即记缺陷上报，避免记录型步骤长期无结论。"
+      }
+    ],
+    "metrics": {
+      "chunks": 1,
+      "input_chars": 20011,
+      "duration_ms": 231609,
+      "review_model": "(平台默认)"
+    }
+  },
+  "review_round": 1,
+  "review_calls_total": 1,
+  "requirements": [
+    {
+      "acceptance_criteria": [
+        "回流玩家创角后能看到并可使用一键筑基入口",
+        "跳过炼气期新手内容后可直接进入筑基前的游戏内容"
+      ],
+      "coverage": [
+        "positive",
+        "boundary"
+      ],
+      "id": "REQ-OKZJ-001",
+      "risk": "P1",
+      "source_quotes": [
+        "服务于回流用户，期望通过一键筑基跳过枯燥的新手期，减少回流用户在筑基前的流失",
+        "承接后续新职业回流内容，回流玩家创角后可以直接接触到新内容"
+      ],
+      "source_refs": [
+        "需求文档·设计目的",
+        "需求文档·设计思路"
+      ],
+      "summary": "一键筑基的定位：服务回流用户，跳过炼气期新手内容，承接新职业回流内容"
+    },
+    {
+      "acceptance_criteria": [
+        "回流标记账号在新区创角后服务端下发可开启标记",
+        "非回流账号不出现入口且不可开启"
+      ],
+      "coverage": [
+        "positive",
+        "negative",
+        "boundary"
+      ],
+      "id": "REQ-OKZJ-002",
+      "risk": "P0",
+      "source_quotes": [
+        "符合回流用户标记的用户在新区创建角色后开启一键筑基功能",
+        "开启条件：符合回流用户标记的用户在新区创建角色后开启该功能"
+      ],
+      "source_refs": [
+        "需求文档·系统解锁条件",
+        "需求文档·一键筑基模块说明"
+      ],
+      "summary": "解锁条件：符合回流标记的账号在新区创建角色后开启一键筑基"
+    },
+    {
+      "acceptance_criteria": [
+        "解锁且未关闭时主界面出现入口",
+        "点击入口打开一键筑基弹窗",
+        "执行筑基操作后入口消失",
+        "完成标记任务后入口消失"
+      ],
+      "coverage": [
+        "positive",
+        "negative",
+        "state_transition"
+      ],
+      "id": "REQ-OKZJ-003",
+      "risk": "P0",
+      "source_quotes": [
+        "解锁”一键筑基“功能后，主界面出现入口",
+        "【一键筑基】",
+        "主界面入口消失条件：",
+        "执行一键筑基操作",
+        "完成标记任务视作手动筑基"
+      ],
+      "source_refs": [
+        "需求文档·基本说明·功能入口"
+      ],
+      "summary": "主界面入口：解锁后出现【一键筑基】入口，执行筑基或完成标记任务后消失"
+    },
+    {
+      "acceptance_criteria": [
+        "弹窗含标题/描述/奖励列表/两个按钮",
+        "奖励列表可滑动且所有条目可见"
+      ],
+      "coverage": [
+        "positive",
+        "boundary"
+      ],
+      "id": "REQ-OKZJ-004",
+      "risk": "P1",
+      "source_quotes": [
+        "一键筑基弹窗标题",
+        "一键筑基功能描述",
+        "一键筑基获得的对应奖励，列表支",
+        "持滑动",
+        "不跳过一键筑基，自行体验按钮",
+        "一键筑基跳过按钮"
+      ],
+      "source_refs": [
+        "需求文档·基本说明·一键筑基弹窗"
+      ],
+      "summary": "弹窗内容：标题、功能描述、可滑动奖励列表、自行体验与一键筑基两个按钮"
+    },
+    {
+      "acceptance_criteria": [
+        "弹窗奖励来自服务端预览计算而非写死配置",
+        "预览奖励与执行后实际到账一致（扣除项口径按实现整类剔除核对）"
+      ],
+      "coverage": [
+        "positive",
+        "negative"
+      ],
+      "id": "REQ-OKZJ-005",
+      "risk": "P0",
+      "source_quotes": [
+        "奖励展示：显示的奖励为一键筑基预计可获",
+        "得奖励，非直接配置"
+      ],
+      "source_refs": [
+        "需求文档·基本说明·一键筑基弹窗·奖励展示"
+      ],
+      "summary": "奖励为预计可获得奖励，非直接配置；展示内容需与实发口径一致"
+    },
+    {
+      "acceptance_criteria": [
+        "点自行体验仅关闭弹窗，不改变任何进度",
+        "点一键筑基关闭弹窗并触发筑基结算"
+      ],
+      "coverage": [
+        "positive",
+        "concurrency",
+        "recovery"
+      ],
+      "id": "REQ-OKZJ-006",
+      "risk": "P0",
+      "source_quotes": [
+        "点击”自行体验“按钮，弹窗关闭",
+        "点击”一键筑基“按钮，弹窗关闭",
+        "并执行一键筑基操作"
+      ],
+      "source_refs": [
+        "需求文档·基本说明·一键筑基弹窗·交互逻辑"
+      ],
+      "summary": "弹窗交互：自行体验关闭弹窗；一键筑基关闭弹窗并执行筑基"
+    },
+    {
+      "acceptance_criteria": [
+        "完成结束标记任务后入口消失",
+        "关闭后再次尝试开启被拒绝"
+      ],
+      "coverage": [
+        "positive",
+        "negative",
+        "state_transition"
+      ],
+      "id": "REQ-OKZJ-007",
+      "risk": "P0",
+      "source_quotes": [
+        "功能关闭：用户完成结束标记任务后，一键筑基功能关闭",
+        "无法再"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基模块说明·功能关闭"
+      ],
+      "summary": "功能关闭：完成结束标记任务后功能关闭，无法再次触发"
+    },
+    {
+      "acceptance_criteria": [
+        "自行体验后入口保留可再次进入并一键筑基",
+        "功能关闭前均可执行一键筑基"
+      ],
+      "coverage": [
+        "positive",
+        "boundary"
+      ],
+      "id": "REQ-OKZJ-008",
+      "risk": "P1",
+      "source_quotes": [
+        "开启方式：用户手动选择是否开启一键筑基还是正常体验游戏内",
+        "容，支持在功能关闭前都可以开启"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基模块说明·开启方式"
+      ],
+      "summary": "功能关闭前玩家可随时选择开启（选「自行体验」后可再次进入并一键筑基）"
+    },
+    {
+      "acceptance_criteria": [
+        "标记的任务/探索被视作完成",
+        "对应奖励发放到账"
+      ],
+      "coverage": [
+        "positive",
+        "negative"
+      ],
+      "id": "REQ-OKZJ-009",
+      "risk": "P0",
+      "source_quotes": [
+        "跳过内容：一键筑基会跳过策划标记的任务和探索，会视作直接完",
+        "成并且发放对应奖励"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容"
+      ],
+      "summary": "跳过内容总述：跳过策划标记的任务与探索，视作已完成并发放对应奖励"
+    },
+    {
+      "acceptance_criteria": [
+        "境界与修为达到目标配置",
+        "扣除项（deduct_skip_reward）按实现整类剔除口径不发放"
+      ],
+      "coverage": [
+        "positive",
+        "boundary",
+        "negative"
+      ],
+      "id": "REQ-OKZJ-010",
+      "risk": "P0",
+      "source_quotes": [
+        "扣除策划标记的部分奖励",
+        "境界提升：扣除策划标记的部分奖励，并直接把境界提升至炼气十",
+        "层且修为圆满可直接突破"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容·境界提升"
+      ],
+      "summary": "境界提升：扣除策划标记的部分奖励，境界提升至目标且修为圆满可直接突破（目标境界口径待 Q3 裁决）"
+    },
+    {
+      "acceptance_criteria": [
+        "已提交任务与已领奖励不重复发放",
+        "只对剩余内容执行跳过与扣奖"
+      ],
+      "coverage": [
+        "positive",
+        "negative",
+        "edge"
+      ],
+      "id": "REQ-OKZJ-011",
+      "risk": "P0",
+      "source_quotes": [
+        "中途跳过：对比已经完成的任务和还需完成的任务及探索事件等，",
+        "跳过剩余内容并扣除对用奖励"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容·中途跳过"
+      ],
+      "summary": "中途跳过：只跳未完成部分，已完成的任务/探索不重复结算"
+    },
+    {
+      "acceptance_criteria": [
+        "配置地图的探索事件全部完成",
+        "一次性奖励与进度档奖励发放",
+        "跳过后地图全部解锁"
+      ],
+      "coverage": [
+        "positive",
+        "boundary",
+        "recovery"
+      ],
+      "id": "REQ-OKZJ-012",
+      "risk": "P0",
+      "source_quotes": [
+        "探索事件：跳过配置的对应地图所有的探索事件，全部视",
+        "作已完成并直接发放对应事件完成奖励，跳过后对应的探",
+        "索地图全部解锁"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容·具体跳过内容"
+      ],
+      "summary": "探索事件：跳过配置地图的全部探索事件并发奖，跳过后探索地图全部解锁"
+    },
+    {
+      "acceptance_criteria": [
+        "skip_task 列表任务全部置为已提交",
+        "任务奖励发放且不重复",
+        "选职业等保留任务不被跳过"
+      ],
+      "coverage": [
+        "positive",
+        "negative",
+        "edge"
+      ],
+      "id": "REQ-OKZJ-013",
+      "risk": "P0",
+      "source_quotes": [
+        "主线任务：跳过配置的主线任务，任务自动完成并发放任",
+        "务奖励（部分任务不会跳过：如选职业等任务，需要具体",
+        "对下实现逻辑）"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容·具体跳过内容"
+      ],
+      "summary": "主线任务：配置的主线任务自动完成并发放奖励，选职业等任务不跳过"
+    },
+    {
+      "acceptance_criteria": [
+        "洞府等级等于配置值",
+        "道院地位不参与限制"
+      ],
+      "coverage": [
+        "positive",
+        "boundary"
+      ],
+      "id": "REQ-OKZJ-014",
+      "risk": "P1",
+      "source_quotes": [
+        "洞府等级：洞府等级自动提升至配置的等级，不受到道院",
+        "地位的限制"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容·具体跳过内容"
+      ],
+      "summary": "洞府等级：自动提升至配置等级，不受到道院地位限制"
+    },
+    {
+      "acceptance_criteria": [
+        "自动吐纳功能解锁"
+      ],
+      "coverage": [
+        "positive"
+      ],
+      "id": "REQ-OKZJ-015",
+      "risk": "P1",
+      "source_quotes": [
+        "自动吐纳：跳过后解锁自动吐纳功能"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容·具体跳过内容"
+      ],
+      "summary": "自动吐纳：跳过后解锁自动吐纳功能"
+    },
+    {
+      "acceptance_criteria": [
+        "罗盘按实现口径完成灌注（灌注满）",
+        "配置的卦象升到目标等级",
+        "需求口径的碎片解锁按偏差核对处理"
+      ],
+      "coverage": [
+        "positive",
+        "boundary"
+      ],
+      "id": "REQ-OKZJ-016",
+      "risk": "P1",
+      "source_quotes": [
+        "罗盘灌注：挑落罗盘领取灌注解锁罗盘，自动解锁部分配",
+        "置的罗盘碎片"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容·具体跳过内容"
+      ],
+      "summary": "罗盘灌注：跳过罗盘领取灌注解锁流程，自动解锁配置的罗盘碎片（口径受 Q11 未裁决影响）"
+    },
+    {
+      "acceptance_criteria": [
+        "筑基后道院地位未自动提升",
+        "道院第一试炼奖励在筑基时自动补发（实现口径，需求差异已说明）",
+        "道院地位奖励仍需手动领取"
+      ],
+      "coverage": [
+        "positive",
+        "negative"
+      ],
+      "id": "REQ-OKZJ-017",
+      "risk": "P0",
+      "source_quotes": [
+        "不会跳过内容：",
+        "道院地位：道院地位不会自动完成，需要玩家手动完成并",
+        "手动领取奖励"
+      ],
+      "source_refs": [
+        "需求文档·一键筑基内容·不会跳过内容"
+      ],
+      "summary": "不跳过内容：道院地位需玩家手动完成并手动领取奖励（实现为自动加入道院并补发第一试炼奖励，按实现口径验证并记录差异）"
+    },
+    {
+      "acceptance_criteria": [
+        "选职业任务在一键筑基后仍可完成并领奖",
+        "装备一次神通任务可正常达成（默认流派/默认神通未实现按高风险标注）",
+        "道院地位奖励与职业对应神通奖励不被吞"
+      ],
+      "coverage": [
+        "positive",
+        "negative",
+        "edge"
+      ],
+      "id": "REQ-OKZJ-018",
+      "risk": "P0",
+      "source_quotes": [
+        "部分任务和奖励需要保留，如选职业任务、道院地位奖励等",
+        "需要确认实现逻辑内容",
+        "选职业的主线任务",
+        "装备一次神通的主线任务",
+        "道院地位与已选职业对应的神通奖励"
+      ],
+      "source_refs": [
+        "需求文档·设计思路",
+        "需求文档·需要确认实现逻辑内容"
+      ],
+      "summary": "保留任务与奖励：选职业任务、装备一次神通、道院地位奖励与对应神通奖励需保留并确认实现"
+    },
+    {
+      "acceptance_criteria": [
+        "小包体点快速筑基触发拓展包下载引导",
+        "下载完成后可突破筑基"
+      ],
+      "coverage": [
+        "positive",
+        "negative",
+        "recovery"
+      ],
+      "id": "REQ-OKZJ-019",
+      "risk": "P0",
+      "source_quotes": [
+        "通过一键筑基回流玩家可以直接跳过炼气期新手内容，直接从突破筑基前开始游戏",
+        "下载完筑基拓展包之后即可突破筑基"
+      ],
+      "source_refs": [
+        "需求文档·设计思路"
+      ],
+      "summary": "筑基拓展包：跳过炼气期内容后需具备筑基资源（小包体需先下载拓展包）"
+    },
+    {
+      "acceptance_criteria": [
+        "主动筑基与自然关闭分别落库",
+        "字段与落库值可核对"
+      ],
+      "coverage": [
+        "positive",
+        "negative"
+      ],
+      "id": "REQ-OKZJ-020",
+      "risk": "P2",
+      "source_quotes": [
+        "一键筑基日志（one_key_zhuji_log）"
+      ],
+      "source_refs": [
+        "需求文档·日志需求"
+      ],
+      "summary": "日志埋点：一键筑基日志 one_key_zhuji_log"
+    }
+  ],
+  "coverage_plan": [
+    {
+      "case_ids": [
+        "CASE-OKZJ-001"
+      ],
+      "requirement_id": "REQ-OKZJ-001",
+      "scenarios": [
+        "positive"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-001",
+        "CASE-OKZJ-003",
+        "CASE-OKZJ-004",
+        "CASE-OKZJ-047",
+        "CASE-OKZJ-052",
+        "CASE-OKZJ-056",
+        "CASE-OKZJ-057",
+        "CASE-OKZJ-058",
+        "CASE-OKZJ-040"
+      ],
+      "requirement_id": "REQ-OKZJ-002",
+      "scenarios": [
+        "positive",
+        "negative",
+        "boundary"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-005",
+        "CASE-OKZJ-006",
+        "CASE-OKZJ-022",
+        "CASE-OKZJ-043"
+      ],
+      "requirement_id": "REQ-OKZJ-003",
+      "scenarios": [
+        "positive",
+        "negative",
+        "state_transition"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-007",
+        "CASE-OKZJ-046"
+      ],
+      "requirement_id": "REQ-OKZJ-004",
+      "scenarios": [
+        "positive",
+        "boundary"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-002",
+        "CASE-OKZJ-008",
+        "CASE-OKZJ-009",
+        "CASE-OKZJ-021"
+      ],
+      "requirement_id": "REQ-OKZJ-005",
+      "scenarios": [
+        "positive",
+        "negative"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-010",
+        "CASE-OKZJ-012",
+        "CASE-OKZJ-015",
+        "CASE-OKZJ-038",
+        "CASE-OKZJ-039",
+        "CASE-OKZJ-041",
+        "CASE-OKZJ-050",
+        "CASE-OKZJ-055",
+        "CASE-OKZJ-058",
+        "CASE-OKZJ-042"
+      ],
+      "requirement_id": "REQ-OKZJ-006",
+      "scenarios": [
+        "positive",
+        "concurrency",
+        "recovery"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-035",
+        "CASE-OKZJ-036",
+        "CASE-OKZJ-037",
+        "CASE-OKZJ-051"
+      ],
+      "requirement_id": "REQ-OKZJ-007",
+      "scenarios": [
+        "positive",
+        "negative",
+        "state_transition"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-010",
+        "CASE-OKZJ-011",
+        "CASE-OKZJ-006",
+        "CASE-OKZJ-056"
+      ],
+      "requirement_id": "REQ-OKZJ-008",
+      "scenarios": [
+        "positive",
+        "boundary"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-016",
+        "CASE-OKZJ-021",
+        "CASE-OKZJ-043",
+        "CASE-OKZJ-059"
+      ],
+      "requirement_id": "REQ-OKZJ-009",
+      "scenarios": [
+        "positive",
+        "negative"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-019",
+        "CASE-OKZJ-020",
+        "CASE-OKZJ-025"
+      ],
+      "requirement_id": "REQ-OKZJ-010",
+      "scenarios": [
+        "positive",
+        "boundary",
+        "negative"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-018",
+        "CASE-OKZJ-023",
+        "CASE-OKZJ-049",
+        "CASE-OKZJ-059"
+      ],
+      "requirement_id": "REQ-OKZJ-011",
+      "scenarios": [
+        "positive",
+        "negative",
+        "edge"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-024",
+        "CASE-OKZJ-025",
+        "CASE-OKZJ-026",
+        "CASE-OKZJ-049"
+      ],
+      "requirement_id": "REQ-OKZJ-012",
+      "scenarios": [
+        "positive",
+        "boundary",
+        "recovery"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-016",
+        "CASE-OKZJ-017",
+        "CASE-OKZJ-023"
+      ],
+      "requirement_id": "REQ-OKZJ-013",
+      "scenarios": [
+        "positive",
+        "negative",
+        "edge"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-027",
+        "CASE-OKZJ-028"
+      ],
+      "requirement_id": "REQ-OKZJ-014",
+      "scenarios": [
+        "positive",
+        "boundary"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-029"
+      ],
+      "requirement_id": "REQ-OKZJ-015",
+      "scenarios": [
+        "positive"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-030",
+        "CASE-OKZJ-053"
+      ],
+      "not_applicable_reason": "需求口径「自动解锁配置的罗盘碎片」受 Q11 未裁决影响，当前仅实现口径（灌注满 + 卦象等级）可判定，需求口径按偏差核对处理，记为部分受限覆盖",
+      "requirement_id": "REQ-OKZJ-016",
+      "scenarios": [
+        "positive",
+        "boundary_partial_blocked_by_Q11"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-031",
+        "CASE-OKZJ-032"
+      ],
+      "requirement_id": "REQ-OKZJ-017",
+      "scenarios": [
+        "positive",
+        "negative"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-033",
+        "CASE-OKZJ-034"
+      ],
+      "requirement_id": "REQ-OKZJ-018",
+      "scenarios": [
+        "positive",
+        "negative",
+        "edge"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-013",
+        "CASE-OKZJ-014",
+        "CASE-OKZJ-048",
+        "CASE-OKZJ-054"
+      ],
+      "requirement_id": "REQ-OKZJ-019",
+      "scenarios": [
+        "positive",
+        "negative",
+        "recovery"
+      ]
+    },
+    {
+      "case_ids": [
+        "CASE-OKZJ-044",
+        "CASE-OKZJ-045"
+      ],
+      "requirement_id": "REQ-OKZJ-020",
+      "scenarios": [
+        "positive",
+        "negative"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "RISK-OKZJ-001",
+      "level": "P0",
+      "summary": "回流标记误判/丢失/过期边界未拦，或老服创角未做新区门控、同账号多角色口径未定，导致入口应出未出或不应出而出"
+    },
+    {
+      "id": "RISK-OKZJ-002",
+      "level": "P0",
+      "summary": "重复触发/并发连点/断线重连/跨角色并发/结算中断导致奖励重复发放或状态不一致"
+    },
+    {
+      "id": "RISK-OKZJ-003",
+      "level": "P0",
+      "summary": "deduct_skip_reward 实现为整类剔除，与需求「部分奖励」口径可能不符（已按高风险标注）"
+    },
+    {
+      "id": "RISK-OKZJ-004",
+      "level": "P0",
+      "summary": "强制提交跳过任务与默认流派/默认神通未实现，导致后续任务链断裂（选职业、装备神通、战斗）"
+    },
+    {
+      "id": "RISK-OKZJ-005",
+      "level": "P1",
+      "summary": "地图探索跳过后残留未完成事件/可交互 NPC/红点"
+    },
+    {
+      "id": "RISK-OKZJ-006",
+      "level": "P0",
+      "summary": "道院自动加入与第一试炼奖励自动补发，与需求「不跳过」文字不一致（已按实现口径验证并记录差异）"
+    },
+    {
+      "id": "RISK-OKZJ-007",
+      "level": "P0",
+      "summary": "小包体未下载筑基拓展包即筑基（含协议旁路），导致资源缺失或无法突破；下载失败无恢复路径"
+    },
+    {
+      "id": "RISK-OKZJ-008",
+      "level": "P2",
+      "summary": "日志缺失或字段错位导致数据无法追溯"
+    },
+    {
+      "id": "RISK-OKZJ-009",
+      "level": "P1",
+      "summary": "过渡动效期间断线/切后台/杀进程导致结算中断或界面不刷新"
+    },
+    {
+      "id": "RISK-OKZJ-010",
+      "level": "P0",
+      "summary": "目标境界/修为/洞府等级配置错误（或与需求文字口径不一致）导致筑基后无法正常突破或属性异常"
+    }
+  ],
+  "source_manifest": [
+    {
+      "path": "E:/test_agent/smart-test-platform/workspace/default/testcase/uploads/01a0c6fb-9ee3-71b0-b32f-374b860f88c4/f65c396b_M72-745330280-220926-1026-36432_extracted.txt",
+      "title": "M72-745330280 一键筑基（wiki 导出）",
+      "type": "requirement_doc"
+    },
+    {
+      "path": "E:/prpm/patch",
+      "skipped_in_quote_check": true,
+      "title": "被测代码仓库（只读，用于核对实现）",
+      "type": "code_root"
+    }
+  ],
+  "scope": {
+    "in": [
+      "新区回流玩家的一键筑基：解锁与入口、弹窗内容与交互、跳过内容结算（任务/地图探索/境界/洞府/自动吐纳/天命至宝）、保留内容（选职业任务、道院地位）、功能关闭与二次触发、小包体拓展包引导、过渡动效、协议与异常、日志埋点"
+    ],
+    "out": [
+      "老服回流（return_activity_old_server）自身的礼包/签到/宝匣玩法",
+      "筑基突破玩法本身的战斗与境界玩法细节",
+      "美术资源最终效果验收（美术单独立单）",
+      "客户端自动化脚本与压测（本次只交付手工/半自动用例）"
+    ]
+  },
+  "assumptions": [],
+  "unresolved_questions": [
+    {
+      "affects": [
+        "REQ-OKZJ-017",
+        "CASE-OKZJ-031",
+        "CASE-OKZJ-032"
+      ],
+      "blocking": false,
+      "evidence": "OneKeyZhujiD.gs:233-250、GangChallengeD.gs:254-262",
+      "id": "Q-OKZJ-001",
+      "question": "需求写「道院地位不会自动完成，需要玩家手动完成并手动领取奖励」，实现会在筑基时自动加入道院并补发道院第一试炼奖励，与需求文字不一致。",
+      "resolution": "已裁决（2026-09-22，用户确认）：按实现实际行为编写用例断言，并在用例内说明需求与实现的差异。CASE-OKZJ-031/032 已含差异说明步骤，差异项记入测试报告。",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-018",
+        "CASE-OKZJ-033",
+        "CASE-OKZJ-034"
+      ],
+      "blocking": false,
+      "evidence": "OneKeyZhujiD.gs:7（头注释：挂起未做 默认流派、默认神通、洞府 generate_house_ball）",
+      "id": "Q-OKZJ-002",
+      "question": "默认流派/默认神通在服务端头注释中标注挂起未做，筑基后角色可能不具备可装备神通，装备一次神通任务与后续依赖神通的战斗/主线可能无法进行。",
+      "resolution": "已裁决（2026-09-22，用户确认）：按实际风险情况标注为高风险，CASE-OKZJ-034 保留「高风险缺陷上报」分支并记录受阻任务范围，不作为发布阻塞。",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-010",
+        "CASE-OKZJ-002",
+        "CASE-OKZJ-008",
+        "CASE-OKZJ-017",
+        "CASE-OKZJ-020",
+        "CASE-OKZJ-025"
+      ],
+      "blocking": false,
+      "evidence": "OneKeyZhujiD.gs:286-295（build_deduct_class_id_set 按 class_id 布尔过滤）、ChallengeD.gs:1286-1299（filter_deduct_class_ids）",
+      "id": "Q-OKZJ-009",
+      "question": "deduct_skip_reward 实现为按 class_id 整类剔除，需求原文为「扣除策划标记的部分奖励」（可能含按数量扣减语义），两者口径存在差异。",
+      "resolution": "已裁决（2026-09-22，用户确认）：按实际风险情况标注为高风险。CASE-OKZJ-002/008/017/020/025 一律按实现口径（整类剔除）断言并标注口径差异，保留流水级独立对账，同时请策划复核是否应改为按数量扣减。",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-010",
+        "CASE-OKZJ-019"
+      ],
+      "blocking": false,
+      "evidence": "direct_zhuji.json:44-54",
+      "id": "Q-OKZJ-003",
+      "question": "需求写「直接把境界提升至炼气十层」，配置为 goal_level=[11,1]、close_mark_task=Lianqi_11_8、goal_exp=52064。目标境界以配置为准还是需求文字为准？",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-016",
+        "CASE-OKZJ-030",
+        "CASE-OKZJ-053"
+      ],
+      "blocking": false,
+      "evidence": "需求写「自动解锁部分配置的罗盘碎片」；OneKeyZhujiD.gs:449-466（pour_lingqi_without_animation 灌满 + gm_repair_without_animation）",
+      "id": "Q-OKZJ-011",
+      "question": "罗盘「灌满灌注值」与需求「自动解锁配置的罗盘碎片」的口径差异。",
+      "resolution": "处理方式（2026-09-22）：CASE-OKZJ-030 拆为「实现口径断言（灌注满 + 卦象等级=配置）」与「需求口径偏差核对（参照 Q7 偏差上报做法）」；CASE-OKZJ-053 碎片补齐口径仅作观察记录；REQ-OKZJ-016 在裁决前记为部分受限覆盖。",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-019",
+        "CASE-OKZJ-013",
+        "CASE-OKZJ-048",
+        "CASE-OKZJ-054"
+      ],
+      "blocking": false,
+      "evidence": "ReturnActivityD.lua:309-327（客户端拦 UI，服务端 one_key_zhuji_active 无下载状态校验）",
+      "id": "Q-OKZJ-004",
+      "question": "小包体点「快速筑基」只打开 MiniPatchLoadWindow(DOWNLOAD_TYPE=2) 并弹提示；下载完成后是否需要玩家再次点击？下载失败/中断如何处理？协议直发无服务端下载门控，是否需要补（对应 RISK-OKZJ-007）？",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-014",
+        "CASE-OKZJ-027"
+      ],
+      "blocking": false,
+      "evidence": "OneKeyZhujiD.gs:7、OneKeyZhujiD.gs:261-264",
+      "id": "Q-OKZJ-005",
+      "question": "洞府『灵气球 generate_house_ball』在 OneKeyZhujiD.gs 头注释里标注挂起未做。一键筑基后洞府是否立刻正常产出灵气球（还是需要玩家手动补一次吐纳/重登）？",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-015",
+        "CASE-OKZJ-029"
+      ],
+      "blocking": false,
+      "evidence": "需求文档仅写「解锁自动吐纳功能」；OneKeyZhujiD.gs:480-486（unlock_auto_tuna 拉满阈值并 open_auto_gen_ball）",
+      "id": "Q-OKZJ-010",
+      "question": "自动吐纳解锁后的默认开关状态、是否补发跳过期间的历史产出，需求未定义，需产品补充口径。",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-007",
+        "CASE-OKZJ-037",
+        "CASE-OKZJ-045",
+        "CASE-OKZJ-051",
+        "CASE-OKZJ-059"
+      ],
+      "blocking": false,
+      "evidence": "OneKeyZhujiD.gs:57-70",
+      "id": "Q-OKZJ-006",
+      "question": "除「完成结束标记任务」外，实现里 on_level_up 在等级达到 goal_level 时也会关闭一键筑基入口（并写一条 n1=0 日志）。需求只写了结束标记任务关闭这一条，等级达标关闭是否为预期？",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-002",
+        "CASE-OKZJ-003",
+        "CASE-OKZJ-052"
+      ],
+      "blocking": false,
+      "evidence": "ReturnActivityCenterD.gs:154-193、ReturnActivityNewServerD.gs:63-77",
+      "id": "Q-OKZJ-007",
+      "question": "实现里回流判定只看『老服存在未过期回流标记』，没有新区/开服天数门控。需求「在新区创建角色后开启」是否还有未落地的开服天数限制？回流账号在老服创角（CASE-052）应不应出入口？",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-002",
+        "CASE-OKZJ-047",
+        "CASE-OKZJ-056"
+      ],
+      "blocking": false,
+      "evidence": "ReturnActivityCenterD.gs:159-183（is_expired 过滤）",
+      "id": "Q-OKZJ-013",
+      "question": "一键筑基解锁后、执行筑基前，回流活动结束或回流标记被清除时，入口与协议资格如何表现（是否依赖标记持续有效），需求未定义。影响 CASE-OKZJ-056。",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-002",
+        "CASE-OKZJ-057",
+        "CASE-OKZJ-058"
+      ],
+      "blocking": false,
+      "evidence": "ReturnActivityCenterD.gs:183（need_delete 一次性消费）",
+      "id": "Q-OKZJ-014",
+      "question": "一键筑基解锁资格是逐账号还是逐角色生效（同账号第二个角色是否再次解锁、多角色并发如何消费标记），需求未定义。影响 CASE-OKZJ-057、CASE-OKZJ-058。",
+      "severity": "medium"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-005",
+        "CASE-OKZJ-008"
+      ],
+      "blocking": false,
+      "evidence": "client/Assets/Lua/Game/Config/direct_zhuji.lua:54-56、server/game_server/json_etc/direct_zhuji.json:2-39",
+      "id": "Q-OKZJ-008",
+      "question": "客户端 direct_zhuji.lua 的 skip_task 只有 key、没有 value（走默认值表），服务端 json_etc/direct_zhuji.json 的 skip_task 有 33 条任务。客户端该字段是否有消费方（影响「奖励预览」的口径吗）？",
+      "severity": "low"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-005",
+        "CASE-OKZJ-009",
+        "CASE-OKZJ-021"
+      ],
+      "blocking": false,
+      "evidence": "OneKeyZhujiD.gs:276-278（统一 show_special）",
+      "id": "Q-OKZJ-012",
+      "question": "结算奖励的展示形式（统一结算弹窗 vs 独立飘字）与弹出次数，需求未定义，需产品确认后固化。",
+      "severity": "low"
+    },
+    {
+      "affects": [
+        "REQ-OKZJ-004",
+        "CASE-OKZJ-007"
+      ],
+      "blocking": false,
+      "evidence": "需求文档写「一键筑基跳过按钮」；客户端 i18n_diff.lua:4788 为「快速筑基」",
+      "id": "Q-OKZJ-015",
+      "question": "需求写按钮为「一键筑基跳过按钮」，客户端实现文案为「快速筑基」，最终文案以哪个为准（影响 CASE-OKZJ-007 的 i18n 比对基准）。",
+      "severity": "low"
+    }
+  ],
+  "approved_by": "8d57f589e68549269c6f12b398637759",
+  "approved_at": "2026-09-22T05:25:10.175927+00:00",
+  "released_by": null,
+  "released_at": null,
+  "created_at": "2026-09-22T02:59:19.357414+00:00",
+  "updated_at": "2026-09-22T05:25:10.178433+00:00",
+  "package_id": "PKG-OKZJ-001",
+  "package_name": "一键筑基（回流）需求包",
+  "last_transition_reason": "用户在对话中明确确认「允许通过」：Lint 通过、独立复核 verdict=pass（无 blocker/high），三条阻断项 Q1/Q2/Q9 已按用户裁决口径落地（按实现行为断言+差异说明、高风险标注不阻塞）。"
+}

@@ -1,0 +1,110 @@
+[目录] 已建立 E:\test_agent\smart-test-platform\workspace\default\automation\unity\问剑长生
+[切分] lib/00_head.py  4999 字符 / 94 行
+[切分] lib/10_ui.py  6686 字符 / 207 行
+[切分] lib/20_map.py  26715 字符 / 631 行
+[切分] lib/30_flow.py  5394 字符 / 167 行
+[切分] 拼接校验通过：lib/*.py 按序拼回 == 原 flow_header.py
+[源码] cases/新手流程/stage1_body.py
+[源码] cases/新手流程/flow2_body.py
+[原稿] cases/新手流程/raw/flow2_raw.py
+[原稿] cases/新手流程/raw/normalize_flow2.py
+[构建器] cases/新手流程/build.py（仅改输入/输出路径）
+[构建] fix truncated name: 1 | stage2 body lines: 181 stage3 body lines: 259 | const substitution (stage2): |   TASK_OPT       <- 14 |   TASK_MASK      <- 7 |   DIALOG_BG      <- 30 |   BUBBLE         <- 8 |   MAP_CONTENT    <- 27 |   HOUSE_MAP      <- 1 |   XIULIAN_UP     <- 4 |   TUNA_BTN       <- 5 |   DANYAO_BTN     <- 1 |   DRUG_1         <- 1 |   DRUG_2         <- 1 |   XIULIAN_BACK   <- 1 |   RESU
+[验收] ✅ 一致  新手流程总脚本.py
+[验收] ✅ 一致  run_flow2.py
+[验收] ✅ 一致  run_stage2a.py
+[验收] ✅ 一致  run_stage2b.py
+[验收] ✅ 一致  run_stage3a.py
+[验收] ✅ 一致  run_stage3b.py
+[验收] 全部产物与迁移前逐字节一致 —— 迁移未改变任何行为
+[归档] archive/2026-09-22/（改用例文档与二维码等 20 项）
+[归档] archive/2026-09-23/（探针/修补/过期分段稿 25 项）
+[工具] tools/probe_cell_xy.py
+[遗留] 旧目录仍有 build_flow.py（未动，请人工确认）
+[遗留] 旧目录仍有 flow2_body.py（未动，请人工确认）
+[遗留] 旧目录仍有 flow2_raw.py（未动，请人工确认）
+[遗留] 旧目录仍有 flow_header.py（未动，请人工确认）
+[遗留] 旧目录仍有 normalize_flow2.py（未动，请人工确认）
+[遗留] 旧目录仍有 run_flow2.py（未动，请人工确认）
+[遗留] 旧目录仍有 run_stage2a.py（未动，请人工确认）
+[遗留] 旧目录仍有 run_stage2b.py（未动，请人工确认）
+[遗留] 旧目录仍有 run_stage3a.py（未动，请人工确认）
+[遗留] 旧目录仍有 run_stage3b.py（未动，请人工确认）
+[遗留] 旧目录仍有 stage1_body.py（未动，请人工确认）
+[遗留] 旧目录仍有 新手流程总脚本.py（未动，请人工确认）
+
+=== 迁移后的结构 ===
+问剑长生/
+  archive/
+    2026-09-22/
+      check_cases.py
+      check_quotes.py
+      check_quotes2.py
+      dump_cells.py
+      feishu_auth_qr.png
+      feishu_auth_qr2.png
+      fix_cases.py
+      fix_cases10.py
+      fix_cases11.py
+      fix_cases12.py
+      fix_cases3.py
+      fix_cases4.py
+      fix_cases5.py
+      fix_cases6.py
+      fix_cases7.py
+      fix_cases8.py
+      fix_cases9.py
+      mcp_probe_init.json
+      okzj_cases.md
+      okzj_cases_stdout.txt
+    2026-09-23/
+      _probe_history.py
+      build_out.txt
+      count_pauses.py
+      find_split.py
+      fix_build.py
+      fix_header.py
+      fix_header2.py
+      fix_header3.py
+      fix_header4.py
+      fix_header5.py
+      probe_api.py
+      probe_cell_screen.py
+      probe_cells_onscreen.py
+      probe_gridinfo.py
+      probe_map_deep.py
+      probe_map_semantic.py
+      probe_map_state.py
+      resume2.py
+      resume_flow2.py
+      run_full_flow.py
+      run_stage1.py
+      run_stage2.py
+      run_stage3.py
+      show_split.py
+      sizes.txt
+      shots/
+        now_102142.png
+  cases/
+    新手流程/
+      build.py
+      flow2_body.py
+      stage1_body.py
+      dist/
+        run_flow2.py
+        run_stage2a.py
+        run_stage2b.py
+        run_stage3a.py
+        run_stage3b.py
+        新手流程总脚本.py
+      raw/
+        flow2_raw.py
+        normalize_flow2.py
+  docs/
+  lib/
+    00_head.py
+    10_ui.py
+    20_map.py
+    30_flow.py
+  tools/
+    probe_cell_xy.py

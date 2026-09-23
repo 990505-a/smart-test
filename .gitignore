@@ -48,6 +48,13 @@ rag_storage/
 # 种子模板由 memory_service.ensure_seeded 在启动时自动落盘，不依赖仓库里的文件。
 workspace/default/memory/
 
+# 自动化工程里的归档区：一次性脚本、迁移前快照、历史现场。它是本机"别删也别读"的
+# 区域，不是要共享的资产；里面还落过飞书登录二维码这类不该进远端的东西。
+workspace/default/automation/*/*/archive/
+
+# 一次性运维脚本的运行时状态（心跳每 30 秒变一次，提交它没有意义）
+inputs/keep-awake.status.txt
+
 # Runtime logs
 *.log
 logs/
