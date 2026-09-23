@@ -11,6 +11,7 @@ import { ToolResultCard, parseSaveResults, stripSaveResultMarkers } from "@/app/
 import { ToolCallBox } from "@/app/components/ToolCallBox";
 import { SubAgentIndicator } from "@/app/components/SubAgentIndicator";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
+import { thinkingBody, thinkingOmittedNote, thinkingSummary } from "@/lib/thinking";
 
 /** image_url block as sent to OpenAI-compatible APIs */
 interface ImageUrlBlock {
@@ -60,24 +61,18 @@ interface ChatMessageProps {
   isSubAgentClosed?: (taskCallId: string) => boolean;
 }
 
-function firstNonEmptyLine(text: string): string {
-  return text.split("\n").find((l) => l.trim()) ?? "";
-}
-
-function lastNonEmptyLine(text: string): string {
-  const lines = text.split("\n");
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (lines[i].trim()) return lines[i];
-  }
-  return "";
-}
-
 /**
  * Collapsible reasoning panel (dsh-style "Think" row): while the model is
  * still thinking, the header shows a live tail of the latest reasoning line
  * with a pulsing indicator; once the answer text starts, it settles to a
  * static "已深度思考" row. Expanded body is plain grey text that follows
  * the stream.
+ *
+ * **渲染预算**（见 lib/thinking.ts）：reasoning 是逐 token 吐出来的，实测一条
+ * 能到 43.5 万字符 / 9.5 万行。整段塞进 DOM 会让浏览器为每一行建行盒 ——
+ * 点开的一瞬间就是几万次布局，页面看着像卡死。折叠态也不能整串 `split("\n")`
+ * 求首尾行（那是每次流式刷帧都建 9.5 万个字符串）。所以摘要只看首/尾窗口，
+ * 正文只渲染尾部一段，并在顶部说明省略了多少。
  */
 const ThinkingBlock = React.memo<{ content: string; running?: boolean }>(
   ({ content, running }) => {
@@ -92,9 +87,11 @@ const ThinkingBlock = React.memo<{ content: string; running?: boolean }>(
     }, [content, running, isExpanded]);
 
     const summary = useMemo(
-      () => (running ? lastNonEmptyLine(content) : firstNonEmptyLine(content)),
+      () => thinkingSummary(content, Boolean(running)),
       [content, running],
     );
+    const body = useMemo(() => thinkingBody(content), [content]);
+    const omittedNote = thinkingOmittedNote(body);
 
     return (
       <div className="mb-2 overflow-hidden rounded-lg border border-border/50 bg-muted/30">
@@ -127,8 +124,13 @@ const ThinkingBlock = React.memo<{ content: string; running?: boolean }>(
             ref={bodyRef}
             className="max-h-72 overflow-y-auto border-t border-border/50 px-3 py-2"
           >
+            {omittedNote && (
+              <p className="mb-1.5 rounded bg-muted/60 px-2 py-1 text-[11px] leading-4 text-muted-foreground/80">
+                {omittedNote}
+              </p>
+            )}
             <p className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
-              {content}
+              {body.body}
             </p>
           </div>
         )}
