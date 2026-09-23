@@ -128,6 +128,9 @@ class FakeUnityMcp:
         self.record_started = False
         self.record_frames: list[bytes] = [TINY_PNG_BYTES, TINY_PNG_BYTES]
         self._rec_dir: Path | None = None
+        # 挂钩子前"试一帧"（文件版两步：先武装一次性钩子，隔一拍读结果）。
+        # 真实 Unity 回 "OK:<字节数>"；截不到回 "ERROR: …"。
+        self.capture_probe = "OK:1157745"
         # 并发观测：同时在飞的请求数与峰值（真服务器扛不住并发）
         self.inflight = 0
         self.max_inflight = 0
@@ -316,6 +319,15 @@ class FakeUnityMcp:
             code = args.get("code") or ""
             # 录像：start 建帧目录（真写几个 jpg），stop 回目录与帧数。
             # 必须排在截图分支之前 —— 两段代码里都有 CaptureScreenshotAsTexture。
+            if "capture-probe" in code:
+                # 挂钩子前的"试一帧"（文件版两步：arm 挂一次性钩子 → read 读结果；
+                # 真实 Unity 是 end-of-frame 落盘，所以隔一拍才问得到）
+                if "ARMED:" in code:
+                    return _text({"success": True, "data": {
+                        "result": "ARMED:" + str(self.record_dir() / "probe.png"),
+                        "compiler": "codedom"}})
+                return _text({"success": True, "data": {"result": self.capture_probe + "|2",
+                                                        "compiler": "codedom"}})
             if unity_bridge._REC_DIR_KEY in code and "EditorApplication.update +=" in code:
                 self.record_started = True
                 return _text({"success": True, "data": {"result": json.dumps(
@@ -1096,78 +1108,38 @@ def test_recording_can_be_switched_off(fake_mcp, tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 复位（回到用例起跑线）
+# 复位：平台已**移除**这个能力（2026-09-22）
 # ---------------------------------------------------------------------------
+#
+# 为什么留一组"它必须不存在"的测试：复位是改被测对象状态的动作，只要工具面上
+# 还有入口，智能体就会去用（实测如此）。这里把"没有复位入口"钉住，改回来会红。
 
-def test_reset_hard_stops_then_reopens_then_plays_and_waits(fake_mcp, tmp_path,
-                                                            monkeypatch):
-    """硬复位：退 Play → 打开起跑场景 → 再进 Play → 等标志物，并记进步骤轨迹。
-
-    顺序是硬要求：Play 中不能打开场景（真 Unity 会拦），所以 stop 必须在 load 之前。
-    """
-    monkeypatch.setenv("UNITY_TRACE_FILE", str(tmp_path / "steps.jsonl"))
-    fake = fake_mcp()
-    u = unity_bridge.Unity()
-    out = u.reset(scene="Assets/Mods/DC/Maps/Map.unity", wait_for="BagWindow", timeout=5)
-
-    assert out["ok"] is True and out["mode"] == "hard" and out["playing"] is True
-    assert out["scene"] == "Assets/Mods/DC/Maps/Map.unity"
-    order = [(n, a.get("action")) for n, a in fake.calls
-             if n in ("manage_editor", "manage_scene")]
-    assert order[0] == ("manage_scene", "get_active")   # 先看现在在哪个场景
-    stop = order.index(("manage_editor", "stop"))
-    load = order.index(("manage_scene", "load"))
-    play = order.index(("manage_editor", "play"))
-    assert stop < load < play, order
-    assert fake.scene_path == "Assets/Mods/DC/Maps/Map.unity"
-    steps = [json.loads(line) for line in
-             (tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert steps[-1]["action"] == "reset" and steps[-1]["ok"] is True
-    # 轨迹里要能看出"回到哪儿了"（运行详情就是这么渲染的）
-    assert steps[-1]["target"] == "Assets/Mods/DC/Maps/Map.unity"
-
-
-def test_reset_same_scene_is_not_reopened(fake_mcp, tmp_path):
-    """起跑场景与当前打开的是同一个：不重复打开。
-
-    脏场景的保存对话框是**模态**的 —— 一弹出来 MCP 的执行线程就再也动不了，
-    所以"同名不重开"不是优化，是必须。
-    """
-    fake = fake_mcp()
-    u = unity_bridge.Unity()
-    out = u.reset(scene="01_moqiaoshanzhuang")     # 只给名字也要认出来是同一个
-    assert out["ok"] is True
-    assert not [c for c in fake.calls
-                if c[0] == "manage_scene" and c[1].get("action") == "load"]
-
-
-def test_reset_soft_reloads_scene_without_leaving_play(fake_mcp, tmp_path):
-    """软复位：不退出 Play，重载当前场景（快，但静态状态与常驻单例不清）。"""
-    fake = fake_mcp()
-    u = unity_bridge.Unity()
-    out = u.reset(mode="soft", wait_for="BagWindow")
-
-    assert out["ok"] is True and out["mode"] == "soft" and fake.playing is True
-    assert not [c for c in fake.calls if c[0] == "manage_editor"]
-    codes = [a.get("code", "") for n, a in fake.calls if n == "execute_code"]
-    assert any("reload-scene" in c and "LoadScene" in c for c in codes)
-
-
-def test_reset_soft_refuses_scene_switch(fake_mcp, tmp_path):
-    """软复位换场景是不可能的（Play 里开不了场景）—— 明确报出来，别装作做完了。"""
+def test_unity_has_no_reset_entrypoint(fake_mcp):
+    """``Unity`` 上不再有 reset；桥模块也不再导出 reset。"""
     fake_mcp()
     u = unity_bridge.Unity()
-    with pytest.raises(unity_bridge.UnityBridgeError) as err:
-        u.reset(scene="Assets/Other.unity", mode="soft")
-    assert "软复位不能换场景" in str(err.value)
+    assert not hasattr(u, "reset")
+    assert not hasattr(unity_bridge, "reset")
 
 
-def test_reset_rejects_unknown_mode(fake_mcp, tmp_path):
-    fake_mcp()
+def test_check_start_line_reports_missing_anchor(fake_mcp, monkeypatch):
+    """不在起跑线时：只**报告**，并给一段给用户看的复位说明（不动任何状态）。"""
+    fake = fake_mcp()
     u = unity_bridge.Unity()
-    with pytest.raises(unity_bridge.UnityBridgeError) as err:
-        u.reset(mode="温柔一点")
-    assert "未知复位方式" in str(err.value)
+    monkeypatch.setattr(unity_bridge, "unity_on_cached_client", lambda: u)
+
+    res = _run(unity_bridge.check_start_line(wait_for="NoSuchWindow_没有这个界面"))
+
+    assert res["success"] is True and res["at_start_line"] is False
+    assert "NoSuchWindow_没有这个界面" in res["instruction"]
+    # 只读：不许出现点击/加载场景/编辑器动作这类会改状态的东西（读场景/查对象可以有）
+    read_only_scene = {"get_active", "get_hierarchy", "get_build_settings",
+                       "get_loaded_scenes", "validate"}
+    state_changing = [c for c in fake.calls
+                      if (c[0] == "manage_scene" and c[1].get("action") not in read_only_scene)
+                      or c[0] == "manage_editor"
+                      or (c[0] == "execute_code" and "dispatch_co" in str(c[1].get("code", "")))]
+    assert not state_changing
 
 
 def test_absent_timeout_points_at_hidden(fake_mcp):
@@ -1204,47 +1176,131 @@ def test_declared_reset_reads_module_constant():
     assert unity_service.declared_reset("RESET = {\n") == (False, {})
 
 
-def test_reset_plan_declared_beats_learned_and_env_can_disable(tmp_path, monkeypatch):
+def test_start_line_declared_beats_learned(tmp_path, monkeypatch):
+    """起跑线说明：声明优先、记住的兜底（它是**说明**，不再驱动任何复位动作）。"""
     monkeypatch.setattr(settings, "workspace_dir", tmp_path)
     state = unity_service.script_dir("sid") / "start_state.json"
     state.write_text(json.dumps({"scene": "learned.unity", "wait_for": "Hud"}),
                      encoding="utf-8")
 
     # 没声明 → 用记住的起跑线
-    assert unity_service.reset_plan("print(1)", "sid") == {"scene": "learned.unity",
+    assert unity_service.start_line("print(1)", "sid") == {"scene": "learned.unity",
                                                            "wait_for": "Hud"}
     # 声明了 → 声明优先，缺的参数（标志物）由记住的补齐
-    assert unity_service.reset_plan('RESET = {"scene": "mine.unity"}', "sid") == {
+    assert unity_service.start_line('RESET = {"scene": "mine.unity"}', "sid") == {
         "scene": "mine.unity", "wait_for": "Hud"}
-    # 明确不复位 → 不拿记住的顶上
-    assert unity_service.reset_plan("RESET = False", "sid") == {}
-    # 全局开关
-    monkeypatch.setenv("UNITY_RESET", "0")
-    assert unity_service.reset_plan("print(1)", "sid") == {}
+    # 明确不管起跑线 → 不拿记住的顶上
+    assert unity_service.start_line("RESET = False", "sid") == {}
 
 
-def test_run_unity_script_resets_before_recording(fake_mcp, tmp_path, monkeypatch):
-    """声明了 RESET 的用例：执行前自动复位，且**复位在开录之前**（录像里没有冷启动）。
+def test_start_line_note_and_annotation_are_idempotent():
+    """用例入库带的那行标注：插在最上面、重复调用不叠加、起跑线变了会更新。"""
+    content = '# 用例：X\nRESET = {"scene": "a.unity", "wait_for": "Hud"}\nprint(1)\n'
+    plan = unity_service.start_line(content)
+    annotated = unity_service.annotate_start_line(content, plan)
+    assert annotated.startswith(unity_service._START_LINE_MARK)
+    assert "场景=a.unity" in annotated and "标志物=Hud" in annotated
+    assert unity_service.annotate_start_line(annotated, plan) == annotated
+    moved = unity_service.annotate_start_line(annotated, {"scene": "b.unity"})
+    assert "场景=b.unity" in moved and moved.count(unity_service._START_LINE_MARK) == 1
+    # 没起跑线就不加东西
+    assert unity_service.annotate_start_line("print(1)\n", {}) == "print(1)\n"
 
-    这是"用例之间互不污染"的落地：作者只在文件头写一行 RESET，平台负责每次站回起点。
+
+def test_failure_digest_classifies_case_vs_environment(tmp_path):
+    """失败摘要要能分开"改用例"和"修环境"：这是"跑不通先改用例"的判据。"""
+    work = tmp_path / "run"
+    work.mkdir()
+    (work / "steps.jsonl").write_text(
+        '{"i": 1, "action": "click", "target": "MainHud/BagButton", "ok": true}\n'
+        '{"i": 2, "action": "wait_for", "target": "BagWindow", "ok": false,'
+        ' "error": "AssertionError: 等待超时（10s）：BagWindow 未出现"}\n', encoding="utf-8")
+    (work / "failure.txt").write_text("# 失败现场\n", encoding="utf-8")
+
+    case = unity_service.failure_digest(work, 1, "AssertionError: 等待超时\n")
+    assert case["kind"] == "case"
+    assert case["step"]["target"] == "BagWindow"
+    assert "failure.txt" in case["artifacts"]
+    assert case["errors"] and "BagWindow" in case["errors"][0]
+
+    env = unity_service.failure_digest(
+        work, 1, "ERROR: 连不上 Unity MCP 桥 —— Connection refused\n")
+    assert env["kind"] == "environment"          # exit 1 但报错是环境指纹 → 按环境算
+    assert env["errors"]
+
+    assert unity_service.failure_digest(work, 0, "PASS") is None      # 通过就没有摘要
+    assert unity_service.failure_digest(work, -1, "执行超时(420s)")["kind"] == "timeout"
+
+
+def test_passed_before_ignores_annotation_lines(tmp_path, monkeypatch):
+    """"已验证"的指纹只看用例主体：平台自己写的标注行不算内容差异。"""
+    monkeypatch.setattr(settings, "workspace_dir", tmp_path)
+    body = '# 用例：X\nprint("PASS")\n'
+    assert unity_service.passed_before(body) is False
+    unity_service._record_passed(body, name="sid")
+    assert unity_service.passed_before(body) is True
+    annotated = unity_service.annotate_start_line(body, {"wait_for": "BagWindow"})
+    assert unity_service.passed_before(annotated) is True      # 标注不影响指纹
+    assert unity_service.passed_before(body + 'print("改了")\n') is False
+
+
+def test_unverified_content_is_saved_as_draft(tmp_path, monkeypatch):
+    """没跑通过的内容不给 active —— "改用例 → 跑通 → 保存"的落点（真实判定函数）。"""
+    monkeypatch.setattr(settings, "workspace_dir", tmp_path)
+    content = '# 用例：X\nprint("PASS")\n'
+
+    assert unity_service.effective_status("active", content) == "draft"   # 没验证过
+    assert unity_service.effective_status(None, content) is None          # 不涉及状态就不动
+    unity_service._record_passed(content, name="sid")
+    assert unity_service.effective_status("active", content) == "active"  # 跑通过才给 active
+    # 跑通过的是"这份内容"：改了主体就得重新验证
+    assert unity_service.effective_status("active", content + 'print("改了")\n') == "draft"
+
+
+def test_run_hints_start_line_without_resetting(fake_mcp, tmp_path, monkeypatch):
+    """声明了起跑线的用例：执行前只**打一行提示**，绝不做任何复位/检查动作。
+
+    平台不复位、也不判"在不在起跑线"（用户 2026-09-22 的要求："不要强制验证，
+    全靠用户自觉"）：提示归提示，用例该跑还是跑。
     """
     fake = fake_mcp()
     content = (
-        'RESET = {"scene": "Assets/Mods/DC/Maps/Map.unity", "wait_for": "BagWindow"}\n'
+        'RESET = {"wait_for": "BagWindow"}\n'      # 假服务器认得 BagWindow
         "u.screenshot('01_hud.png')\n"
         "print('PASS: 到位')\n"
     )
     result = _run(unity_service.run_unity_script("sid", "用例", content))
 
     assert result["status"] == "passed" and result["exit_code"] == 0
-    assert "复位 -> 起跑线" in result["output"]
-    order = [(n, a.get("action") or "") for n, a in fake.calls]
-    stop = order.index(("manage_editor", "stop"))
-    load = order.index(("manage_scene", "load"))
-    play = order.index(("manage_editor", "play"))
-    record = next(i for i, (n, a) in enumerate(fake.calls)
-                  if n == "execute_code" and "EditorApplication.update +=" in (a.get("code") or ""))
-    assert stop < load < play < record, order[:8]
+    assert "起跑线（平台不复位、不检查，请自行确认）" in result["output"]
+    assert "标志物=BagWindow" in result["output"]
+    # 平台不复位、不检查：没有任何 Lua 注入、没有 play/stop、没有开场景
+    assert not [c for c in fake.calls if "dispatch_co" in str(c[1].get("code", ""))]
+    assert not [c for c in fake.calls
+                if c[0] == "manage_editor" and c[1].get("action") not in (None, "get_state", "state")]
+    assert not [c for c in fake.calls
+                if c[0] == "manage_scene" and c[1].get("action") == "load"]
+
+
+def test_run_ignores_missing_start_line_anchor(fake_mcp, tmp_path):
+    """不在起跑线也**照跑**：提示照打，但不拦、不改状态、不判失败。
+
+    这一条是"去掉强制验证"的钉子：只要用例自己跑得通，起点对不对不归平台管。
+    """
+    fake = fake_mcp()
+    content = (
+        'RESET = {"scene": "Assets/Mods/SAMPLE/Maps/GameMaps/01_moqiaoshanzhuang.unity",\n'
+        '         "wait_for": "NoSuchWindow_没人有这个界面"}\n'
+        "print('跑到这里了')\n"
+    )
+    result = _run(unity_service.run_unity_script("sid", "用例", content))
+
+    assert result["exit_code"] == 0 and result["status"] == "passed"
+    assert "NoSuchWindow_没人有这个界面" in result["output"]      # 提示里带着起跑线信息
+    assert "跑到这里了" in result["output"]                        # 用例主体照常跑
+    assert not [c for c in fake.calls if "dispatch_co" in str(c[1].get("code", ""))]
+    assert not [c for c in fake.calls
+                if c[0] == "manage_scene" and c[1].get("action") == "load"]
 
 
 def test_start_line_learned_only_after_a_passing_run(fake_mcp, tmp_path, monkeypatch):
@@ -1267,9 +1323,10 @@ def test_start_line_learned_only_after_a_passing_run(fake_mcp, tmp_path, monkeyp
     learned = json.loads(state_file.read_text(encoding="utf-8"))
     assert learned["scene"] == fake.scene_path
     assert learned["wait_for"] == "BagWindow"
-    # 第二轮就该用上它：输出里能看到复位
+    # 第二轮就该用上它：没写 RESET 的用例也有一行起跑线提示（平台不复位、不检查）
     result = _run(unity_service.run_unity_script("sid", "用例", good))
-    assert "复位 -> 起跑线" in result["output"]
+    assert "起跑线（平台不复位、不检查，请自行确认）" in result["output"]
+    assert "BagWindow" in result["output"]
 
 
 def _has_ffmpeg() -> bool:
@@ -1624,7 +1681,7 @@ def test_start_line_snapshot_when_case_plays_itself(fake_mcp, tmp_path, monkeypa
 
     state = json.loads(candidate.read_text(encoding="utf-8"))
     assert state["scene"] == fake.scene_path and state["wait_for"] == "BagWindow"
-    assert state["play"] is True and state["mode"] == "hard"
+    assert state["play"] is True and state["mode"] == "lua"
 
 
 def test_start_line_snapshot_skips_when_wait_is_not_first(fake_mcp, tmp_path, monkeypatch):

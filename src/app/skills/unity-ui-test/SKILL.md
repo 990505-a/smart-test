@@ -17,15 +17,48 @@ description: Unity 客户端自动化测试技能（通用，与具体游戏无�
 
 1. 桥在线：`unity_status` 返回 `available=true`（否则去启动器启 unity-mcp）。
 2. Unity 编辑器已连上：status 的 `editor` 不为 null。
-3. 要操作**运行时**界面（窗口/按钮/文本）时必须在 Play Mode：
-   `unity_editor("play")`，然后 `unity_wait_for("<主界面标志物>")`。
-   编辑器模式下的对象只有场景资产，没有跑起来的游戏逻辑。
+   若 `editor_stale=true`（有实例但读不到状态），说明编辑器正在域重载 / 导入资产 /
+   刚掉线 —— **等它回来，别再发命令**；一直不回就让用户重启 unity-mcp 服务。
+3. 要操作**运行时**界面（窗口/按钮/文本）时必须在 Play Mode。**平台不代管 Play**
+   （进退 Play 会触发域重载、可能卡死编辑器，已全面禁用）：若 `unity_status` 显示
+   没在 Play，**直接告诉用户"请先在 Unity 里点 Play"**并等待确认，然后再
+   `unity_wait_for("<主界面标志物>")`。编辑器模式下的对象只有场景资产，没有跑起来的
+   游戏逻辑。
+4. **`external_changes_dirty=true` 时那批工具发不出去**（见下节"脏标记"）。
+
+## 脏标记 `external_changes_dirty`（踩过整机断电的坑，必读）
+
+工程里出现"Unity 还没导入的外部改动"（刚拉过代码 / 改过资源 / 装过包）时，MCP 桥会在
+**它自己内部**给一批工具加 preflight：一旦被判脏，就替你发一次
+`refresh_unity(compile="request")` = **强制同步刷新 + 请求重编译 = 一次域重载**。
+在 Play Mode 里发生这件事的后果是实测过的：编辑器卡死在 Reloading Domain，
+随后 D3D11 设备丢失、整机只能断电（2026-09-23）。
+
+- **被闸的工具**（脏 / 读不到状态时平台一律拒发，别硬试）：
+  `manage_scene`（起跑线/场景）、`find_gameobjects`（`unity_find_objects`）、
+  `manage_components`（`unity_object`）、`manage_gameobject`、`manage_prefabs`、
+  `manage_asset`、`manage_texture`、`run_tests`。平台会返回 `external_changes_dirty`
+  与 `can_run_gated_tools`，照它判断。
+- **它是个 latch**：一旦置脏就不会自己消失，而且**在 Unity 里 Ctrl+R / Assets ▸
+  Refresh all 清不掉**（标记在桥进程内存里，插件从不把刷新结果回报给扫描器）。
+  别让用户白刷。
+- **怎么清**：`unity_sync_assets`（平台自带：只刷新、不请求重编译，因此不产生域重载）
+  —— **仅非 Play 可用**；在 Play 里先请用户退出 Play。清不掉（工程里有文件一直在变）
+  就重启 unity-mcp 服务。
+- **Play 中的额外规则**：只要处于 Play Mode，平台对上面那批工具一律严格校验
+  （读不到状态就拒发）——"读不到"时**不要绕**，先 `unity_status` 看是不是
+  `editor_stale`。
+- **别用异常吞掉拒绝**：`u.exists()/wait_for()` 走 `find_gameobjects`，被闸时脚本里
+  会看到 `UnityBridgeError: 拒绝调用 …`，那是**环境问题**（exit 2 的语义），
+  不是用例失败 —— 照 `failure.errors` 请用户处理，别改用例。
 
 ## 探索流程（照这个顺序，不要跳步）
 
-1. `unity_status` —— 桥、Unity、是否 Play Mode。
-   状态不对（进不了 Play、界面卡在某个面板、上一条用例把游戏留在半路）就先
-   **`unity_reset(scene=…, wait_for=…)`** 把它拉回起点，别在半坏的状态上硬试。
+1. `unity_status` —— 桥、Unity、是否 Play Mode。没在 Play 就让用户先手动 Play
+   （见前置条件 3）。
+   状态不对（界面卡在某个面板、上一条用例把游戏留在半路）时，**平台不做复位**：
+   用 `unity_start_line(scene=…, wait_for=…)` 看当前在不在起跑线，不在就把返回的
+   `instruction` **原样告诉用户**，等他手动复位完成再继续。
 2. **`unity_hierarchy()`** —— 先看全貌：路径 / 是否显示 / 组件 / **界面上的文本**
    一次摊开。要钻某个面板就 `unity_hierarchy(root="MainCanvas/NormalUI")`。
    **别猜对象名**："TalkUI / UI / UIRoot / Talk" 这样一个个试，每轮一次往返，还可能
@@ -66,6 +99,41 @@ p = unity_screenshot("now.png")   # 返回图片路径（相对路径 = workspac
 `unity_find_by_text` 定位，截图确认，再动手。反过来（只读组件不看图）会在"界面到底有没有"
 这类问题上绕远路；只看图不读文本则点不准。
 
+### 探索没有结论时：停下来截图，不要硬找（硬规则）
+
+同一条线索上你已经连续调了 **8 个左右**的 Unity 工具（`unity_hierarchy` /
+`unity_find_by_text` / `unity_object_info` / `unity_object_text` / `unity_exec_csharp`
+…）还没得出结论，就**别再换着花样找**了 —— 先 `unity_screenshot` 看一眼现场，再决定。
+一图胜过一次猜测，这也是"探索打转"的唯一解药：平台会在连续 8 次探索类调用之后
+主动提醒你截图（中间件 `exploration_nudge`），看到提醒就照做。
+
+### 截图只在 Play 里能出画面
+
+截图截的是**已经渲染出来的那一帧**，所以：
+
+- **在 Play Mode**：随时可截、一直可用（含 Screen Space - Overlay 的 UI），失败也会自动重试，
+  不存在"一次失败以后就永远不许截"这回事；
+- **不在 Play**：Game View 没有帧可截，编辑器侧只会回一句"不在 Play / 场景里没有相机"。
+  这不是故障，也**别反复重试**：改读结构（`unity_hierarchy` / `unity_find_by_text` /
+  `unity_object_text`），或者请用户点 Play。
+
+**模型读不了图时**（返回里说图片被省略、只给了文本占位符）：把 `path` 原样贴给用户，
+让他看一眼并回答，然后照他的回答继续 —— 别假装自己看过图，也别因此改回去"硬探索"。
+
+## 显卡设备丢失（DXGI_ERROR_DEVICE_REMOVED）：平台会立刻停手
+
+Unity 报出 `0x887a0005` / `Failed to present D3D11 swapchain due to device reset/removed`
+时，**显卡已经被驱动或系统摘掉了**，编辑器随后一定会自己关闭（2026-09-23 那次现场
+紧接着就是整机卡死、只能长按电源重启）。平台的处置是：
+
+- 置一条**熔断**：之后所有 Unity 工具调用一律返回"拒绝调用：显卡设备丢失"，包含开机跑用例；
+- 自动拦截新录像钩子（`record_start` 直接失败），不再往坏掉的 GPU 上叠加负载；
+- `unity_status` 里 `gpu_device_lost=true` + `gpu_evidence` 是现场原文，页面顶部也会出红条。
+
+**看到这个就别重试、别换工具绕**：软件层修不了，要让用户去处理显卡（更新驱动、检查
+供电线/PCIe 插槽、关掉超频与降压）。Unity 重启后平台检测到新实例会**自动解除**熔断；
+同一次会话里显卡已恢复但没换实例时，页面上的「已确认显卡正常，解除熔断」可以手动放行。
+
 ## 沉淀用例（这才是交付物）
 
 脚本是**纯 Python**，prelude 已经注入好 `u`（Unity 客户端）与 `UnityBridgeError`：
@@ -73,7 +141,7 @@ p = unity_screenshot("now.png")   # 返回图片路径（相对路径 = workspac
 
 ```python
 # 用例：打开背包并校验等级文本
-# 起跑线：平台每次执行前会先复位到这里（退 Play → 这张地图 → 再进 Play → 等 HUD）
+# 起跑线（需人工复位）：平台不自动复位，执行前只检查在不在这个状态，不在会停下提示
 RESET = {"scene": "Assets/Mods/SAMPLE/Maps/GameMaps/01_moqiaoshanzhuang.unity",
          "wait_for": "SystemButton"}
 
@@ -93,13 +161,15 @@ print("PASS: 背包窗口打开且标题正确")
 | `u.hierarchy(root="", depth=3, max_nodes=80)` | 看（子）树：路径/可见/组件/文本（探索第一步） |
 | `u.find_by_text("背包")` | 按界面上的字找对象 + 它的可点祖先 |
 | `u.subtree_text("BagUIPanel(Clone)")` | 读整棵子树的文本（"这个面板现在显示什么"） |
-| `u.play()` / `u.stop()` / `u.pause()` | 编辑器控制（`play()` 会等到真的进 Play Mode） |
-| `u.reset(scene=, wait_for=, mode="hard"/"soft")` | **复位到起跑线**（见下节） |
+| `u.play()` / `u.stop()` | **平台已禁用**（触发域重载）。Play 由用户手动进 |
+| ~~`u.reset(...)`~~ | **已删除**：平台不做复位（见「起跑线声明」一节）。要复位由用户手动做 |
 | `u.active_scene()` / `u.load_scene(path)` | 当前打开的场景（`{name, path}`）/ 编辑模式下打开场景 |
 | `u.find_objects(name=, path=, component=, tag=, limit=)` | 查对象（返回 dict） |
 | `u.object(target)` / `u.object_text(target)` | 读组件详情 / 读所有文本属性拼接 |
 | `u.exists(target)` | 存在性（bool，不抛错） |
 | `u.click(target)` / `u.set_text(target, text)` | 操作控件（失败抛 `UnityBridgeError`） |
+| `u.drag(from, to)` | 拖拽（完整指针序列：down→beginDrag→drag×N→endDrag→up→drop；对实现 `IDragHandler`/`IDropHandler` 的控件通用） |
+| `u.key("escape")` | 按键（**尽力而为**：先事件系统 Esc=取消/Enter=提交，再输入系统合成；游戏自己的 InputAction 常收不到，见下） |
 | `u.wait_for(target, timeout=, state="present"/"absent")` | 等出现/消失（超时抛 `AssertionError`） |
 | `u.expect_exists` / `u.expect_absent` / `u.expect_text(target, "包含")` | 断言（失败抛 `AssertionError`） |
 | `u.console(filter_text=, limit=)` / `u.errors()` | 读 Console（`errors()` 只取报错） |
@@ -112,54 +182,103 @@ print("PASS: 背包窗口打开且标题正确")
 | `u.tools()` / `u.call(tool, args)` | 看/直接调 MCP 服务器上的任意工具 |
 
 退出码即结论：0 = 通过，1 = 断言失败（用例问题），2 = 桥/环境问题。
-**失败先看 `u.errors()`**，再决定改脚本还是报环境问题。
 
-## 起跑线与复位（用例从哪儿开始）
+## 跑不通怎么办：**改用例**，不是放弃
 
-用例之间**必须能各跑各的**：上一条把游戏停在背包里、主角站在地图另一头，下一条不能
-接着那个状态跑。平台的做法是执行前**复位**：退 Play → 打开起跑场景 → 再进 Play →
-等标志物回来，然后才跑用例主体。这件事有两处要落：
+跑一次不过很正常（对象改名了、等待不够、流程改版了）。处理方式是"**照现场改用例、
+再跑**"，而不是回一句"执行不了"。`unity_run_script` 的返回值里有 `failure` 摘要，
+先看 `failure.kind`：
 
-**1）用例声明起跑线**（写在文件顶部的模块级常量，不是调用）：
-
-```python
-# RESET：平台每次执行前复位到这里。普通游戏就是"开哪张地图/哪个界面 + 等哪个对象"
-RESET = {"scene": "Assets/Mods/SAMPLE/Maps/GameMaps/01_moqiaoshanzhuang.unity",
-         "wait_for": "SystemButton",       # 起跑线标志物（HUD 上的「系统」按钮）
-         "timeout": 180}                   # 可选：大工程冷启动慢就放宽
-```
-
-- `scene` 给场景**路径或名字**；与当前打开的一致就**不重复打开**（避免脏场景的保存
-  对话框卡住编辑器）。写了 RESET 就不再需要"先手动打开某场景再进 Play"这类注释里的人
-  工前置 —— 那正是它要取代的东西。
-- `wait_for` 是**复位完成的判定**（`u.wait_for` 的语义），别用 sleep 猜大工程要多久。
-- `RESET = False` = 这条用例不复位（接着现场跑，比如"接着上一条继续"的链式用例）。
-- 环境变量 `UNITY_RESET=0` 可以全局关掉复位。
-
-**2）没写 RESET 的用例**：平台会在它**跑通一次之后**记住当时的现场
-（`start_state.json`：起跑场景 + 轨迹里第一个成功的 `wait_for`），下一轮自动回到那里。
-所以老用例不改也能有复位；但**显式写下来才算把前置说清楚**（这也是评审时能看懂的那份
-"这条用例从哪儿开始"）。
-
-**想立刻重来一遍**（探索走了一半、或者手动复现时）：直接用 `u.reset(...)`，
-别自己拼 stop/play —— 少了"等标志物回来"那一步，后面全在跟半加载的界面较劲：
-
-```python
-u.reset(scene="Assets/Mods/SAMPLE/Maps/GameMaps/01_moqiaoshanzhuang.unity",
-        wait_for="SystemButton")     # 等 HUD 回来，复位才算完成
-u.reset(mode="soft")                 # 轻复位：只在 Play 内重载当前场景
-```
-
-两种复位方式的取舍（`mode`）：
-
-| | 做了什么 | 什么时候够用 |
+| `failure.kind` | 含义 | 怎么做 |
 | --- | --- | --- |
-| `hard`（默认） | 退 Play → 开场景 → 再进 Play | **真复位**：场景对象、常驻单例、静态缓存、网络会话全重来。慢（一遍冷启动） |
-| `soft` | Play 内 `SceneManager.LoadScene` 重载当前场景 | 只想把地图/界面拉回起点，几秒钟。**静态状态与 DontDestroyOnLoad 的常驻对象不清**，换场景也不行 |
+| `case` | 用例自己的问题 | **改用例**：读 `failure.artifacts` 里的 `failure.txt`（走到哪一步、控制台报了什么）→ `failure.png` 看一眼 → `steps.jsonl` 看最后一步；定位后改，重跑 |
+| `environment` | 桥/编辑器/工程的问题 | **不要动用例**（改了是白改）：照 `failure.errors` 请用户处理（点 Play、Ctrl+R 刷工程、起服务），或先修环境 |
+| `timeout` | 超时 | 看 `failure.step` 最后在等什么：等待上限太短 → 改用例；整轮没进展 → 环境卡住 |
 
-复位失败按**环境问题**处理（退出码 2，页面标 error 而不是 failed）：起跑线没回来
-说明游戏/场景没准备好，那不是"功能不对"。复位也会记进步骤轨迹（第一行 `reset`），
-页面上历史详情里能看见。
+改的三条纪律：
+
+- **改法必须来自证据**：对象名/路径变了就用 `unity_find_by_text` / `unity_hierarchy`
+  现场确认新的写法（别猜）；等待不够就把 `timeout` 放宽或改成"等标志物出现"；
+  流程改版了就按新流程改步骤。
+- **不许为了变绿而放宽断言**：把"应该有 X"改成"有 Y 也行"、或者把断言删掉，等于把缺陷
+  藏起来。确实要改期望值，先确认是**用例写错了**（不是产品坏了），并把依据写进说明。
+- **有上限**：同一份用例改 3 轮仍不过 → 停下来把结论报给用户（卡在哪一步、什么现象、
+  怀疑是产品缺陷还是环境），不要一直重跑烧时间。
+
+跑通之后用 `unity_save_script` 落库（传 `script_id` 覆盖同一条，别新建第二份）。
+平台按"这份内容跑通过没有"定状态：**跑通过的才是 `active`**，没验证过的只会存成
+`draft` 并在返回值里 `verified=false` —— 顺序永远是"改用例 → 跑通 → 保存"。
+
+## 手动录制（玩家自己点，平台录成用例）
+
+除了"你自己探索并写用例"，还有第二条产线：**让用户自己在 Unity 里点一遍，平台把
+操作录下来转成用例**。适合"这个流程用户烂熟于心、不想让你从头摸索"的场景。
+
+工具链：`unity_record_start` →（用户在 Unity 里操作）→ `unity_record_stop`
+→ `unity_record_to_script`。页面上「Unity 自动化 → 手动录制」是同一套能力的界面。
+
+三条纪律：
+
+1. **顺序**：先请用户在 Unity 里点 Play，**再** `unity_record_start`。进 Play 会
+   触发域重载、清掉刚挂上的钩子 —— 平台会自动重挂（心跳自愈），但先录后 Play 的那
+   一段事件就丢了。
+2. **录的是语义目标，不是坐标**：点击记命中的对象**路径**（含组件与文本标签）、拖拽
+   记起止对象、输入框记**最终文本**（逐字采样后合并，天然支持中文输入法）、常用按键
+   （Esc/Enter/Space/Tab/方向键/WASD/数字/退格）。点空白或非交互对象的落空点击会被
+   丢弃（不计入用例）。
+3. **生成即 draft**：`unity_record_to_script` 产出的是**基线**，自动播种了断言
+   （首次使用的路径 → `expect_exists`；点击后新出现的面板 → `expect_exists`，均标
+   `[自动播种]`）。人的操作里有回头路、误点、长等待（只落成 `# （人工停顿 2.3s）` 注释）。
+   你要做的：读一遍 → 去噪 → 把断言改成这条用例真正想验的 → 补注释 →
+   `unity_run_script` 跑通 → `unity_save_script` 覆盖成 active。
+
+回放侧的两个新能力：`u.drag(...)` 走完整指针事件链；**`u.key(...)` 是尽力而为** ——
+先试事件系统（Esc=取消 / Enter=提交），再试输入系统的设备合成；实测游戏自己的
+InputAction 常常收不到（返回体里 `via_events` 与 `via_input` 都是 false 就是完全没
+送到）。这种"只能用按键关"的界面依旧只能绕开，或在用例里把它标成待人工确认。
+
+录到的场景会写进生成的 `RESET`（起跑线）：`scene` 是录制时的场景、`wait_for` 是首次
+点击的顶层容器 —— 这正是"这条用例该从哪开始跑"的机器可读版本，跑前请用户照着复位。
+
+## 起跑线声明（用例从哪儿开始）—— 平台**不复位、也不检查**，只在运行时提示一行
+
+用例与用例之间必须"各跑各的"：上一条把游戏留在背包里/打到一半，下一条不能接着那个
+状态跑。这件事在平台上由**人**来做，不由平台做（2026-09-22 起）：
+
+| | 谁做 | 怎么体现 |
+| --- | --- | --- |
+| **复位**（把游戏恢复到起点） | **用户**（在 Unity 里手动操作） | 平台只提示"该复位到什么状态" |
+| **声明**（这条用例从哪儿起跑） | 用例作者 | 用例顶部的 `RESET = {…}` + 平台写入的标注行 |
+| **确认**（现在在不在起跑线） | **用户** | 平台不查、不拦：跑之前只在输出里打一行"这条用例要求从哪儿开始"，在不在自己看 |
+
+为什么改成这样：复位是**改被测对象状态**的动作，做多了没人分得清"游戏本来就这样"
+还是"平台点成这样"；自动复位还会让失败多出一类说不清的理由（断言挂了？还是没回
+起点？）。至于"守没守起跑线"——那是**用户自己的事**：平台既不复位、也不拿它当闸门
+拦执行（拦下来的那一下，代价是每次都得有人先点确认）。它只做一件事：跑之前把
+"这条用例要求从哪儿开始"说清楚。
+
+起跑线只是在**提醒**：后面要是从「找不到对象」开始报错，第一件该怀疑的就是起点不对
+（想核对的话用 `unity_start_line(...)` 按需查一次，它只读，不会动游戏）。
+
+**用例要做的**：在文件顶部写模块级常量（不是调用）：
+
+```python
+# 起跑线（人工复位）：场景=Assets/Mods/SAMPLE/Maps/GameMaps/01_moqiaoshanzhuang.unity；标志物=SystemButton
+RESET = {"scene": "Assets/Mods/SAMPLE/Maps/GameMaps/01_moqiaoshanzhuang.unity",
+         "wait_for": "SystemButton"}      # 起跑线标志物（HUD 上的「系统」按钮）
+```
+
+- `scene` + `wait_for` 都会被**原样讲给用户**（"复位到哪 / 复位完成的标志是什么"），
+  所以写清楚就是帮下一个人（也包括你自己）：进游戏库的用例会自动带上这行标注。
+- `RESET = False` = 这条用例不关心起跑线（接着现场跑，比如链式用例）——检查也会跳过。
+- 没写 `RESET` 的用例：平台用**上次跑通时记下的现场**给一份说明（`start_state.json`），
+  但**显式写下来才算把前置说清楚**（评审时能看懂的就是这一行）。
+- 老的 `RESET` 里可能还有 `mode` / `lua` / `timeout` / `play`：现在都不再被使用
+  （平台不执行任何复位动作），留着不影响解析，`scene` / `wait_for` 照旧生效。
+
+**探索途中想"重来一遍"**：`unity_start_line(wait_for=…)` 看差在哪 → 把说明告诉用户
+（"请回到 XXX 界面/场景"）→ 等确认。平台的工具面里**没有**任何会重置游戏的入口，
+这是刻意的：复位一律由人做。
 
 ## 存证：用例不用自己抓证据（平台自动给）
 
@@ -190,9 +309,16 @@ u.capture_failure("my_failure.png")    # 想在自己认定的关键点抓现场
 - **帧里带着 Game View 的工具条**（`Scene|Game`、FPS 之类）：`ScreenCapture` 抓的是
   整个 Game View 窗口，只有相机渲染那条路才干净 —— 但那条路会漏掉 Screen Space
   Overlay 的 UI，两害相权取其轻。
-- **实际帧率 3~10fps**：受编辑器主循环节拍限制（每个 MCP 调用还会占住主线程），
-  短用例（1 秒级）的录像就是几百毫秒一小段。所以**录像用来补"过程"，定位主要靠
-  步骤轨迹 + 截图**。合成时按**实测速率**写帧率，不会快放。
+- **录像是固定 5fps 请求值，实际 3~5fps**：受编辑器主循环节拍限制（每个 MCP 调用
+  还会占住主线程），短用例（1 秒级）的录像就是几百毫秒一小段。所以**录像用来补
+  "过程"，定位主要靠步骤轨迹 + 截图**。合成时按**实测速率**写帧率，不会快放。
+- **钩子会自己退订**（三道保险：帧数上限 / 尝试次数上限 / 墙上时钟＝执行预算），
+  连败 20 次也会停手；`unity_status` 报 `editor_stale` 或怀疑有残留钩子时，
+  调 `unity_emergency_stop`（取消在跑的用例 + 卸钩子）。
+- **单次执行的墙钟预算是 1800s（30 分钟）**，配 5fps 录像 ≈ 9000 帧。预算是**可配的**
+  （`.env` 的 `UNITY_RUN_TIMEOUT_S`，改完重启服务；僵死判定与录像上限都从它推导），
+  超时不是"不能超过"的硬墙 —— 但如果一条流程真的跑不完，先想想是不是用例在
+  不收敛地重试（那种情况调大预算只会让它多跑一会儿，不会跑通）。
 - **编辑器与平台不同机时录不了**：帧是 Unity 写在它自己的临时目录里、平台读盘合成
   （截图能跨机是因为走 MCP 回传，帧太多不走）。这种情况输出里会有一行
   `WARN: 录像没有合成：帧目录不在本机…`，不影响用例判定。
@@ -235,8 +361,8 @@ UnityEngine.Debug.Log("UNITY_BRIDGE:{\"ok\":" + (__src != null ? "true" : "false
 - **域重载（改脚本/装包触发）会清掉两样东西**：动态 C# 里挂的事件监听器，
   以及 Console 的历史缓冲。表现是"点了按钮但看不到日志"——重新挂监听再点即可，
   不是链路坏了。
-- **复位只重开场景，不碰游戏的存档/服务器数据**：退 Play 再进 Play 能清掉内存里的
-  一切，但**已经写进存档的进度**（主角升级了、任务做完了、道具用掉了）不会自己回来。
+- **复位只重置运行时状态，不碰游戏的存档/服务器数据**：Lua 复位（回初始界面）能清掉
+  内存里的一切，但**已经写进存档的进度**（主角升级了、任务做完了、道具用掉了）不会自己回来。
   要连存档一起回滚，得用游戏自己的机制（系统菜单的「载入游戏」、GM 命令、或者把存档
   文件还原）—— 用 `u.exec_csharp` 调游戏的读档接口，或先快照存档文件。
 - **打开场景时如果它"脏"了，编辑器可能弹保存对话框卡住**（模态框会挡住 MCP 的执行
@@ -263,10 +389,10 @@ UnityEngine.Debug.Log("UNITY_BRIDGE:{\"ok\":" + (__src != null ? "true" : "false
 
 ## 真游戏实测（三个开源工程跑通后补的）
 
-- **进 Play 用 `u.play()`，别用 C# 写 `EditorApplication.isPlaying = true`**。后者会让
-  延迟初始化跑不完：实测 Chop Chop 的 `IEnumerator Start()` 没执行完，菜单按钮的
-  UnityAction 全是 null，点哪个都 NullReferenceException —— 看着像"游戏坏了"，其实
-  是入场方式不对。`u.play()` 走的是编辑器的 Play 动作，没有这个问题。
+- **进 Play 只能由用户手动做**（平台禁用一切触发域重载的操作）：让用户在 Unity 里点
+  Play；别用 C# 写 `EditorApplication.isPlaying = true` 之类的方式绕过（实测会让延迟
+  初始化跑不完：Chop Chop 的 `IEnumerator Start()` 没执行完，菜单按钮的 UnityAction
+  全是 null，点哪个都 NullReferenceException —— 看着像"游戏坏了"，其实是入场方式不对）。
 - **服务器按路径查是「后缀」匹配**：`find_objects(path="ItemsList")` 只回 ItemsList
   **自己**，一个子孙都不回。所以"这个列表/面板里现在有什么"要用
   `u.object_text("ItemsList")` —— 它会把整棵子树的文本按顺序拼起来

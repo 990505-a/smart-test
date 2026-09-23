@@ -1,26 +1,29 @@
 """单轮 run 的资源上限（直接用官方中间件，不自己写）。
 
-起因是一次实测：一个 run 跑了 35 分钟才结束，期间前端收不到任何事件，界面只能提示
-"疑似卡死"。根因是多重的（模型请求没有超时、流量走了系统代理），但**没有任何上限**
-这件事是共同的放大器：跑飞或卡住的 run 会一直占着 LangGraph 的 4 个 worker 之一，
-直到进程重启。
+**默认关闭（阈值为 0 = 不挂任何守卫）**。2026-09-23 的取舍：这两个闸当初是为"一个 run
+跑了 35 分钟、前端收不到任何事件、还占着 worker"加的，但它们**按次数一刀切**，真实
+使用里误伤得太狠 —— 一次长探索（反射 Lua、逐个探对象）轻松过 120 次模型调用，于是
+一轮做到一半被硬收尾，界面上只留一句英文的 "Model call limits exceeded: run limit
+(120/120)"，看着像报错。
 
-官方 ``langchain.agents.middleware`` 已经提供了两个现成的守卫，不需要自己写：
+原来要防的那件事改用**看得见**的做法兜（比计数闸更准，也不会误伤）：聊天页运行中显示
+"已 X 分钟 · 第 N 步"，静默超过 90s 就给提示并高亮「停止」按钮 —— 人随时知道它活着、
+卡住了、以及怎么停。要重新打开这两个闸就把阈值设成正整数（``.env`` 的
+``AGENT_RUN_MODEL_CALL_LIMIT`` / ``AGENT_RUN_TOOL_CALL_LIMIT``，改完重启 langgraph）。
+
+官方 ``langchain.agents.middleware`` 的两个守卫（打开时用）：
 
 * ``ModelCallLimitMiddleware(run_limit=N, exit_behavior="end")``
   —— 一轮 run 里模型调用超过 N 次就**优雅结束**这一轮（不是抛错）。
 * ``ToolCallLimitMiddleware(run_limit=N, exit_behavior="continue")``
   —— 工具调用超过 N 次后**拦住后续工具调用**，让模型带着已有结果收尾。
 
-阈值由 ``settings.agent_run_*_limit`` 给（0 = 不限制）。取的是"远高于正常用量"的
-数字：正常生成一轮用例大约 30-60 次模型调用，120 是"明显不对劲"的界线——宁可晚一点
-拦住，也不要误伤正常的长任务。
-
 **没有加 ``ToolRetryMiddleware``**：它只在工具**抛异常**时重试，而平台的工具普遍设了
 ``handle_tool_error=True``（异常被转成 ToolMessage），所以它基本不会触发；而一旦触发，
 被重试的可能是 ``approve_case_document`` 这类有副作用的工具，重放语义不明确。收益小、
 风险实在，先不加。
 """
+
 
 from __future__ import annotations
 

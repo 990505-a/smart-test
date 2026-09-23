@@ -7,7 +7,11 @@ __pycache__/
 *.egg
 
 # Environment
+# 所有 .env* 都不入库（.env.bak / .env.bak.<tag> 这类就地备份同样含真实 API Key，
+# 而这个仓库是**公开**的）；只有 .env.example 是模板，必须留着。
 .env
+.env.*
+!.env.example
 
 # IDE
 .vscode/
@@ -68,6 +72,12 @@ tools/codebase-memory/
 # 本地备份快照（backups/*/smart_test_platform.db 含 settings_kv 里的真实 API Key
 # 与 auth_tokens 表）。**公开仓库绝不可提交**，需要分享就单独打包。
 backups/
+# 就地备份的数据库副本（如压缩图片前的 smart_test_platform.db.bak-*）：同一份
+# 含密钥的库，同样不可提交。
+smart_test_platform.db.*
+
+# LangGraph inmem runtime 的会话 checkpoint 落盘目录（.pckl，含完整对话状态）
+.langgraph_api/
 
 # 根目录散落的执行证据（Unity 截图 / 录像）：正常产物在 workspace/default/unity-auto/
 # 下且已被忽略，落到根目录的是手工跑冒烟时漏收的，同样不入库
@@ -81,3 +91,6 @@ workspace/default/rag/
 
 # 装配清单的滚动备份（每次保存生成一份），只跟踪 assembly.json 本身
 workspace/default/assembly.json.bak-*
+
+# 手工 GUI 走查的截图产物（可重跑生成，不入库）
+gui-test-screenshots/

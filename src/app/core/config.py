@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # 0.85 × this value; a value larger than the real window means compaction
     # never fires and long conversations grow unbounded (then hard-fail).
     llm_context_window: int = 128_000
+    # 单次回复的输出上限（token）。0 = 不发送 max_tokens，跟随模型自身默认；
+    # 填正数后每次模型调用都带上 max_tokens 参数（推理型模型计数含思考 token）。
+    llm_max_output_tokens: int = 0
+    # 主模型是否支持图像输入。False（默认）时 vision_gate 中间件会把消息里的
+    # 图片块（用户上传 / 工具截图）换成占位文字——不支持读图的模型带了图会被
+    # 网关 400 拒掉，整个 run 挂死；换多模态模型后在设置页打开。
+    llm_supports_vision: bool = False
     llm_max_retries: int = 3
     llm_request_timeout: int = 300
     # 流式看门狗：两个 chunk 之间的最大间隔秒数。思考型模型长推理段
@@ -127,6 +134,13 @@ class Settings(BaseSettings):
     unity_mcp_transport: str = "http"   # http | stdio
     unity_mcp_command: str = ""         # stdio 模式的命令；留空用默认 uvx 拉起官方服务器
     unity_mcp_server: str = "auto"      # auto | coplay | ivan | generic（工具名方言，认不准才改）
+    # 单次用例执行的**墙钟预算**（秒）。1800 = 30 分钟：够跑完"新手流程"那种 12~15
+    # 分钟的全流程，再留出收尾（失败现场截图 + 上千帧合成录像）的余量。
+    # 到点平台硬杀子进程并收尾（含卸掉编辑器侧的录像钩子），不会留下无人值守的钩子。
+    # 必须放在**设置**里而不是裸 os.environ 读：`.env` 只有 langgraph 进程会
+    # load_dotenv 进 os.environ（start_server.py），FastAPI 进程读不到 —— 同一个键
+    # 两条执行路径两种行为。设置对象每个进程都读得到，真环境变量照旧能覆盖。
+    unity_run_timeout_s: int = 1800
 
     # Agent 记忆（harness 风格 Markdown 记忆模块，见 services/memory_service.py）
     # 记忆 = workspace/{space}/memory/ 下的一组可开关的 .md（AGENTS.md /
@@ -179,17 +193,27 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # 单轮 run 的调用上限（官方 ModelCallLimitMiddleware / ToolCallLimitMiddleware）
     #
-    # 起因是一次实测：一个 run 跑了 35 分钟才结束，期间前端收不到任何事件，界面只能
-    # 提示"疑似卡死"。根因是多重的（模型请求没有超时、走了系统代理），但**没有任何
-    # 上限**这件事本身是共同的放大器：跑飞的 run 会一直占着 4 个 worker 之一，直到
-    # 进程重启为止。官方这两个中间件就是干这个的。
+    # **默认关闭（0 = 不限制）**。为什么关：上限本身是对的，但"按次数一刀切"在真实
+    # 使用里误伤太多 —— 一次长探索（反射 Lua、逐个探对象）轻松过 120 次模型调用，
+    # 结果是一轮做到一半被硬收尾，界面上只留一句英文的 "Model call limits exceeded:
+    # run limit (120/120)"，看起来像报错，人还得先搞清它是什么。
     #
-    # 阈值取远高于正常用量：正常生成一轮用例大约 30-60 次模型调用，120 是"明显不对劲"
-    # 的界线；工具调用同理。触顶时这一轮**优雅结束**（end / continue），不会把会话挂死。
-    # 设 0 = 不限制（回到旧行为）。
+    # 原来要防的那件事（一个 run 跑了 35 分钟、前端收不到任何事件、占着 worker）
+    # 改用**看得见的做法**兜：聊天页在运行中显示"已 X 分钟 · 第 N 步"，静默超过
+    # 90s 给出提示并高亮"停止"。看得见 + 随时能停，比一个计数闸更管用，也不会误伤。
+    #
+    # 想重新打开就设成正整数（`.env` 的 AGENT_RUN_MODEL_CALL_LIMIT /
+    # AGENT_RUN_TOOL_CALL_LIMIT，改完重启 langgraph）。触顶时这一轮会**优雅结束**
+    # （end / continue），不是异常。
     # ------------------------------------------------------------------
-    agent_run_model_call_limit: int = 120  # 单轮 run 的模型调用上限
-    agent_run_tool_call_limit: int = 300  # 单轮 run 的工具调用上限
+    agent_run_model_call_limit: int = 0   # 单轮 run 的模型调用上限；0 = 不限制
+    agent_run_tool_call_limit: int = 0    # 单轮 run 的工具调用上限；0 = 不限制
+
+    # 探索打转提醒（用户口径 2026-09-23："纯探索没有结论时先截图判断，不要硬找"）：
+    # 自上次 unity_screenshot 以来，探测类工具（unity_* 前缀，非截图）连调 N 次就往
+    # 上下文补一条"先截图再看"的提醒；截图会把计数清零，所以照做之后不会再唠叨。
+    # 0 = 关。改完重启 langgraph 生效。
+    agent_explore_nudge_after: int = 8
 
     # Eval (测评模块) — Langfuse 闭环：观测(Trace) → 沉淀(Dataset) → 实验(Runner) → 回归(Gate)
     # 参考 dsh-eval-automation 的设计：确定性 traceId 让跑在进程外的 runner

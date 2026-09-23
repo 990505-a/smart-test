@@ -26,6 +26,7 @@ from deepagents.backends import FilesystemBackend
 from deepagents.backends.composite import CompositeBackend
 from langchain.agents.middleware import TodoListMiddleware
 
+from src.app.agents.checkpoint_persistence import ensure_checkpoint_persistence
 from src.app.agents.capabilities import (
     Capability,
     CAPABILITIES,
@@ -48,8 +49,11 @@ from src.app.middleware.internal_call_isolation import install as _install_isola
 from src.app.middleware.live_model_reload import LiveModelReloadMiddleware
 from src.app.middleware.memory_injection import MemoryInjectionMiddleware
 from src.app.middleware.pdf_context import PDFContextMiddleware
+from src.app.middleware.tool_error_feedback import ToolErrorFeedbackMiddleware
+from src.app.middleware.vision_gate import VisionGateMiddleware
 from src.app.middleware.thinking_effort import ThinkingEffortMiddleware
 from src.app.middleware.tool_result_limiter import ToolResultLimiterMiddleware
+from src.app.middleware.exploration_nudge import ExplorationNudgeMiddleware
 from src.app.middleware.run_guards import build_run_guards
 from src.app.monitoring import MonitorMiddleware
 
@@ -110,6 +114,10 @@ def build_middleware(agent_name: str = GENERAL_AGENT_NAME,
         middleware.append(AssemblyToolsMiddleware())
         middleware.append(LiveSkillsMiddleware(backend=backend, sources=["/skills/"]))
     middleware += [
+        # 最外层先包"失败即反馈"：任何工具异常都变成一条错误 ToolMessage 回给
+        # 模型（LangGraph 默认只转 ToolInvocationError，其余直接炸 run）。
+        # 放最外层才能连内层中间件抛的异常一起兜住；审批 interrupt 原样放行。
+        ToolErrorFeedbackMiddleware(),
         # 工作区路径 + 本会话上传目录（testcase 那套是超集，合并后所有任务都挂它）。
         ThreadContextMiddleware(default_dir_name,
                                 uploads_namespace=build_upload_namespace()),
@@ -125,6 +133,13 @@ def build_middleware(agent_name: str = GENERAL_AGENT_NAME,
         MemoryInjectionMiddleware(),     # 注入工作区记忆（AGENTS.md/MEMORY.md/…）
         MonitorMiddleware(agent_name),   # Langfuse 上报（未配置则空转）
         ToolResultLimiterMiddleware(char_limit=_TOOL_RESULT_CHAR_LIMIT),
+        # 探索打转提醒（用户口径："纯探索没有结论时先截图判断，不要硬找"）：
+        # 自上次截图以来探测类工具连调 N 次就往上下文补一条提醒。放在视觉门**外面**：
+        # 它只加文字，不碰图片；视觉门在最内层负责最后剥图。
+        ExplorationNudgeMiddleware(),
+        # 视觉门放最内层：等所有中间件把消息加工完，最后剥掉图片块——
+        # 不支持读图的模型带着 image_url 会被网关 400，整个 run 挂死。
+        VisionGateMiddleware(),
         *build_run_guards(),             # 单轮 run 的模型/工具调用上限
     ]
     return middleware
@@ -146,6 +161,9 @@ def build_agent(
     """
     # 摘要 LLM 的输出不流式泄进主对话（此前只有部分模块装了，靠 import 副作用覆盖）
     _install_isolation()
+    # 会话 checkpoint 落盘保活（幂等）：运行时自带的刷盘线程在本机只覆盖 ops 存储，
+    # checkpoint 分片从不写盘 —— 结果是「重启即失忆」。见该模块 docstring。
+    ensure_checkpoint_persistence()
 
     backend = build_backend(default_dir_name)
     return create_agent(

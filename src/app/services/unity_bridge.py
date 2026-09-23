@@ -41,6 +41,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -50,6 +51,15 @@ from typing import Any
 
 from src.app.core.breaker import Guard
 from src.app.core.config import settings
+from src.app.services.unity_recorder import (
+    HEARTBEAT_STALE_S,
+    cs_drag,
+    cs_key,
+    cs_record_ui_fetch,
+    cs_record_ui_start,
+    cs_record_ui_status,
+    cs_record_ui_stop,
+)
 
 _PROTOCOL_VERSION = "2025-06-18"
 _CLIENT_INFO = {"name": "smart-test-platform", "version": "1.0"}
@@ -359,6 +369,11 @@ class McpClient:
         return None
 
     def call(self, tool: str, args: dict, *, timeout: float | None = None) -> dict:
+        # 硬规则（永不触发域重载）的执行点：下面这批工具在**桥内部**带 preflight，
+        # 一旦工程的"外部改动"被判脏，桥会替我们发 refresh_unity(compile="request")
+        # —— 强制同步重编译 + 域重载。2026-09-22 就是这么卡死 Unity 的（5 次）。
+        if tool in _PREFLIGHT_GATED_TOOLS:
+            _refuse_if_project_dirty(self, tool)
         with self._gate:
             resp = self._run(
                 lambda: self._t.rpc("tools/call", {"name": tool, "arguments": args},
@@ -1117,10 +1132,108 @@ _REC_ON_KEY = "unity_auto_rec_on"
 _REC_N_KEY = "unity_auto_rec_n"
 _REC_GAP_KEY = "unity_auto_rec_gap"
 _REC_MAX_KEY = "unity_auto_rec_max"
+#: 下面三个是 2026-09-22 加的：那天连着崩了两次 Unity，日志里刷的全是这个钩子。
+#: 原来的"保险"只数**成功**的帧，而截图一直被拒时帧数永远是 0 —— 钩子退不掉，
+#: 就以 fps 频率一直截（实测一次会话里 11532 次失败），把编辑器和 GPU 一起拖垮。
+_REC_TRIES_KEY = "unity_auto_rec_tries"     # 尝试次数（成功失败都算）
+_REC_FAILS_KEY = "unity_auto_rec_fails"     # 连续失败次数
+_REC_WHY_KEY = "unity_auto_rec_why"         # 停止原因（给人看的一句话）
+
+#: 连续失败多少次就自己退订。20 次 ≈ 5fps 下 4 秒 —— 真不可用时立刻停手，
+#: 又不会被 Play Mode 头几帧的偶发失败误伤。
+_REC_MAX_FAILS = 20
+
+#: 录像帧率（固定值，2026-09-23 起）：5fps 够看清"点了哪个按钮、面板怎么出现"，
+#: 又只有 10fps 一半的写盘量与 GPU 回读次数 —— 配 30 分钟的执行预算 ≈ 9000 帧。
+#: 想改就改这一个数（prelude 仍可用环境变量 UNITY_RECORD_FPS 覆盖单次运行）。
+DEFAULT_RECORD_FPS = 5.0
 
 
-def cs_record_start(subdir: str, fps: float, max_frames: int) -> str:
+def record_budget(fps: float = DEFAULT_RECORD_FPS) -> tuple[int, int]:
+    """录像的（帧数上限, 秒上限）—— 跟着**执行预算**走，别各写一套。
+
+    为什么必须联动：执行预算调大（比如 30 分钟）而录像上限还写死 5 分钟的话，
+    长流程的录像会莫名其妙在第 5 分钟停掉，人看到的是"录像少了后半段"，
+    很难联想到是两处常量没对齐。帧数按 fps × 秒数算出来，保证两道闸一致。
+    """
+    try:
+        seconds = int(float(settings.unity_run_timeout_s))
+    except (TypeError, ValueError):
+        seconds = 1800
+    seconds = max(30, seconds)
+    return int(round(fps * seconds)), seconds
+
+#: 进出 Play 时编辑器会重排渲染目标，这时截一帧可能失败。挂钩子前**先试一帧**：
+#: 试不过就干脆不挂（把原因说给用例听），而不是挂上去刷几万次失败。
+#:
+#: 试的是**文件版**（和钩子、和 `unity_screenshot` 同一条路）：2026-09-23 实测
+#: `CaptureScreenshotAsTexture()` 在 `execute_code` 与 `EditorApplication.update`
+#: **两个上下文里都返回 null**（它只能在 end-of-frame 调），拿它当探针的结果是
+#: 每一次录制都被"录像不可用：…返回 null"挡掉；而文件版在同一钩子里成功落盘
+#: 1157745 字节。落盘是 end-of-frame 的事，所以要**挂一次性钩子 + 稍后再问结果**：
+#: 这就是本函数返回"已武装"、`probe_capture_ok` 再读结果的原因。
+_CS_CAPTURE_PROBE_ARM = r"""// capture-probe: 挂一次性钩子，试一帧（文件版）后把结果记进 SessionState
+string __probe_dir = System.IO.Path.Combine(UnityEngine.Application.temporaryCachePath,
+                                            "unity-auto-probe");
+System.IO.Directory.CreateDirectory(__probe_dir);
+string __probe_path = System.IO.Path.Combine(__probe_dir, "probe_" + System.Guid.NewGuid()
+                                             .ToString("N").Substring(0, 8) + ".png");
+UnityEditor.SessionState.SetString("unity_auto_probe_result", "pending");
+UnityEditor.SessionState.SetString("unity_auto_probe_path", __probe_path);
+UnityEditor.SessionState.SetInt("unity_auto_probe_ticks", 0);
+UnityEditor.EditorApplication.CallbackFunction __pcb = null;
+__pcb = delegate {
+  int __n = UnityEditor.SessionState.GetInt("unity_auto_probe_ticks", 0) + 1;
+  UnityEditor.SessionState.SetInt("unity_auto_probe_ticks", __n);
+  if (__n < 2) return;                     // 第 1 帧只是刚挂上，落盘还没轮到
+  string __p = UnityEditor.SessionState.GetString("unity_auto_probe_path", "");
+  if (UnityEditor.SessionState.GetString("unity_auto_probe_result", "") != "pending") {
+    UnityEditor.EditorApplication.update -= __pcb;
+    return;
+  }
+  if (System.IO.File.Exists(__p) && new System.IO.FileInfo(__p).Length > 0) {
+    UnityEditor.EditorApplication.update -= __pcb;
+    UnityEditor.SessionState.SetString("unity_auto_probe_result",
+        "OK:" + new System.IO.FileInfo(__p).Length);
+    return;
+  }
+  // 别急着判死：`CaptureScreenshot` 是**异步**的（排到 end-of-frame 写盘），
+  // 实测同一台机器上有时第 2 帧就到、有时要等几帧 —— 只给一两帧的耐心，
+  // 录像是"有时候能开始、有时候报不可用"（2026-09-23 11:35 实测踩到）。
+  // 给它 ~3 秒（60fps 约 180 帧；编辑器卡着时按帧数算也够）。
+  if (__n >= 180) {
+    UnityEditor.EditorApplication.update -= __pcb;
+    UnityEditor.SessionState.SetString("unity_auto_probe_result",
+        "ERROR: 请求截图后 3 秒仍没有落盘（" + __p + "）");
+  }
+};
+UnityEditor.EditorApplication.update += __pcb;
+UnityEngine.ScreenCapture.CaptureScreenshot(__probe_path);
+return "ARMED:" + __probe_path;
+"""
+
+#: 探针结果的读取（与上一步隔着一次往返 + 一点等待，见 ``probe_capture_ok``）。
+_CS_CAPTURE_PROBE_READ = r"""// capture-probe: 读上次试拍的结果
+return UnityEditor.SessionState.GetString("unity_auto_probe_result", "pending") + "|"
+     + UnityEditor.SessionState.GetInt("unity_auto_probe_ticks", 0);
+"""
+
+
+def cs_record_start(subdir: str, fps: float, max_frames: int, max_seconds: int = 300,
+                    max_tries: int = 0, max_fails: int = _REC_MAX_FAILS) -> str:
+    """挂钩子开始逐帧录制。
+
+    钩子自己有三道保险，任何一道到点就退订 —— 一个挂在编辑器里、不会自己停的
+    每帧截图循环，代价是整台机器（2026-09-22 实测：残留钩子把 D3D11 设备刷掉、
+    整机只能断电）：
+
+    - ``max_frames`` 帧数上限（成功的路径）；
+    - ``max_tries`` 尝试次数上限（默认 4× 帧数：失败也算，防"一直截不到"）;
+    - ``max_seconds`` **墙上时钟**上限（帧数/尝试次数都挡不住"帧率被拖慢"的情形）。
+    """
     gap = round(1.0 / max(0.5, min(60.0, fps)), 4)
+    max_seconds = max(30, int(max_seconds))
+    max_tries = int(max_tries) or max(600, int(max_frames) * 4)
     return r"""
 var __dir = System.IO.Path.Combine(UnityEngine.Application.temporaryCachePath,
                                    "unity-auto-rec", "{subdir}");
@@ -1128,83 +1241,140 @@ System.IO.Directory.CreateDirectory(__dir);
 UnityEditor.SessionState.SetString("{dir_key}", __dir);
 UnityEditor.SessionState.SetBool("{on_key}", true);
 UnityEditor.SessionState.SetInt("{n_key}", 0);
+UnityEditor.SessionState.SetInt("{tries_key}", 0);
+UnityEditor.SessionState.SetInt("{fails_key}", 0);
+// 上一轮可能留了个"待验收"的路径（那个文件属于上一次录制）—— 不清掉会把别人的帧记到这一轮
+UnityEditor.SessionState.SetString("{pending_key}", "");
+UnityEditor.SessionState.SetString("{why_key}", "");
 UnityEditor.SessionState.SetFloat("{gap_key}", {gap}f);
 UnityEditor.SessionState.SetInt("{max_key}", {max_frames});
+UnityEditor.SessionState.SetInt("{max_tries_key}", {max_tries});
+UnityEditor.SessionState.SetBool("{was_playing_key}", UnityEditor.EditorApplication.isPlaying);
+UnityEditor.SessionState.SetFloat("{deadline_key}",
+    (float)UnityEngine.Time.realtimeSinceStartup + {max_seconds}f);
 double __last = 0.0;
 // 必须声明成 CallbackFunction 而不是 System.Action：EditorApplication.update 是
 // **命名委托类型**，C# 不允许用 Action 去 += / -=（实测报
 // "Operator `-=' cannot be applied to operands of type CallbackFunction and System.Action"）。
 UnityEditor.EditorApplication.CallbackFunction __cb = null;
+System.Action<string> __disarm = delegate(string __why) {{
+  UnityEditor.SessionState.SetString("{why_key}", __why);
+  UnityEditor.SessionState.SetBool("{on_key}", false);
+  UnityEditor.EditorApplication.update -= __cb;
+}};
 __cb = delegate {{
   if (!UnityEditor.SessionState.GetBool("{on_key}", false)) {{
     UnityEditor.EditorApplication.update -= __cb;
     return;
   }}
-  double __now = (double)UnityEngine.Time.realtimeSinceStartup;
-  if (__now - __last < (double)UnityEditor.SessionState.GetFloat("{gap_key}", {gap}f)) return;
-  __last = __now;
-  int __n = UnityEditor.SessionState.GetInt("{n_key}", 0);
-  if (__n >= UnityEditor.SessionState.GetInt("{max_key}", {max_frames})) {{
-    UnityEditor.SessionState.SetBool("{on_key}", false);
-    UnityEditor.EditorApplication.update -= __cb;
+  // 退出 Play 就收工：挂钩子时若在 Play，那么 Play 结束之后再截已经没意义了。
+  // （挂钩子时不在 Play 的话不管这条，别把"编辑模式下的录制"误伤掉。）
+  if (UnityEditor.SessionState.GetBool("{was_playing_key}", false)
+      && !UnityEditor.EditorApplication.isPlaying) {{
+    __disarm("Play 已结束");
     return;
   }}
+  double __now = (double)UnityEngine.Time.realtimeSinceStartup;
+  // 墙上时钟上限：帧数/尝试次数都只挡得住"有在跑"的钩子，这条保证它一定会退订。
+  if (__now > (double)UnityEditor.SessionState.GetFloat("{deadline_key}", 0f)) {{
+    __disarm("到时间上限（{max_seconds}s）");
+    return;
+  }}
+  if (__now - __last < (double)UnityEditor.SessionState.GetFloat("{gap_key}", {gap}f)) return;
+  __last = __now;
+  // 先验收**上一拍**请求的那一帧：文件版是 Unity 自己排到 end-of-frame 写的，
+  // 所以"请求"和"落盘"天然隔一拍 —— 这一拍验收，同时发下一张，帧率不降。
+  string __pending = UnityEditor.SessionState.GetString("{pending_key}", "");
+  if (!string.IsNullOrEmpty(__pending)) {{
+    UnityEditor.SessionState.SetString("{pending_key}", "");
+    if (System.IO.File.Exists(__pending) && new System.IO.FileInfo(__pending).Length > 0) {{
+      UnityEditor.SessionState.SetInt("{n_key}", UnityEditor.SessionState.GetInt("{n_key}", 0) + 1);
+      UnityEditor.SessionState.SetInt("{fails_key}", 0);
+    }} else {{
+      int __f = UnityEditor.SessionState.GetInt("{fails_key}", 0) + 1;
+      UnityEditor.SessionState.SetInt("{fails_key}", __f);
+      if (__f >= {max_fails}) {{
+        __disarm("逐帧截图连续失败 " + __f + " 次，已停止录制（最后一帧没落盘："
+                 + __pending + "）");
+        return;
+      }}
+      UnityEditor.SessionState.SetString("{why_key}",
+          "逐帧截图连续失败 " + __f + " 次（最后一帧没落盘：" + __pending + "）");
+    }}
+  }}
+  int __n = UnityEditor.SessionState.GetInt("{n_key}", 0);
+  if (__n >= UnityEditor.SessionState.GetInt("{max_key}", {max_frames})) {{
+    __disarm("帧数到上限（" + __n + "）");
+    return;
+  }}
+  int __tries = UnityEditor.SessionState.GetInt("{tries_key}", 0) + 1;
+  UnityEditor.SessionState.SetInt("{tries_key}", __tries);
+  if (__tries > UnityEditor.SessionState.GetInt("{max_tries_key}", {max_tries})) {{
+    __disarm("尝试次数到上限（" + __tries + " 次，成功 " + __n + " 帧）");
+    return;
+  }}
+  // 用**文件版**截：`CaptureScreenshotAsTexture()` 在 update 回调里实测恒为 null
+  // （它只能在 end-of-frame 调），旧版钩子因此每一帧都抛异常、留下一堆假"失败"。
   try {{
-    var __tex = UnityEngine.ScreenCapture.CaptureScreenshotAsTexture();
-    byte[] __jpg = UnityEngine.ImageConversion.EncodeToJPG(__tex, 75);
-    UnityEngine.Object.DestroyImmediate(__tex);
-    System.IO.File.WriteAllBytes(System.IO.Path.Combine(
+    string __shot = System.IO.Path.Combine(
         UnityEditor.SessionState.GetString("{dir_key}", __dir),
-        string.Format("f_{{0:D5}}.jpg", __n)), __jpg);
-    UnityEditor.SessionState.SetInt("{n_key}", __n + 1);
-  }} catch (System.Exception) {{ }}
+        string.Format("f_{{0:D5}}.png", __n));
+    UnityEngine.ScreenCapture.CaptureScreenshot(__shot);
+    UnityEditor.SessionState.SetString("{pending_key}", __shot);
+  }} catch (System.Exception __e) {{
+    int __f2 = UnityEditor.SessionState.GetInt("{fails_key}", 0) + 1;
+    UnityEditor.SessionState.SetInt("{fails_key}", __f2);
+    if (__f2 >= {max_fails}) {{
+      __disarm("逐帧截图连续失败 " + __f2 + " 次，已停止录制（" + __e.Message + "）");
+    }} else {{
+      UnityEditor.SessionState.SetString("{why_key}",
+          "逐帧截图连续失败 " + __f2 + " 次：" + __e.Message);
+    }}
+  }}
 }};
 UnityEditor.EditorApplication.update += __cb;
-return "{{\"ok\":true,\"dir\":\"" + __dir.Replace("\\", "/") + "\",\"gap\":" + {gap} + "}}";
+return "{{\"ok\":true,\"dir\":\"" + __dir.Replace("\\", "/") + "\",\"gap\":" + {gap}
+     + ",\"max_tries\":" + {max_tries} + "}}";
 """.format(subdir=subdir.replace('"', ""), dir_key=_REC_DIR_KEY, on_key=_REC_ON_KEY,
            n_key=_REC_N_KEY, gap_key=_REC_GAP_KEY, max_key=_REC_MAX_KEY,
-           gap=gap, max_frames=int(max_frames))
+           tries_key=_REC_TRIES_KEY, fails_key=_REC_FAILS_KEY, why_key=_REC_WHY_KEY,
+           pending_key="unity_auto_rec_pending",
+           max_tries_key="unity_auto_rec_max_tries",
+           was_playing_key="unity_auto_rec_was_playing",
+           deadline_key="unity_auto_rec_deadline",
+           gap=gap, max_frames=int(max_frames), max_tries=int(max_tries),
+           max_seconds=int(max_seconds), max_fails=int(max_fails))
 
 
 def cs_record_stop() -> str:
+    """解除钩子并回传结果（帧数 / 尝试次数 / 停止原因）。
+
+    ``reason`` 只在**钩子自己退订**过的时候才回（帧数/尝试次数/时间上限、连续失败、
+    退出 Play）——那才是"录像提前结束"。平台主动停的那次：钩子只是被通知收工，
+    而它最后发出的那一帧还没来得及验收（文件版隔一拍落盘），残留的"连续失败 1 次"
+    会被当成故障播出去，实测一句 `WARN: 录像提前结束 —— 逐帧截图连续失败 1 次`
+    盖在一段 44 帧、10.8s 的正常录像上。
+    """
     return r"""
+bool __was_on = UnityEditor.SessionState.GetBool("{on_key}", false);
 UnityEditor.SessionState.SetBool("{on_key}", false);
 string __dir = UnityEditor.SessionState.GetString("{dir_key}", "");
 int __n = UnityEditor.SessionState.GetInt("{n_key}", 0);
+int __tries = UnityEditor.SessionState.GetInt("{tries_key}", 0);
+string __why = __was_on ? "" : UnityEditor.SessionState.GetString("{why_key}", "");
 System.Threading.Thread.Sleep(150);
-return "{{\"ok\":true,\"dir\":\"" + __dir.Replace("\\", "/") + "\",\"frames\":" + __n + "}}";
-""".format(on_key=_REC_ON_KEY, dir_key=_REC_DIR_KEY, n_key=_REC_N_KEY)
-
-
-# --- 软复位：Play Mode 里重载当前场景 ---------------------------------------
-# 硬复位（退 Play → 重进 Play）最彻底但要等一整套冷启动；只想把**地图/界面**拉回
-# 起点时，重载场景就够了。两处坑：场景不在 Build Settings 里（buildIndex<0）时只能
-# 按名字加载；`Application.isPlaying` 为假时调用没有任何意义 —— 都要明确回报，
-# 不能"静默什么都没做"让上层以为复位成功了。
-_CS_RELOAD_SCENE = r"""
-// reload-scene: 重载当前场景（soft 复位）
-if (!UnityEngine.Application.isPlaying) {
-  return "{\"ok\":false,\"error\":\"不在 Play Mode（软复位只在游戏跑起来时有意义）\"}";
-}
-var __sc = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-if (!__sc.isLoaded) {
-  return "{\"ok\":false,\"error\":\"当前没有已加载的场景\"}";
-}
-if (__sc.buildIndex >= 0) {
-  UnityEngine.SceneManagement.SceneManager.LoadScene(
-      __sc.buildIndex, UnityEngine.SceneManagement.LoadSceneMode.Single);
-} else {
-  UnityEngine.SceneManagement.SceneManager.LoadScene(
-      __sc.name, UnityEngine.SceneManagement.LoadSceneMode.Single);
-}
-return "{\"ok\":true,\"scene\":\"" + __sc.name.Replace("\\", "/").Replace("\"", "'") + "\"}";
-"""
+return "{{\"ok\":true,\"dir\":\"" + __dir.Replace("\\", "/") + "\",\"frames\":" + __n
+     + ",\"tries\":" + __tries
+     + ",\"reason\":\"" + __why.Replace("\\", "\\\\").Replace("\"", "'") + "\"}}";
+""".format(on_key=_REC_ON_KEY, dir_key=_REC_DIR_KEY, n_key=_REC_N_KEY,
+           tries_key=_REC_TRIES_KEY, why_key=_REC_WHY_KEY)
 
 
 def _frames_in(folder: Path) -> list[Path]:
+    """录到的帧（``f_00000.png``；老录像的 ``.jpg`` 也认，迁移期两代并存）。"""
     try:
         return sorted(p for p in folder.iterdir()
-                      if p.suffix.lower() == ".jpg" and p.name.startswith("f_"))
+                      if p.suffix.lower() in (".png", ".jpg") and p.name.startswith("f_"))
     except OSError:
         return []
 
@@ -1233,10 +1403,12 @@ def stitch_video(frames: list[Path], out_path: Path, fps: float) -> dict:
         return {"ok": False, "error": "本机没有 ffmpeg，装一个（brew install ffmpeg）才能合成录像"}
     if not frames:
         return {"ok": False, "error": "没有采到任何帧"}
-    # 帧名是 f_00000.jpg 这种定宽序号，用 %05d 让 ffmpeg 自己按序读。
+    # 帧名是 f_00000.png 这种定宽序号，用 %05d 让 ffmpeg 自己按序读；扩展名跟着
+    # 实际帧走（新录像 PNG、老录像 JPG —— 混着放会让我读一半就断）。
+    suffix = frames[0].suffix.lower() or ".png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [exe, "-y", "-loglevel", "error", "-framerate", f"{max(1.0, fps):.3f}",
-           "-start_number", "0", "-i", str(frames[0].parent / "f_%05d.jpg"),
+           "-start_number", "0", "-i", str(frames[0].parent / f"f_%05d{suffix}"),
            # 宽高各砍到偶数：Game View 可以是任意尺寸（实测 1737x1065），而
            # h264 的 yuv420p 要求宽高都是偶数 —— 不砍就整段合不出来，报错还很难懂
            # （`Could not open encoder before EOF`，退出码 187）。砍掉半列像素
@@ -1289,9 +1461,23 @@ async def status() -> dict:
     """桥 + 服务器 + 编辑器状态。任何失败都返回 available=False，不抛。"""
     def _do() -> dict:
         client = _get_client()
+        # 熔断期间顺手探一次：Unity 重启过（换实例）就自动解除，不然平台会一直卡着。
+        if _gpu_state["lost"]:
+            _gpu_recheck_sync()
         rpc_client = _rpc(lambda c: c.tools())
         instances = _instances_sync(client)
         editor = _editor_state_sync(client)
+        connected = bool(instances) or editor is not None
+        if not connected:
+            # 掉线了：是"普通没连上"还是"显卡把编辑器打死了"，只有编辑器自己的日志知道
+            # —— 顺手读一眼（带 mtime + TTL 缓存，5 秒内最多读一次）。
+            scan_editor_log()
+        dirty = _project_external_changes_dirty(client)
+        playing = bool((editor or {}).get("isPlaying"))
+        # 有实例清单却读不到编辑器状态 = 编辑器忙（域重载 / 导入中）或刚掉线。
+        # 这两件事在平台上长得一样，但下一步该做什么完全不同：忙要等，掉线要重启
+        # MCP 桥 —— 所以分开报，别让 agent 对着"未连接"瞎试。
+        stale = bool(instances) and editor is None
         return {
             "available": True,
             "transport": (settings.unity_mcp_transport or "http"),
@@ -1305,8 +1491,27 @@ async def status() -> dict:
             "editor": editor,
             "instances": instances,
             "is_playing": (editor or {}).get("isPlaying"),
+            # 工程有未导入的外部改动 → 桥会在下次带 preflight 的工具调用里自己
+            # 刷新+请求重编译（= 域重载）。是就如实报出去，让 agent 先请用户刷新。
+            "external_changes_dirty": dirty,
             # 连上没有以实例清单为准（编辑器状态在编辑器忙/重编译时可能读不到）
-            "unity_connected": bool(instances) or editor is not None,
+            "unity_connected": connected,
+            # 编辑器在、但状态读不到：正在域重载 / 导入中 / 刚掉线。
+            "editor_stale": stale,
+            # 那批"桥会自己刷新 + 重编译"的工具现在能不能发：没连上就不用说，
+            # 脏了不能发，Play 中更不能（重载会毁掉这一局）。
+            "can_run_gated_tools": connected and not dirty and not playing,
+            "gated_tools": sorted(_PREFLIGHT_GATED_TOOLS),
+            # 显卡设备丢失（DXGI_ERROR_DEVICE_REMOVED）：编辑器随时会关，平台已停手。
+            "gpu_device_lost": bool(_gpu_state["lost"]),
+            "gpu_evidence": str(_gpu_state["evidence"] or ""),
+            # 编辑器日志多久没写过了。**只在已知出问题时当线索**：正常空闲也会几分钟不写。
+            "editor_log_age_s": (round(editor_log_age_s() or 0.0, 1)
+                                 if _gpu_state["lost"] else None),
+            "advice": _status_advice(stale=stale, playing=playing, dirty=dirty,
+                                     connected=connected,
+                                     gpu_lost=str(_gpu_state["evidence"] or ""),
+                                     log_age_s=editor_log_age_s() if _gpu_state["lost"] else None),
         }
 
     if (reason := _bridge_guard.blocked()) is not None:
@@ -1317,6 +1522,41 @@ async def status() -> dict:
         return {"available": False, "error": str(exc), "hint": _hint_for_error(str(exc))}
     except Exception as exc:  # noqa: BLE001
         return {"available": False, "error": f"{type(exc).__name__}: {exc}", "hint": ""}
+
+
+def _status_advice(*, stale: bool, playing: bool, dirty: bool,
+                   connected: bool = True, gpu_lost: str = "",
+                   log_age_s: float | None = None) -> list[str]:
+    """状态页/agent 照着做的一行行话（没有问题时返回空表）。"""
+    out: list[str] = []
+    if gpu_lost:
+        # 放在最前面：这条压过其它一切 —— 显卡没了，别的建议都没有意义。
+        out.append("**显卡设备丢失**（DXGI_ERROR_DEVICE_REMOVED / 0x887a0005）："
+                   "平台已停手，编辑器随后会自行关闭。请用户更新显卡驱动、检查供电线/PCIe "
+                   "插槽与超频降压设置，然后重启 Unity（新实例起来后熔断自动解除）。")
+        # 待机/睡眠是这台机器上最常见的触发点（合盖、Idle Timeout 都会），
+        # 恢复后 D3D 设备可能已经失效 —— 值得单独点一句。
+        out.append("同一时间如果有待机/睡眠/合盖（Windows 事件里是"
+                   "「正在进入新型待机状态」），那条就是触发点：Unity 在 Play 时机器睡眠，"
+                   "恢复后显卡设备常常已经失效。跑 Unity 时把电源计划设成「从不睡眠」，"
+                   "别合盖。")
+        if log_age_s is not None and log_age_s > 60:
+            out.append(f"编辑器日志已经 {int(log_age_s)} 秒没有写入了 —— 编辑器多半不是"
+                       "「掉线」而是**已经卡死**（日志停在最后一行）。请在任务管理器里"
+                       "结束 Unity 再重新打开工程。")
+    if not connected and not stale:
+        out.append("Unity 编辑器没连上：请用户在 Unity 里打开工程、"
+                   "Window ▸ MCP for Unity 连到本机 5016。")
+    if stale:
+        out.append("编辑器有实例但状态读不到：多半正在域重载 / 导入资产。等它回来"
+                   "（别继续发命令）；一直不回就重启 unity-mcp 服务。")
+    if dirty and playing:
+        out.append("工程有未导入的外部改动，且正在 Play：**先退出 Play**，再调 "
+                   "unity_sync_assets 清标记，否则那批工具一个都发不出去。")
+    elif dirty:
+        out.append("工程有未导入的外部改动（latch，Ctrl+R 清不掉）：调 "
+                   "unity_sync_assets 清掉（只刷新、不重编译），再继续。")
+    return out
 
 
 _DEAD_SESSION_HINTS = ("session not available", "no unity session", "会话已过期",
@@ -1438,6 +1678,440 @@ def _instances_sync(client: McpClient) -> list[dict]:
         return []
 
 
+#: 桥内部带 ``preflight(..., refresh_if_dirty=True)`` 的工具（清单来自桥源码
+#: ``services/tools/*.py``）。工程被判"有未导入的外部改动"时，**桥自己**会调
+#: ``refresh_unity(mode=if_dirty, compile="request")``：强制同步刷新 + 请求重编译
+#: = 一次域重载。所以这些工具在脏的时候一个都不能代发（硬规则：平台永不触发 reload）。
+_PREFLIGHT_GATED_TOOLS = frozenset({
+    "manage_scene", "find_gameobjects", "manage_components", "manage_prefabs",
+    "run_tests", "manage_asset", "manage_gameobject", "manage_texture",
+})
+
+#: 脏检查的缓存秒数：状态资源本身很便宜，但每次工具调用都读一遍没必要
+_DIRTY_CHECK_TTL_S = 5.0
+_dirty_cache: tuple[float, bool, str] | None = None
+
+
+def _deep_find(node: object, key: str) -> object | None:
+    """在嵌套的 payload 里按 key 找一个值（各家状态形状不一致，别写死层级）。"""
+    if isinstance(node, dict):
+        if key in node:
+            return node[key]
+        for value in node.values():
+            found = _deep_find(value, key)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _deep_find(item, key)
+            if found is not None:
+                return found
+    return None
+
+
+def _project_external_changes_dirty(client: McpClient) -> bool:
+    """工程里有没有"Unity 还没导入的外部改动"（桥侧扫描器判定，带几秒缓存）。
+
+    真源：桥的 ``services/state/external_changes_scanner.py`` 扫工程目录（跳过
+    Library/Temp/Logs），看到比基线更新的 mtime 就置脏；之后任何一个带 preflight 的
+    工具调用都会触发"刷新 + 请求重编译"。所以这里必须先知道脏不脏。
+    """
+    global _dirty_cache
+    now = time.monotonic()
+    if _dirty_cache is not None and now - _dirty_cache[0] < _DIRTY_CHECK_TTL_S:
+        return _dirty_cache[1]
+
+    dirty = False
+    try:
+        uri = (_RESOURCE_TEMPLATES.get(client.flavor) or {}).get("editor_state")
+        if uri:
+            payload = _read_resource_sync(client, uri, timeout=10.0)
+            value = _deep_find(payload, "external_changes_dirty")
+            dirty = bool(value) if value is not None else False
+    except Exception:  # noqa: BLE001 — 读不到就按"不脏"放行：宁可漏判也不要卡死正常流程
+        dirty = False
+    _dirty_cache = (now, dirty)
+    return dirty
+
+
+def _gate_state(client: McpClient) -> dict | None:
+    """代发"闸内工具"之前要看的那一眼现场：``{dirty, knows_dirty, playing}``。
+
+    和 ``_project_external_changes_dirty`` 的区别在**读不到时怎么办**：那条给
+    ``status()`` 用，读不到就报"不脏"（状态页不该因为一次读失败就变红）；这条给
+    闸门用，读不到返回 ``None``，由调用方**拒绝**。
+
+    不吃那 5 秒缓存是有意的 —— 危险就在这个缝里：2026-09-23 01:37 的事故中，平台
+    缓存里还是"干净"，而桥进程里的扫描器已经变脏，于是那记 ``manage_scene`` 被
+    放过去，桥自己发了 ``refresh_unity(compile="request")``：Play Mode 里一次
+    域重载，编辑器卡死在 Reloading Domain，随后 D3D11 设备丢失、整机断电。
+    """
+    uri = (_RESOURCE_TEMPLATES.get(client.flavor) or {}).get("editor_state")
+    if not uri:
+        # 这个方言没有"编辑器状态"资源（平台只认识了 coplay 的那几个）—— **问都问不了**，
+        # 也就无从知道它会不会替我们刷新，按"不脏"放行（否则换一台 MCP 服务器就整个不可用）。
+        return {"dirty": False, "knows_dirty": False, "playing": False}
+    try:
+        payload = _read_resource_sync(client, uri, timeout=10.0)
+    except Exception:  # noqa: BLE001 —— 能问却问不到：编辑器忙/正在重载/已掉线，按危险处理
+        return None
+    dirty = _deep_find(payload, "external_changes_dirty")
+    playing = _deep_find(payload, "isPlaying")
+    if playing is None:
+        playing = _deep_find(payload, "is_playing")
+    return {
+        # 桥压根没有这个标志（别的方言）→ 它也不会替我们刷新，按"不脏"走
+        "dirty": bool(dirty) if dirty is not None else False,
+        "knows_dirty": dirty is not None,
+        "playing": bool(playing) if playing is not None else False,
+    }
+
+
+def _refuse_if_project_dirty(client: McpClient, tool: str) -> None:
+    """闸门：脏 / 读不到 / Play 中带脏 —— 一律拒绝代发（桥会借这次调用重编译）。
+
+    三种拒绝对应三件要做的事，文案里都写清楚：读不到 → 稍后重试 / 看编辑器是不是
+    掉线；脏 + Play → **先退出 Play**（唯一会毁掉这一局并卡死编辑器的组合）；
+    脏 + 非 Play → ``unity_sync_assets``（只刷新、不重编译）或重启 unity-mcp。
+    特别写明 Ctrl+R 没用：这标记是桥进程内存里的 latch，只有桥自己的刷新会清它。
+    """
+    state = _gate_state(client)
+    if state is None:
+        raise UnityBridgeError(
+            f"拒绝调用 {tool}：读不到 Unity 的编辑器状态，无法确认工程里有没有"
+            "「未导入的外部改动」。这批工具在桥内部带 preflight，脏的时候会自己"
+            "「刷新 + 请求重编译」（= 域重载）——**读不到就不放行**。稍后重试；"
+            "一直读不到就先看 unity_status（编辑器可能正在重载或已经掉线）。"
+        )
+    if not state["dirty"]:
+        return
+    if state["playing"]:
+        raise UnityBridgeError(
+            f"拒绝调用 {tool}：工程有未导入的外部改动，而且 Unity **正在 Play Mode**。"
+            "这次调用会触发「刷新 + 请求重编译」= 一次域重载 —— Play 中重载会毁掉这一局，"
+            "实测还会把编辑器卡死在 Reloading Domain（只能关掉编辑器重开）。"
+            "请先在 Unity 里退出 Play，再用 unity_sync_assets 清标记（只刷新、不重编译），"
+            "清完重新进 Play。"
+        )
+    raise UnityBridgeError(
+        f"拒绝调用 {tool}：Unity 工程里有未导入的外部改动（刚拉过代码 / 改过资源文件），"
+        "这批工具在桥内部带 preflight —— 脏的时候桥会自己「刷新 + 请求重编译」，"
+        "那就是一次域重载，平台按硬规则（永不触发 reload）拒绝执行。"
+        "**注意：在 Unity 里按 Ctrl+R / Assets ▸ Refresh all 清不掉这个标记**"
+        "（它是桥进程内存里的 latch，只有桥自己的刷新会清它）。"
+        "正确做法二选一：① 调 unity_sync_assets（非 Play 时可用，只刷新、不重编译）；"
+        f"② 重启 unity-mcp 服务。清完再调 {tool}。"
+    )
+
+
+# ===========================================================================
+# GPU 设备丢失熔断（DEVICE_REMOVED）
+# ===========================================================================
+#: 显卡被驱动/系统摘掉时，Unity 编辑器自己的日志长这样（2026-09-23 10:26 实测，
+#: 整机卡死到只能长按电源）：
+#:
+#:   D3D11: Failed to create RenderTexture (828 x 1472 fmt 26 aa 1), error 0x887a0005
+#:   …（85 条）…
+#:   Failed to present D3D11 swapchain due to device reset/removed. … This is an
+#:   unrecoverable error and the editor will shut down.
+#:
+#: ``0x887a0005`` = ``DXGI_ERROR_DEVICE_REMOVED``：显卡没了，编辑器随后**一定会**死。
+#: 此刻平台唯一正确的动作是**停手**：再发任何 Unity 调用，都只是往一块已经不存在的
+#: GPU 上继续叠加负载（那个现场紧接着就是整机 socket 缓冲区耗尽 / 掉电重启）。
+#: 所以这里置一个熔断标记，所有工具调用一律拒绝，并在文案里让人去看显卡。
+_GPU_LOSS_MARKS = (
+    "0x887a0005",
+    "dxgi_error_device_removed",
+    "device reset/removed",
+    "failed to present d3d11 swapchain",
+    "d3d11: failed to create",
+)
+
+#: 扫描预算：一段结果里只看前 12 万字（截图 base64 是几十万个字符的噪声）。
+_GPU_SCAN_MAX = 120_000
+
+#: 熔断期间重新探活的最小间隔（秒）：够便宜，又不至于每次都去打一个可能已经不在的编辑器。
+_GPU_RECHECK_S = 20.0
+
+_gpu_state: dict[str, Any] = {"lost": False, "when": 0.0, "evidence": "",
+                              "instances": "", "probed": 0.0}
+
+
+def _gpu_scan_text(payload: object, budget: int = _GPU_SCAN_MAX) -> str:
+    """把结果里可能有签名的部分拼成一段文本（图片 base64 只取头尾，别整个遍历）。"""
+    parts: list[str] = []
+    spent = 0
+
+    def _walk(node: object, depth: int = 0) -> None:
+        nonlocal spent
+        if spent >= budget or depth > 6:
+            return
+        if isinstance(node, str):
+            if len(node) > 20_000:            # 图片 base64 / 超大文本：签名总在报错行里
+                parts.append(node[:300] + " … " + node[-300:])
+                spent += 600
+            else:
+                parts.append(node)
+                spent += len(node)
+        elif isinstance(node, dict):
+            for value in node.values():
+                _walk(value, depth + 1)
+        elif isinstance(node, (list, tuple)):
+            for value in node:
+                _walk(value, depth + 1)
+
+    _walk(payload)
+    return "\n".join(parts)
+
+
+def _gpu_evidence_in(payload: object) -> str:
+    """结果文本里有没有"显卡被摘掉"的签名（有就返回命中那一行，便于人一眼看懂）。"""
+    blob = _gpu_scan_text(payload)
+    if not blob:
+        return ""
+    low = blob.lower()
+    for mark in _GPU_LOSS_MARKS:
+        at = low.find(mark)
+        if at < 0:
+            continue
+        start = blob.rfind("\n", 0, at) + 1
+        end = blob.find("\n", at)
+        line = " ".join(blob[start: end if end >= 0 else len(blob)].split())
+        if not line:      # 整段就是一行超长 JSON：退回窗口截取
+            line = " ".join(blob[max(0, at - 160): at + 200].split())
+        return line[:400]
+    return ""
+
+
+def note_gpu_loss(payload: object) -> bool:
+    """扫一段输出；命中就置熔断。返回"现在是否处于熔断状态"。"""
+    evidence = _gpu_evidence_in(payload)
+    if not evidence:
+        return bool(_gpu_state["lost"])
+    if not _gpu_state["lost"]:
+        _gpu_state.update(lost=True, when=time.time(), evidence=evidence,
+                          instances=_instance_key(), probed=time.time())
+        print(f"[unity] **GPU 设备丢失熔断**：{evidence[:300]}")
+    return True
+
+
+def gpu_device_lost() -> str:
+    """熔断中返回现场证据（一句话），健康返回空串。"""
+    return str(_gpu_state["evidence"]) if _gpu_state["lost"] else ""
+
+
+def clear_gpu_loss(reason: str = "") -> None:
+    """解除熔断（只该在"确认 Unity 重启过 / 显卡恢复正常"之后调）。"""
+    if _gpu_state["lost"]:
+        print(f"[unity] GPU 熔断解除：{reason or '人工确认'}")
+    _gpu_state.update(lost=False, evidence="", instances="", when=0.0, probed=0.0)
+
+
+def _instance_key() -> str:
+    """当前连着的 Unity 实例指纹（换实例 = Unity 重启过）。读不到就返回空串。"""
+    try:
+        return "|".join(sorted(str(i.get("id") or i.get("name") or "") for i in
+                               _instances_sync(_get_client())))
+    except Exception:  # noqa: BLE001 —— 探活失败不该影响调用方
+        return ""
+
+
+def _gpu_recheck_sync() -> bool:
+    """熔断期间的自动解除：编辑器换成**另一个实例**了（= Unity 重启过）就放行。
+
+    没有这条，一次瞬时现象会把平台焊死到进程结束 —— 而现场的处理办法恰恰就是
+    "重启 Unity"，所以判据选"实例指纹变了"，而不是"过了多久"。读不到实例时**保持熔断**
+    （宁可多拦一次，也不要往一块状态不明的显卡上继续发指令）。
+    """
+    if not _gpu_state["lost"]:
+        return False
+    now = time.time()
+    if now - float(_gpu_state.get("probed") or 0.0) < _GPU_RECHECK_S:
+        return True
+    _gpu_state["probed"] = now
+    fresh = _instance_key()
+    if fresh and fresh != str(_gpu_state.get("instances") or ""):
+        clear_gpu_loss(f"Unity 实例已更换（{_gpu_state.get('instances') or '未知'} → {fresh}）")
+        return False
+    return True
+
+
+def _gpu_refusal_text(evidence: str) -> str:
+    return (
+        "拒绝调用：Unity 编辑器已经报出**显卡设备丢失**"
+        f"（DXGI_ERROR_DEVICE_REMOVED / 0x887a0005），平台按硬规则停手不再发任何指令。\n"
+        f"现场证据：{evidence[:400]}\n"
+        "这件事软件层修不了：编辑器随后会自行关闭（Unity 原话 the editor will shut down），"
+        "继续调用只会往一块已经不在的显卡上叠加负载 —— 2026-09-23 那次现场紧接着就是"
+        "整机资源耗尽、只能长按电源重启。\n"
+        "现在该做的：① 别重试、别换工具绕（用例的下一次工具调用也会被拒，这是有意的）；"
+        "② 去看 Unity 的 Editor.log（`%LOCALAPPDATA%\\Unity\\Editor\\Editor.log`）确认这条报错；"
+        "③ 请用户检查显卡本体：驱动版本、供电线、PCIe 插槽、超频/降压设置；"
+        "④ 重启 Unity（平台检测到新实例后会自动解除熔断）。"
+    )
+
+
+#: 编辑器日志的尾部读取量。显卡丢失/卡死都写在最后几屏里，读整份（几 MB）没必要。
+_EDITOR_LOG_TAIL = 200_000
+
+#: 同一份日志最多每 5 秒看一次（日志一直在长，纯按 mtime 缓存等于每次都读）。
+_EDITOR_LOG_TTL_S = 5.0
+_editor_log_cache: dict[str, Any] = {"mtime": 0.0, "size": 0, "evidence": "",
+                                     "checked": 0.0, "age": None}
+
+
+def editor_log_path() -> Path | None:
+    """本机 Unity 的 Editor.log（Windows / macOS / Linux 三个默认位置）。"""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or ""
+        if not base:
+            return None
+        path = Path(base) / "Unity" / "Editor" / "Editor.log"
+    elif sys.platform == "darwin":
+        path = Path.home() / "Library" / "Logs" / "Unity" / "Editor.log"
+    else:
+        path = Path.home() / ".config" / "unity3d" / "Editor.log"
+    return path if path.is_file() else None
+
+
+def scan_editor_log(*, force: bool = False) -> str:
+    """读 Editor.log 尾部找「显卡设备丢失」签名；命中就置熔断并返回证据。
+
+    插件掉线之后，平台自己的调用一律失败、什么都看不到 —— 但**编辑器自己的日志**
+    还在这台机器上，显卡丢失的原话（``0x887A0005`` / swapchain device reset）就在
+    里面。这是唯一一条"Unity 已经死了、平台还能知道为什么"的通路：
+    2026-09-23 12:25 那次就是这么丢的（插件 1005 掉线、熔断没响，页面上只显示
+    "未连接"，人得自己去翻 Editor.log 才知道是显卡）。
+    """
+    if gpu_device_lost() and not force:
+        return gpu_device_lost()      # 已经熔断了，不用再读文件
+    path = editor_log_path()
+    if path is None:
+        return ""
+    now = time.time()
+    try:
+        stat = path.stat()
+    except OSError:
+        return ""
+    if (not force and _editor_log_cache["mtime"] == stat.st_mtime
+            and now - float(_editor_log_cache["checked"] or 0) < _EDITOR_LOG_TTL_S):
+        return str(_editor_log_cache["evidence"] or "")
+    try:
+        with path.open("rb") as fh:
+            fh.seek(max(0, stat.st_size - _EDITOR_LOG_TAIL))
+            blob = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    evidence = _gpu_evidence_in(blob)
+    _editor_log_cache.update(mtime=stat.st_mtime, checked=now, evidence=evidence,
+                             size=stat.st_size, age=max(0.0, now - stat.st_mtime))
+    if evidence:
+        note_gpu_loss({"source": "Editor.log", "evidence": evidence})
+        return evidence
+    return ""
+
+
+def editor_log_age_s() -> float | None:
+    """Editor.log 多久没写过了（秒）。**只在已知出问题时**当线索用：正常的空闲编辑器
+    也会几分钟不写一行，单看它说明不了任何事。"""
+    path = editor_log_path()
+    if path is None:
+        return None
+    try:
+        return max(0.0, time.time() - path.stat().st_mtime)
+    except OSError:
+        return None
+
+
+async def sync_assets() -> dict:
+    """安全清理「未导入的外部改动」这个 latch：**只刷新，不请求重编译**。
+    为什么需要单独一条：那标记是桥（MCP 服务器进程）内存里的 latch，一旦置脏就
+    不会自己消失，而 Ctrl+R / Assets ▸ Refresh all **清不掉**它（插件从不把自己
+    刷新的结果回报给扫描器）。脏着的时候那批带 preflight 的工具一个都发不出去，
+    整个自动化就卡住了 —— 这条走 ``refresh_unity(compile="none")``：刷新资产但不
+    请求重编译，因此**不产生域重载**。
+
+    **Play 中拒绝**：刷新本身也会打断这一局（大工程要几秒到几十秒），平台不在
+    Play 里做任何刷新 —— 这是"永不触发 reload"之外的第二条硬规则。
+    """
+    def _probe() -> dict | None:
+        return _gate_state(_get_client())
+
+    state = await asyncio.to_thread(_probe)
+    if state is None:
+        return {"success": False,
+                "error": "读不到 Unity 编辑器状态（编辑器可能正在重载 / 已经掉线）"}
+    if state["playing"]:
+        return {"success": False, "dirty": state["dirty"],
+                "error": "Unity 正在 Play Mode —— 请先在 Unity 里退出 Play 再同步资源"
+                         "（刷新会打断这一局；平台不在 Play 中做刷新）"}
+
+    def _do() -> dict:
+        client = _get_client()
+        tool, schema, _flavor = _resolve("refresh")
+        args = _adapt_args({"mode": "if_dirty", "scope": "all",
+                            "compile": "none", "wait_for_ready": False}, schema)
+        return unwrap(client.call(tool, args, timeout=120.0), save_image=False)
+
+    try:
+        out = await asyncio.to_thread(_do)
+    except UnityBridgeError as exc:
+        return {"success": False, "error": str(exc), "dirty": state["dirty"],
+                "hint": "清不掉就直接重启 unity-mcp 服务（标记在它的进程内存里）"}
+
+    after = await asyncio.to_thread(_probe)
+    still = bool((after or {}).get("dirty"))
+    return {
+        "success": not still,
+        "dirty_before": state["dirty"],
+        "dirty_after": (after or {}).get("dirty"),
+        "result": out,
+        "hint": ("标记已清，可以继续" if not still else
+                 "刷完了还是脏：多半是工程里又有文件在变（版本管理 / 打包脚本 / 游戏自己"
+                 "在写盘）。重启 unity-mcp 服务可以强制清一次。"),
+    }
+
+
+async def disarm_all_recorders() -> dict:
+    """把挂在编辑器上的录制钩子都卸掉（帧录像 + 手动录制）。
+
+    退出路径必须有一条"不管父进程死活都能收尾"的通道：帧钩子挂在
+    ``EditorApplication.update`` 上，是**编辑器**在按 fps 一直截图 —— runner 被
+    硬杀（超时 / 用户中断 / 进程被杀）时它的 atexit 不会执行。2026-09-22 就是残留
+    的帧钩子（一次会话 11532 次失败截图）把 D3D11 设备刷掉的。
+    """
+    report: dict = {}
+
+    for key, fn in (("frames", lambda: unity_on_cached_client().record_stop("run.mp4")),
+                    ("ui", lambda: unity_on_cached_client().record_ui_stop())):
+        try:
+            report[key] = await asyncio.to_thread(fn)
+        except Exception as exc:  # noqa: BLE001 —— 编辑器可能已经不在了，收尾尽力而为
+            report[key] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return report
+
+
+#: "取状态"这件事在各家方言里的叫法（用于判断某个工具的 schema 认不认）
+_STATE_ACTIONS = ("get_state", "state", "get", "status", "info", "query")
+
+
+def _accepts_state_action(tool: dict) -> bool:
+    """这个工具是不是"取编辑器状态"的？
+
+    只看名字会踩坑：coplay 的 ``manage_editor`` 把 ``action`` 限成一长串枚举
+    （play/pause/stop/...），**里面根本没有取状态的值** —— 拿 ivan 方言的
+    ``get_state`` 去调它，每次都被判参数非法。实测桥日志里这种无效调用积了 170 条
+    （每轮探活一条，2026-09-22 定位）。schema 没把 action 限成枚举的（通常是
+    "一个工具一个动作"的方言）视为可以试。
+    """
+    props = (tool.get("inputSchema") or {}).get("properties") or {}
+    key = _pick_key(set(props.keys()), "action") or "action"
+    enum = (props.get(key) or {}).get("enum")
+    if not isinstance(enum, list) or not enum:
+        return True
+    return any(a in {str(v).strip().lower() for v in enum} for a in _STATE_ACTIONS)
+
+
 def _editor_state_sync(client: McpClient) -> dict | None:
     """编辑器状态：先资源（实测该服务器只有资源给状态），再退回各家自己的工具。"""
     client.ensure_ready()
@@ -1453,6 +2127,8 @@ def _editor_state_sync(client: McpClient) -> dict | None:
                                key=lambda c: 0 if c[0] == client.flavor else 1):
         tool = client.find_tool((name,))
         if tool is None:
+            continue
+        if not _accepts_state_action(tool):
             continue
         args = _adapt_args({"action": "get_state"}, tool.get("inputSchema"))
         try:
@@ -1492,14 +2168,29 @@ async def editor_action(action: str) -> dict:
 
 
 async def _guard_call(fn):
+    # 显卡已经丢了：一律不发（急停 / 卸钩子 / 同步资源那几条不走这里，不受影响）。
+    if gpu_device_lost() and await asyncio.to_thread(_gpu_recheck_sync):
+        return {"success": False, "gpu_device_lost": True, "stop": True,
+                "error": _gpu_refusal_text(gpu_device_lost())}
     if (reason := _bridge_guard.blocked()) is not None:
         return {"success": False, "error": reason}
     try:
-        return await asyncio.to_thread(fn)
+        out = await asyncio.to_thread(fn)
     except UnityBridgeError as exc:
+        note_gpu_loss(str(exc))
+        if not gpu_device_lost():
+            # 调用失败时顺手看一眼编辑器日志：显卡丢失的原话只写在那儿，
+            # 插件掉线之后平台自己再也看不到（2026-09-23 12:25 的盲区）。
+            await asyncio.to_thread(scan_editor_log)
+            if gpu_device_lost():
+                return {"success": False, "gpu_device_lost": True, "stop": True,
+                        "error": _gpu_refusal_text(gpu_device_lost())}
         return {"success": False, "error": str(exc), "hint": _hint_for_error(str(exc))}
     except Exception as exc:  # noqa: BLE001
+        note_gpu_loss(str(exc))
         return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+    note_gpu_loss(out)
+    return out
 
 
 def _id_of(node: object) -> int | None:
@@ -1774,6 +2465,78 @@ async def set_text(target: str, text: str) -> dict:
     return out
 
 
+async def drag(from_target: str, to_target: str, steps: int = 12) -> dict:
+    """拖拽（完整指针序列，见 ``cs_drag``）：录制回放与手写用例共用。"""
+    out = await _guard_call(
+        lambda: _exec_csharp_sync(cs_drag(from_target, to_target, steps)))
+    out["action"] = "drag"
+    out["target"] = f"{from_target} -> {to_target}"
+    return out
+
+
+async def key(key: str) -> dict:
+    """按一次键（尽力而为，见 ``Unity.key``）。"""
+    out = await _guard_call(lambda: _exec_csharp_sync(cs_key(key)))
+    out["action"] = "key"
+    out["target"] = key
+    return out
+
+
+# ---- 手动录制（玩家自己点，平台录成用例）----------------------------------
+
+def _ui_rec_envelope(res: object) -> dict:
+    """把 ``Unity.record_ui_*`` 的**结果字典**包成平台统一的信封。
+
+    为什么要这一层（实测踩到）：类方法与模块级函数的返回形态不同 ——
+    `click`/`screenshot` 这类模块级函数返回 `{"success":…, "result":…}`，而
+    `Unity.record_ui_start` 返回的是内层 result（`{"ok":true,"file":…}`）。
+    服务层按统一信封读 `success`，少了这层就会把**成功**的注入报成失败。
+    """
+    if not isinstance(res, dict):
+        return {"success": False, "error": "桥返回了非字典结果", "result": {}}
+    if res.get("ok") is False:
+        return {"success": False, "error": str(res.get("error") or "操作失败"), "result": res}
+    return {"success": True, "result": res}
+
+
+async def record_ui_start(*, name: str = "", max_seconds: int = 3600,
+                          max_events: int = 5000) -> dict:
+    """安装/重挂 UI 录制器（幂等；钩子活着时不重复挂）。"""
+    def _do() -> dict:
+        return unity_on_cached_client().record_ui_start(
+            name=name, max_seconds=max_seconds, max_events=max_events)
+    out = _ui_rec_envelope(await _guard_call(_do))
+    out["action"] = "record_ui_start"
+    return out
+
+
+async def record_ui_status() -> dict:
+    """录制状态（开没开/已录几条/心跳多旧）——平台轮询它就是"自动重挂"的依据。"""
+    def _do() -> dict:
+        return unity_on_cached_client().record_ui_status()
+    out = _ui_rec_envelope(await _guard_call(_do))
+    out["action"] = "record_ui_status"
+    return out
+
+
+async def record_ui_stop() -> dict:
+    """停止录制（事件文件留在 Unity 临时目录，随后由 record_ui_fetch 取回）。"""
+    def _do() -> dict:
+        return unity_on_cached_client().record_ui_stop()
+    out = _ui_rec_envelope(await _guard_call(_do))
+    out["action"] = "record_ui_stop"
+    return out
+
+
+async def record_ui_fetch(since: int = 0, cap: int = 300) -> dict:
+    """分片取录制事件（长录制必须分片：MCP 响应有上限）。"""
+    def _do() -> dict:
+        return unity_on_cached_client().record_ui_fetch(since, cap)
+    out = _ui_rec_envelope(await _guard_call(_do))
+    out["action"] = "record_ui_fetch"
+    return out
+
+
 async def wait_for(target: str, timeout_s: float = 10.0, state: str = "present") -> dict:
     """等对象出现/消失（轮询统一走服务器自己的查询工具）。"""
     deadline = time.monotonic() + max(1.0, timeout_s)
@@ -1863,6 +2626,29 @@ async def screenshot(save_path: str | None = None) -> dict:
     return await _guard_call(lambda: _screenshot_sync(save_path))
 
 
+#: 抓图第一手段：**文件版** ``ScreenCapture.CaptureScreenshot(path)``。
+#: 为什么不用 ``CaptureScreenshotAsTexture()``：那个 API 必须在 end-of-frame 调用，
+#: 而我们的代码是从 ``EditorApplication.update``（插件命令队列）里跑的 —— 实测
+#: （2026-09-23，1080x1920 的移动端工程）它**直接返回 null**，于是"截一张看一眼"
+#: 这条最该好用的路整个失效：工具报错、录像探针失败、失败现场没图。
+#: 文件版是 Unity 自己排到 end-of-frame 写的，从哪儿调都能出图，而且**不需要场景里有
+#: 相机**（编辑模式下游戏场景常常一个相机都没有 —— 相机是运行时建的），
+#: Overlay UI 也照收（实测 1MB PNG，剧情页的血条/按钮/文字全在）。
+#:
+#: **不许出现 ``System.IO.File.Delete``**：插件的 ``execute_code`` 安检把它列在
+#: ``Blocked pattern``，整段代码会被原样拒绝（实测 11:29 前后三连：每次都退到相机截图，
+#: 而相机截图看不见 Overlay UI —— 表面上"success"却是错的图）。文件名靠
+#: 毫秒时间戳 + Guid 前 6 位保证不重，压根不需要先删。
+_CS_SCREENSHOT_FILE = r"""
+string __name = "bridge_shot_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")
+              + "_" + System.Guid.NewGuid().ToString("N").Substring(0, 6) + ".png";
+string __path = System.IO.Path.Combine(UnityEngine.Application.temporaryCachePath, __name);
+UnityEngine.ScreenCapture.CaptureScreenshot(__path);
+return "FILE:" + __path;
+"""
+
+
+#: 兜底：文件版拿不到图（老版本 Unity / 被平台策略挡住）时再试 texture 版。
 _CS_SCREENSHOT = r"""
 string __name = "bridge_shot_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + ".png";
 string __path = System.IO.Path.Combine(UnityEngine.Application.temporaryCachePath, __name);
@@ -1876,31 +2662,138 @@ return __path + "|" + __w + "x" + __h;
 """
 
 
+#: 文件版落盘是"下一帧才写"的（Unity 排到 end-of-frame），所以要等一等再看 ——
+#: 0.15s × 20 ≈ 3s 上限；判据是"文件存在且大小连续两次读到一样"（写一半就读会拿到半张图）。
+_SHOT_WAIT_S = 0.15
+_SHOT_TRIES = 20
+
+
+def _wait_for_shot(path: Path) -> int:
+    """等截图落盘，返回字节数（0 = 超时/是空文件）。"""
+    last = -1
+    for _ in range(_SHOT_TRIES):
+        time.sleep(_SHOT_WAIT_S)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size <= 0:
+            continue
+        if size == last:      # 连着两次一样 → 写完了
+            return size
+        last = size
+    return max(0, last)
+
+
+#: 活动场景路径：走 execute_code（**只读**）。不用 ``manage_scene`` 是有意的 ——
+#: 那个工具在桥内部带 preflight，脏工程上会由桥自己发 refresh_unity(compile="request")，
+#: 2026-09-23 01:37 的域重载卡死就是这么发出去的（"记一下起跑线"这种无害需求）。
+_CS_ACTIVE_SCENE = r"""
+var __scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+if (!__scene.IsValid()) return "{\"ok\":false,\"error\":\"没有活动场景\"}";
+string __p = __scene.path;
+if (string.IsNullOrEmpty(__p)) __p = __scene.name;
+return "{\"ok\":true,\"path\":\"" + __p.Replace("\\", "\\\\").Replace("\"", "'") + "\"}";
+"""
+
+
+#: 编辑器侧截图的连续失败计数（**只是诊断信息与"这次改道"的判据，不永久关闭**）。
+#:
+#: 为什么不再"永久改道"：用户口径是"Play 下截图要**一直可用**"。永久熔断的代价是 ——
+#: 一次瞬时失败（游戏正在切场景/加载、编辑器刚重编译完）就把这条最好的路封死到会话
+#: 结束，之后每次都退到"相机截图"（看不见 Overlay UI）甚至报错。截图是低频动作
+#: （不像逐帧录像每秒都在打 GPU），每次重试的代价只是一次 execute_code 往返，
+#: 所以这里改成：每次调用都先试最好的路；连续失败只在**当次**改道，并把原因写在
+#: 结果里（note），下一次仍然从文件版开始。
+_OVERLAY_FAILS_TO_SWITCH = 2
+_overlay_state: dict[str, Any] = {"fails": 0, "why": "", "last_error": ""}
+
+
+def _overlay_disabled_reason() -> str:
+    """连续失败≥2 时给一句"这次为什么改道"（成功一次就清空）。"""
+    if int(_overlay_state["fails"]) < _OVERLAY_FAILS_TO_SWITCH:
+        return ""
+    return str(_overlay_state["why"])
+
+
 def _capture_overlay(save_path: str | None, *, client=None, call=None) -> dict | None:
-    """用 ScreenCapture 截 Game View（**含 Overlay 的 UI**）。
+    """截 Game View（**含 Overlay 的 UI**）—— 编辑器侧两条路，先文件版，再 texture 版。
 
     为什么要绕开服务器自带的截图工具：那条路是"渲染某个相机"，而
     Screen Space - Overlay 的 Canvas 不进任何相机的渲染 —— 实测 Trash Dash 的
-    START 按钮在屏幕坐标上、没被剔除，相机路径的图里却一个 UI 都没有。
-    这里截的是游戏视图本身，Overlay / 相机 / 世界空间三种 Canvas 都在；
-    编辑器临时目录读不到（比如桥在另一台机器）时返回 None，由调用方退回服务器工具。
+    START 按钮在屏幕坐标上、没被剔除，相机路径的图里却一个 UI 都没有。更糟的是
+    编辑模式下游戏场景**常常一个相机都没有**（相机是运行时建的），那条路会直接报
+    "No camera found in the scene. Add a Camera …"（2026-09-23 实测踩到，agent 想
+    "截一张看一眼"却被这条路挡住）。
+
+    这里截的是游戏视图本身，Overlay / 相机 / 世界空间三种 Canvas 都在，
+    **Play 内外都能出图、也不需要相机**；编辑器临时目录读不到（比如桥在另一台机器）
+    时返回 None，由调用方退回服务器工具。
+
+    **每次都从最好的路开始试**（文件版 → texture 版），不设"永久改道"：一次瞬时失败
+    （切场景 / 刚重编译）不该把这条路封死到会话结束 —— 截图是低频动作，重试很便宜。
+    连续失败只在当次结果里留一句说明（note），下一次照样重试。
+
+    **两条路的错误都要留着**：只报"最后一个错误"会让真凶被掩盖 —— 实测就是
+    texture 版那句"返回 null"（它本来就不该在我们这个调用点成功）盖住了文件版
+    被插件安检拦下的真相（``Blocked pattern: System.IO.File.Delete``）。
     """
-    out = _exec_csharp_sync(_CS_SCREENSHOT, client=client, call=call)
-    result = str(out.get("result") or "")
-    if not out.get("success") or result.startswith("ERROR") or "|" not in result:
-        return None
-    src, _, size = result.partition("|")
-    src_path = Path(src)
-    if not src_path.exists():
-        return None
-    target = _resolve_shot_path(save_path) or (_shots_dir() / src_path.name)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src_path, target)
+    errors: list[str] = []
+    for label, snippet in (("文件版", _CS_SCREENSHOT_FILE), ("texture 版", _CS_SCREENSHOT)):
+        out = _exec_csharp_sync(snippet, client=client, call=call)
+        result = str(out.get("result") or "")
+        if out.get("success") and result.startswith("FILE:"):
+            src_path = Path(result[5:])
+            if _wait_for_shot(src_path):
+                target = _resolve_shot_path(save_path) or (_shots_dir() / src_path.name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src_path, target)
+                try:
+                    src_path.unlink()
+                except OSError:
+                    pass
+                _overlay_state["fails"] = 0
+                size = _png_size(target)
+                return {"success": True, "path": str(target), "tool": "screencapture",
+                        **({"size": size} if size else {})}
+            errors.append(f"{label}：截图文件没有落盘（{result[5:]}）")
+            continue
+        if out.get("success") and "|" in result:
+            src, _, size = result.partition("|")
+            src_path = Path(src)
+            if src_path.exists():
+                target = _resolve_shot_path(save_path) or (_shots_dir() / src_path.name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src_path, target)
+                try:
+                    src_path.unlink()
+                except OSError:
+                    pass
+                _overlay_state["fails"] = 0
+                return {"success": True, "path": str(target), "tool": "screencapture",
+                        "size": size}
+            errors.append(f"{label}：落了盘但文件不见了")
+            continue
+        errors.append(f"{label}：{result or str(out.get('error') or '未知')}")
+    _overlay_state["fails"] = int(_overlay_state["fails"]) + 1
+    _overlay_state["last_error"] = "；".join(e[:160] for e in errors)[:400]
+    _overlay_state["why"] = (
+        "编辑器侧截图（ScreenCapture 文件版 + texture 版）这次都没成；"
+        + _overlay_state["last_error"])
+    return None
+
+
+def _png_size(path: Path) -> str:
+    """从 PNG 头里读宽高（不装图像库；读不到就不报 size）。"""
     try:
-        src_path.unlink()
+        head = path.read_bytes()[:24]
     except OSError:
-        pass
-    return {"success": True, "path": str(target), "tool": "screencapture", "size": size}
+        return ""
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
+        return ""
+    width = int.from_bytes(head[16:20], "big")
+    height = int.from_bytes(head[20:24], "big")
+    return f"{width}x{height}" if width and height else ""
 
 
 def _screenshot_sync(save_path: str | None, *, client=None, call=None) -> dict:
@@ -1908,6 +2801,9 @@ def _screenshot_sync(save_path: str | None, *, client=None, call=None) -> dict:
     overlay = _capture_overlay(save_path, client=client, call=call)
     if overlay is not None:
         return overlay
+    # 编辑器侧那条路被熔断时，如实说清楚"这张图是怎么来的"——相机截图看不见
+    # Overlay 的 UI，不知道这件事的人会以为"按钮没渲染出来"。
+    note = _overlay_disabled_reason()
     tool, schema, flavor = _resolve("screenshot")
     # include_image 默认 false（实测该服务器还把内联图压到 640px）——要图就得明说，
     # 并把长边放宽，否则界面上小字看不清。
@@ -1917,15 +2813,15 @@ def _screenshot_sync(save_path: str | None, *, client=None, call=None) -> dict:
     args = _adapt_args(args, schema)
     raw = (call or _rpc)(lambda c: c.call(tool, args, timeout=90.0))
     if raw.get("isError"):
-        return unwrap(raw)
+        return _translate_shot_error(unwrap(raw))
     blocks = [b for b in (raw.get("content") or []) if isinstance(b, dict)]
     for block in blocks:
         if block.get("type") == "image" and block.get("data"):
             path = _save_image(block["data"], block.get("mimeType", "image/png"), save_path)
-            return {"success": True, "path": path, "tool": tool}
+            return {"success": True, "path": path, "tool": tool, **({"note": note} if note else {})}
     out = unwrap(raw, save_image=False)
     if not out.get("success"):
-        return out   # 工具自己报的失败（如 "Unity session not available"）原样上抛
+        return _translate_shot_error(out)   # 把插件内部报错翻成"下一步做什么"
     # 没有图片块：有些服务器只回文件名/路径
     text = (out.get("text") or "").strip()
     m = re.search(r"[^\s\"']+\.png", text)
@@ -1933,6 +2829,29 @@ def _screenshot_sync(save_path: str | None, *, client=None, call=None) -> dict:
         return {"success": True, "path": m.group(0), "tool": tool, "text": text}
     return {"success": False, "error": "服务器没有返回图片内容（可能要开 include_image）",
             "text": text, "tool": tool}
+
+
+#: 插件在"编辑模式 + 场景里没有相机"时给的原文。它说得没错，但对平台的使用者
+#: （人和 agent）没有信息量：真正要知道的是"为什么截不到、那我现在该干嘛"。
+_SHOT_NO_CAMERA = ("no camera found in the scene", "outside of play mode")
+
+
+def _translate_shot_error(out: dict) -> dict:
+    """截图失败的报错翻译：相机/Play 这一类死胡同，说清楚原因与替代手段。"""
+    blob = f"{out.get('error') or ''} {out.get('text') or ''}".lower()
+    if any(marker in blob for marker in _SHOT_NO_CAMERA):
+        return {
+            "success": False,
+            "error": (
+                "截不到游戏画面：编辑器现在**不在 Play**（编辑模式下 Game View 没有帧"
+                "可截），而这个场景在编辑模式下也没有相机（相机是游戏运行时建的）。"
+                "→ 要看画面：请让用户在 Unity 里点 Play，然后再截图；"
+                "→ 不打算进 Play：界面信息改用 unity_hierarchy / unity_find_by_text / "
+                "unity_object_text（这些不需要画面），控制台报错用 unity_console。"
+            ),
+            "tool": out.get("tool"),
+        }
+    return out
 
 
 async def run_tests(mode: str = "PlayMode", filter_text: str = "", timeout_s: float = 300.0) -> dict:
@@ -1994,23 +2913,6 @@ async def call(tool: str, args: dict | None = None, timeout: float = 60.0) -> di
     return await _guard_call(_do)
 
 
-def _same_scene(want: str, path: str) -> bool:
-    """两个"场景标识"是不是同一个：全路径相等，或去掉路径/扩展名后同名。
-
-    用例里写 ``RESET = {"scene": "01_moqiaoshanzhuang"}``、状态里记的是
-    ``Assets/Mods/SAMPLE/Maps/GameMaps/01_moqiaoshanzhuang.unity`` —— 得认成同一个，
-    否则每次复位都去重开一遍场景（脏场景的保存对话框会卡住编辑器）。
-    """
-    a = str(want or "").strip().replace("\\", "/")
-    b = str(path or "").strip().replace("\\", "/")
-    if not a or not b:
-        return False
-    if a == b or a.lower() == b.lower():
-        return True
-    stem = lambda s: s.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip().lower()   # noqa: E731
-    return stem(a) == stem(b)
-
-
 def _wait_until(pred, timeout_s: float, what: str, interval: float = 0.5) -> None:
     """轮询到 pred() 为真；超时抛 UnityBridgeError（说清在等什么）。"""
     deadline = time.monotonic() + max(1.0, timeout_s)
@@ -2033,13 +2935,62 @@ def unity_on_cached_client() -> Unity:
     return u
 
 
-async def reset(scene: str = "", wait_for: str = "", timeout: float = 120.0,
-                mode: str = "hard", play: bool = True) -> dict:
-    """把游戏复位到「用例起跑线」（语义见 ``Unity.reset``）。"""
+def _scene_matches(want: str, path: str) -> bool:
+    """"场景标识"是不是同一个：全路径相等，或去掉路径/扩展名后同名。
+
+    用例里写 ``scene="01_moqiaoshanzhuang"``、现场是
+    ``Assets/Mods/SAMPLE/Maps/GameMaps/01_moqiaoshanzhuang.unity`` —— 得认成同一个，
+    否则会把"已经在起跑线"误判成"要复位"。
+    """
+    a = str(want or "").strip().replace("\\", "/")
+    b = str(path or "").strip().replace("\\", "/")
+    if not a or not b:
+        return False
+    if a == b or a.lower() == b.lower():
+        return True
+    stem = lambda s: s.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip().lower()   # noqa: E731
+    return stem(a) == stem(b)
+
+
+def start_line_instruction(scene: str = "", wait_for: str = "", playing: bool = True) -> str:
+    """起跑线差距的人话说明（要不要回过去由用户决定：平台不复位、也不拦执行）。"""
+    lines = ["当前不在起跑线（平台不强制，回不回去由你决定）："]
+    if scene:
+        lines.append("  起跑要求场景：%s" % scene)
+    if wait_for:
+        lines.append("  起跑要求标志物：界面上出现 %s" % wait_for)
+    if not playing:
+        lines.append("  另外：Unity 现在不在 Play Mode，请先在 Unity 里点 Play。")
+    lines.append("  要恢复的话：在 Unity 里把游戏调成上面这个状态（重进 Play / 手动走回该界面），")
+    lines.append("              然后重新运行本用例。")
+    return "\n".join(lines)
+
+
+async def check_start_line(scene: str = "", wait_for: str = "") -> dict:
+    """看当前**是不是起跑线**（只读）。不在就把"该复位到什么状态"讲成人话。
+
+    平台不做复位（2026-09-22 起，理由见 ``unity_service`` 的起跑线一节）：这里
+    只回答两个问题 —— 在不在起跑线、不在的话该恢复成什么样，动作由用户来做。
+    """
     def _do() -> dict:
-        out = unity_on_cached_client().reset(scene=scene, wait_for=wait_for,
-                                             timeout=timeout, mode=mode, play=play)
-        out["success"] = True
+        u = unity_on_cached_client()
+        state = u.editor_state() or {}
+        playing = bool(state.get("isPlaying"))
+        now_scene = str((u.active_scene() or {}).get("path") or "") if playing else ""
+        want_scene = str(scene or "").strip()
+        anchor = str(wait_for or "").strip()
+        reasons: list[str] = []
+        if not playing:
+            reasons.append("Unity 不在 Play Mode")
+        if want_scene and not _scene_matches(want_scene, now_scene):
+            reasons.append(f"当前场景是 {now_scene or '(未知)'}，要的是 {want_scene}")
+        if anchor and playing and not u.exists(anchor):
+            reasons.append(f"界面上还没出现 {anchor}")
+        out = {"success": True, "at_start_line": not reasons, "playing": playing,
+               "scene": now_scene, "want_scene": want_scene, "wait_for": anchor}
+        if reasons:
+            out["reasons"] = reasons
+            out["instruction"] = start_line_instruction(want_scene, anchor, playing)
         return out
 
     return await _guard_call(_do)
@@ -2114,8 +3065,7 @@ class Unity:
             target = args[0]
         else:
             # 关键字调用也要能看出"这一步作用在什么上"：轨迹与运行详情里
-            # "reset"/"hierarchy"/"find_by_text" 只写动作名等于没写
-            # （复位那一步的 target 就是起跑场景，一眼能看出回到哪儿了）。
+            # "hierarchy"/"find_by_text" 只写动作名等于没写。
             for key in ("target", "scene", "wait_for", "path", "root", "text",
                         "name", "save_path"):
                 value = kwargs.get(key)
@@ -2226,63 +3176,21 @@ class Unity:
             name, _adapt_args({"action": "load", "path": path}, schema))))
         return out
 
-    def reset(self, scene: str = "", wait_for: str = "", timeout: float = 120.0,
-              mode: str = "hard", play: bool = True) -> dict:
-        """把游戏复位到「用例起跑线」—— 用例之间的状态隔离靠它。
+    def active_scene_path(self) -> str:
+        """当前活动场景的资产路径（``Assets/…/*.unity``），读不到给空串。
 
-        **hard（默认）**：退出 Play →（需要时）打开起跑场景 → 重新 Play → 等标志物。
-        这是唯一真能"回到起点"的做法：场景对象、DontDestroyOnLoad 的常驻单例、静态
-        缓存、网络会话全部重来（重新进 Play 会重载脚本域）。代价是走一遍冷启动。
-
-        **soft**：保持 Play Mode，重载当前场景（``SceneManager.LoadScene``）—— 快，
-        但静态状态与跨场景常驻对象不清，只适合"地图/界面状态回起点"。给 ``scene``
-        且与当前场景不同时会报错：换场景必须走 hard（编辑模式才能开场景）。
-
-        ``scene`` 接受场景路径或名字，与当前打开的一致就**不重复打开**（避免脏场景
-        的保存提示框把编辑器卡在模态上）；``wait_for`` 给起跑线标志物（如 HUD 上的
-        「系统」按钮），复位完成的判定就是它回来了 —— 别用 sleep 猜。
+        **走 execute_code，不走 ``manage_scene``** —— 这是有意的：``manage_scene``
+        在桥内部带 ``preflight(refresh_if_dirty=True)``，工程被判脏时会**由桥自己**
+        发一次 ``refresh_unity(compile="request")``（= 域重载）。2026-09-23 01:37
+        卡死编辑器、最终整机断电的那一记域重载，就是从"跑用例时想记一下起跑线场景"
+        这条无害需求、经 ``manage_scene`` 发出去的。读路径不该有写风险。
         """
-        mode = (mode or "hard").strip().lower()
-        if mode not in ("hard", "soft"):
-            raise UnityBridgeError(f"未知复位方式 {mode!r}（hard / soft）")
-        if mode == "soft" and scene and not _same_scene(scene, self.active_scene().get("path") or ""):
-            raise UnityBridgeError(
-                f"软复位不能换场景（要 {scene}，当前是 {self.active_scene().get('path')}）"
-                "—— 换场景请用 mode='hard'")
-
-        t0 = time.monotonic()
-        current = self.active_scene()
-        if mode == "hard":
-            if self.is_playing():
-                self.stop()
-                _wait_until(lambda: not self.is_playing(), 30.0,
-                            "退出 Play Mode（Unity 卡在编译/保存对话框时不会停）")
-            want = (scene or "").strip()
-            if want and not _same_scene(want, current.get("path") or ""):
-                self.load_scene(want)
-                after = self.active_scene()
-                if after.get("path") and not _same_scene(want, after.get("path") or ""):
-                    raise UnityBridgeError(
-                        f"起跑场景没打开：想要 {want}，实际是 {after.get('path')}")
-            if play and not self.is_playing():
-                self.play(wait_s=max(15.0, min(timeout, 60.0)))
-                if not self.is_playing():
-                    raise UnityBridgeError("Play 没起来（Unity 侧可能在编译或弹窗）")
-        else:
-            if not self.is_playing():
-                raise UnityBridgeError("软复位要求已经在 Play Mode —— 冷启动请用 mode='hard'")
-            out = self.exec_csharp(_CS_RELOAD_SCENE, timeout=max(30.0, timeout))
-            result = out.get("result")
-            if not (isinstance(result, dict) and result.get("ok")):
-                raise UnityBridgeError(
-                    f"重载场景失败：{(result or {}).get('error') or out.get('error')}")
-
-        if wait_for:
-            self.wait_for(wait_for, timeout=timeout, state="present")
-        scene_now = self.active_scene()
-        return {"ok": True, "mode": mode, "scene": scene_now.get("path") or scene,
-                "anchor": wait_for, "seconds": round(time.monotonic() - t0, 1),
-                "playing": self.is_playing()}
+        try:
+            out = self._exec_csharp(_CS_ACTIVE_SCENE, timeout=self.timeout)
+        except UnityBridgeError:
+            return ""
+        result = out.get("result") if isinstance(out.get("result"), dict) else {}
+        return str(result.get("path") or "").strip() if result.get("ok") else ""
 
     # ---- 对象 -------------------------------------------------------------
     def find_objects(self, *, name: str = "", path: str = "", component: str = "",
@@ -2524,7 +3432,7 @@ class Unity:
             if not scene:
                 return
             Path(path).write_text(json.dumps(
-                {"scene": scene, "play": True, "mode": "hard", "timeout": 180,
+                {"scene": scene, "play": True, "mode": "lua", "timeout": 180,
                  "wait_for": target}, ensure_ascii=False), encoding="utf-8")
         except Exception:   # noqa: BLE001 —— 记不下起跑线不该影响用例本身
             pass
@@ -2578,20 +3486,69 @@ class Unity:
     def recording(self) -> bool:
         return self._recording is not None
 
-    def record_start(self, *, fps: float = 6.0, max_frames: int = 1800,
-                     name: str | None = None) -> dict:
+    def record_start(self, *, fps: float = DEFAULT_RECORD_FPS,
+                     max_frames: int | None = None,
+                     max_seconds: int | None = None, name: str | None = None) -> dict:
         """开始逐帧录制（编辑器侧采帧，帧落在 Unity 的临时缓存目录）。
 
-        默认 6fps / 最多 1800 帧（≈5 分钟）。录制会持续占用一点 GPU 与磁盘，
-        换来的是**失败现场有录像**——这正是 Playwright 那边 video 的价值。
+        默认 **5fps**；帧数与秒数上限**跟着执行预算走**（``record_budget``：30 分钟
+        的预算就是 9000 帧 / 1800s），两条都可由调用方显式覆盖。墙上时钟那条是必须的：
+        帧数与尝试次数都只挡得住"有在跑"的钩子 —— 一个挂在编辑器里、不会自己停的
+        每帧截图循环，代价是整台机器（2026-09-22 实测：残留钩子把 D3D11 设备刷掉）。
+        录制会持续占用一点 GPU 与磁盘，换来的是**失败现场有录像**。
+
+        **挂钩子之前先试一帧**（``probe_capture_ok``）：截不到就不挂，直接
+        抛 ``UnityBridgeError`` 说明原因。实测那台工程 Screen 报 1080x1920、
+        Game View 只有 1754x1299，逐帧截图每次都被拒 —— 那种情况下挂上去只是
+        以 fps 频率白刷（并持续打 GPU），用例该照常跑，只是没有录像。
         """
+        budget_frames, budget_seconds = record_budget(fps)
+        max_frames = int(max_frames or budget_frames)
+        max_seconds = int(max_seconds or budget_seconds)
+        if gpu_device_lost():
+            # 显卡已经没了：这时候去挂一个"每帧截图"的钩子，就是往坏掉的 GPU 上继续加负载。
+            raise UnityBridgeError("录像不可用：显卡设备已丢失（DXGI_ERROR_DEVICE_REMOVED）")
+        ok, detail = self.probe_capture_ok()
+        if not ok:
+            raise UnityBridgeError("录像不可用：" + detail)
         subdir = name or time.strftime("rec_%Y%m%d_%H%M%S")
-        out = self._raise(self._exec_csharp(cs_record_start(subdir, fps, max_frames),
-                                            timeout=max(30.0, self.timeout)))
+        out = self._raise(self._exec_csharp(
+            cs_record_start(subdir, fps, max_frames, max_seconds=max_seconds),
+            timeout=max(30.0, self.timeout)))
         result = out.get("result") if isinstance(out.get("result"), dict) else {}
         self._recording = {"dir": result.get("dir") or "", "fps": float(fps),
-                           "started": time.monotonic(), "max_frames": int(max_frames)}
+                           "started": time.monotonic(), "max_frames": int(max_frames),
+                           "max_seconds": int(max_seconds)}
         return self._recording
+
+    def probe_capture_ok(self, *, tries: int = 12, wait_s: float = 0.4) -> tuple[bool, str]:
+        """试拍一帧（**文件版**），返回 ``(能不能截, 说明)``。
+
+        为什么是两步：文件版由 Unity 排到 end-of-frame 落盘，"请求"和"落盘"天然
+        隔一拍，一次 ``execute_code`` 往返里看不到结果。所以先武装一次性钩子
+        （``_CS_CAPTURE_PROBE_ARM``，它自己会在下一帧验收并记进 SessionState），
+        再轮询读结果（``_CS_CAPTURE_PROBE_READ``）。
+
+        为什么不用 ``CaptureScreenshotAsTexture`` 当探针：2026-09-23 实测它在
+        ``execute_code`` 和 ``EditorApplication.update`` 两个上下文里**都返回 null**
+        （那个 API 只能在 end-of-frame 调）—— 拿它当探针等于把每一次录制都判成
+        "录像不可用"，而真正能用的文件版从没被试过。
+        """
+        armed = self._exec_csharp(_CS_CAPTURE_PROBE_ARM, timeout=max(30.0, self.timeout))
+        armed_text = str((armed or {}).get("result") or "")
+        if not armed_text.startswith("ARMED"):
+            return False, (armed_text or "试拍没有返回结果")
+        for _ in range(max(1, int(tries))):
+            time.sleep(max(0.05, wait_s))
+            read = self._exec_csharp(_CS_CAPTURE_PROBE_READ, timeout=max(30.0, self.timeout))
+            text = str((read or {}).get("result") or "")
+            verdict = text.split("|", 1)[0]
+            if verdict.startswith("OK"):
+                return True, verdict
+            if verdict.startswith("ERROR"):
+                return False, verdict
+        return False, ("试拍后一直没有落盘（编辑器可能不在 Play：逐帧截图截的是渲染出来的"
+                       "最后一帧，编辑模式下没有帧可截）")
 
     def record_stop(self, save_as: str | None = "run.mp4", *, keep_frames: bool = False,
                     fps: float | None = None) -> dict:
@@ -2603,7 +3560,8 @@ class Unity:
 
         **不抛异常**：录像只是存证，ffmpeg 缺失/帧目录在另一台机器上都不该把一条
         已经跑出结论的用例改判成失败。失败信息在返回值的 ``error`` 里，prelude
-        会把它打进入运行输出。
+        会把它打进入运行输出。编辑器侧自己熔断停掉的（连续截图失败）原因放在
+        ``note`` 里 —— 不然"录像只有 3 帧"看起来像丢帧，其实是根本截不到。
         """
         info = self._recording or {}
         stopped_at = time.monotonic()
@@ -2620,12 +3578,18 @@ class Unity:
                     "error": "帧目录不在本机：编辑器和平台不在同一台机器时无法合成录像"
                              "（截图能回传是因为走了 MCP，帧是同机读盘）"}
         frames = _frames_in(folder)
-        elapsed = max(0.2, stopped_at - float(info.get("started") or stopped_at))
-        measured = len(frames) / elapsed
-        fps = float(fps) if fps else (measured if measured >= 0.2 else float(info.get("fps") or 6.0))
+        # 平台兜底收尾时（runner 被超时杀掉，见 unity_service._salvage_recording）
+        # 拿不到 start 时间：这时按请求 fps 合成，别用"帧数 / 0.2s"算出个荒唐的速率。
+        started = info.get("started")
+        elapsed = (stopped_at - float(started)) if started else 0.0
+        measured = (len(frames) / elapsed) if elapsed > 0.5 else 0.0
+        fps = float(fps) if fps else (measured if measured >= 0.2 else float(info.get("fps") or DEFAULT_RECORD_FPS))
         result_out: dict = {"ok": True, "frames": len(frames), "dir": str(folder),
+                            "tries": int(result.get("tries") or 0),
                             "fps": round(fps, 2),
                             "duration_s": round(len(frames) / max(0.2, fps), 1)}
+        if result.get("reason"):
+            result_out["note"] = str(result["reason"])
         if save_as:
             target = Path(save_as)
             if not target.is_absolute():
@@ -2638,13 +3602,71 @@ class Unity:
         return result_out
 
     @contextlib.contextmanager
-    def recording_scope(self, save_as: str = "run.mp4", *, fps: float = 6.0):
+    def recording_scope(self, save_as: str = "run.mp4", *, fps: float = DEFAULT_RECORD_FPS):
         """``with u.recording_scope("login.mp4"):`` —— 出来的录像必定收尾。"""
         self.record_start(fps=fps)
         try:
             yield self
         finally:
             self.record_stop(save_as, fps=fps)
+
+    # ---- 拖拽 / 按键（录制回放要用；手写用例同样可用）----------------------
+    def drag(self, from_target: str, to_target: str, steps: int = 12) -> dict:
+        """把 ``from_target`` 拖到 ``to_target``（完整指针序列，见 cs_drag）。
+
+        实测取舍：编辑器里合成不了真实指针，走 ``ExecuteEvents`` 直发拖拽事件链——
+        对实现 ``IDragHandler``/``IDropHandler`` 的控件通用；个别自绘控件若只认
+        真实输入，改用例（用 ``exec_csharp`` 调它的业务方法）。
+        """
+        out = self._exec_csharp(cs_drag(from_target, to_target, steps))
+        if not out.get("success"):
+            raise UnityBridgeError(f"拖拽失败 {from_target} → {to_target}: {out.get('error')}")
+        return out.get("result") or {}
+
+    def key(self, key: str) -> dict:
+        """按一次键（**尽力而为**：先事件系统 Esc/Enter，再输入系统合成）。
+
+        实测已知：新版 Input System 的合成对游戏的 InputAction 常不生效
+        （技能文档记过 Esc 关面板失败的案例）。返回体里 ``verified=false`` ——
+        调用方看到 ``via_events=false`` 且 ``via_input=false`` 时就是完全没送到。
+        """
+        out = self._exec_csharp(cs_key(key))
+        if not out.get("success"):
+            raise UnityBridgeError(f"按键失败 {key}: {out.get('error')}")
+        return out.get("result") or {}
+
+    # ---- 手动录制（玩家自己点，平台录成用例）------------------------------
+    def record_ui_start(self, *, name: str = "", max_seconds: int = 3600,
+                        max_events: int = 5000) -> dict:
+        """安装 UI 录制器（编辑器帧回调；不改工程、不建脚本文件）。
+
+        幂等：钩子还活着时不会重复挂（防双份事件）。进 Play Mode 的域重载会
+        清掉钩子，平台侧靠 ``record_ui_status`` 的心跳发现并重挂。
+        """
+        subdir = name or time.strftime("uirec_%Y%m%d_%H%M%S")
+        out = self._raise(self._exec_csharp(
+            cs_record_ui_start(subdir, max_seconds=max_seconds, max_events=max_events),
+            timeout=max(30.0, self.timeout)))
+        result = out.get("result") if isinstance(out.get("result"), dict) else {}
+        return result
+
+    def record_ui_status(self) -> dict:
+        """录制状态：开没开 / 已录几条 / 心跳多旧（平台据此判断要不要重挂）。"""
+        out = self._exec_csharp(cs_record_ui_status(), timeout=max(30.0, self.timeout))
+        result = out.get("result") if isinstance(out.get("result"), dict) else {}
+        return result
+
+    def record_ui_stop(self) -> dict:
+        """停止录制（置标志让帧回调自己退订；事件文件保留在 Unity 临时目录）。"""
+        out = self._exec_csharp(cs_record_ui_stop(), timeout=max(30.0, self.timeout))
+        result = out.get("result") if isinstance(out.get("result"), dict) else {}
+        return result
+
+    def record_ui_fetch(self, since: int = 0, cap: int = 300) -> dict:
+        """分片取录制事件（MCP 响应有上限，长录制必须分片）。"""
+        out = self._exec_csharp(cs_record_ui_fetch(since, cap), timeout=max(30.0, self.timeout))
+        result = out.get("result") if isinstance(out.get("result"), dict) else {}
+        return result
 
     # ---- 失败现场 ---------------------------------------------------------
     def capture_failure(self, save_as: str = "failure.png") -> dict:
@@ -2714,7 +3736,7 @@ class Unity:
 #: 那些平台自己的收尾动作同理不记 —— 它们的成败已经在运行输出里说清楚了。
 _TRACED_ACTIONS = ("click", "set_text", "wait_for", "expect_exists", "expect_absent",
                    "expect_hidden", "expect_text", "screenshot", "play", "stop", "pause",
-                   "reset")
+                   "drag", "key")
 
 
 def _traced(method):
@@ -2749,9 +3771,12 @@ del _name
 
 __all__ = [
     "Unity", "UnityBridgeError", "call", "click", "console", "cs_click", "cs_describe",
-    "cs_find_text", "cs_present", "cs_record_start", "cs_record_stop", "cs_text",
-    "cs_tree", "cs_set_text", "editor_action", "exec_csharp", "find_by_text",
-    "find_objects", "hierarchy", "object_info", "reset",
+    "cs_drag", "cs_find_text", "cs_key", "cs_present", "cs_record_start",
+    "cs_record_ui_fetch", "cs_record_ui_start", "cs_record_ui_status", "cs_record_ui_stop",
+    "cs_record_stop", "cs_text", "cs_tree", "cs_set_text",
+    "drag", "editor_action", "exec_csharp", "find_by_text",
+    "find_objects", "hierarchy", "key", "object_info",
+    "record_ui_fetch", "record_ui_start", "record_ui_status", "record_ui_stop",
     "run_tests", "screenshot", "set_text", "status", "stitch_video", "tools",
     "unity_on_cached_client", "unwrap",
     "wait_for",

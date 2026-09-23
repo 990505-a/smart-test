@@ -285,10 +285,12 @@ async def test_delete_script_removes_runs_and_disk_files(db_factory, tmp_path, m
 async def test_delete_refuses_while_a_run_is_in_flight(db_factory, tmp_path, monkeypatch):
     """正在执行的用例删不掉（409）：后台任务还要往回写，产物还在生成。
 
-    僵死的 running（进程被杀留下的，超过 RUN_STALE_AFTER_S）不拦 —— 否则一条永远
-    跑不完的记录会让脚本永远删不掉。
+    僵死的 running（进程被杀留下的，超过 `unity_service.run_stale_after_s()`）不拦 ——
+    否则一条永远跑不完的记录会让脚本永远删不掉。阈值**从函数取**（= 执行预算 + 180s，
+    预算可配），不写死数字：写死的话预算一调，这条测试就会用错的年龄构造"僵死"记录。
     """
     from src.app.core.config import settings
+    from src.app.services import unity_service
 
     monkeypatch.setattr(settings, "workspace_dir", tmp_path)
 
@@ -298,8 +300,9 @@ async def test_delete_refuses_while_a_run_is_in_flight(db_factory, tmp_path, mon
             await unity_api.delete_script(str(fresh.id), user=None, db=db)
         assert err.value.status_code == 409 and "正在执行中" in err.value.detail
 
-    stale = await _make_script_with_files(db_factory, tmp_path, status="running",
-                                          age_s=unity_api._STALE_AFTER_S + 60)
+    stale = await _make_script_with_files(
+        db_factory, tmp_path, status="running",
+        age_s=unity_service.run_stale_after_s() + 60)
     async with db_factory() as db:
         out = await unity_api.delete_script(str(stale.id), user=None, db=db)
         assert out.data["deleted"] is True

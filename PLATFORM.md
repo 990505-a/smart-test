@@ -658,8 +658,8 @@ GM 命令、或快照存档文件）。任意"战斗第 3 回合中间"的快照
 - **只动 `unity-auto/<script_id>/` 这一层**：共享的 `unity-auto/screenshots/`（探索时截图落的地方，
   不属于任何一条用例）不动，软链不跟（删链接不删目标）——两条都有测试钉住。
 - **正在执行的删不掉（409）**：后台任务还在往回写、产物还在生成。判断口径与"运行中卡太久"
-  共用（`unity_service.RUN_STALE_AFTER_S`，两面读同一个常量），所以进程被杀留下的僵死
-  running 不会让脚本永远删不掉。
+  共用（`unity_service.run_stale_after_s()` = 执行预算 + 180s，两面读**同一个函数**），
+  所以进程被杀留下的僵死 running 不会让脚本永远删不掉；预算调大后这个阈值跟着动。
 - 前端：行内垃圾桶按钮 + `AlertDialog` 二次确认（说明会连执行记录与产物一起删、不可恢复），
   删除中禁用按钮，失败时把后端那句话原样提示（比如"正在执行中"）。
   `apiClient.delete` 顺手改成可指定返回类型（默认仍是 `MessageResponse`）。
@@ -829,3 +829,275 @@ service 层，不受影响；工具侧反而多了一个 `kb` 参数和 `rag_lis
   "留空跟随主模型"显示生效值）；平台 `/rag` 页无入库卡片，展示与检索测试正常。
 - 全量单测 **584 通过**（新增 11 条：注册表 9 条 + 工具/熔断 2 条；`test_wiring` 的
   "注册表服务名 → 启动器"那条改成直接问启动器要服务表，因为服务名现在是现算的）。
+
+## 22. 两件事：录像钩子把 Unity 拖崩了 + 平台不再做复位（2026-09-22）
+
+**用户诉求**（连着两问）："为什么复位后 Unity 直接崩溃了？" → "看一下为什么又崩了，
+我这次在线呀" → "我想了想，完全去除复位功能吧，需要复位的时候提醒用户要执行复位操作
+然后告诉用户需要复位的场景是什么，保存的 Unity 用例也加一个标注告诉用户复位的场景"。
+
+### 22.1 崩溃：不是复位，是我们自己的录像钩子
+
+两次崩溃的编辑器日志最后一句都是
+`Failed to present D3D11 swapchain due to device reset/removed ... unrecoverable error and
+the editor will shut down`（GPU 设备丢失，不是脚本/资源/Lua 错误）。第一次（16:30）能对上
+系统日志：16:22:15 进「新型待机」（Idle Timeout）→ 16:30:07 鼠标唤醒 → 16:30:18 `dwm.exe`
+崩在 `dwmcore.dll` → Unity 设备丢失。第二次（16:59）用户在线、无待机、无 dwm 崩溃，
+但那份 28 分钟的会话日志里 **11532 次** `CaptureScreenshotAsTexture() failed` ——
+全是我们的逐帧录像钩子（栈是 `MCPDynamicCode/<Execute>…<>m__0 ()` ← `EditorApplication.update`）。
+
+钩子为什么会一直刷：**保险只数成功的帧**（`__n` 只在写盘成功后 +1），截图一直被拒时
+帧数永远是 0，`max_frames` 永远不触发；而用例被平台 420s 超时**硬杀**时 runner 的
+`atexit` 不执行 → `record_stop()` 没发出 → 钩子留在编辑器里以 6fps 一直截图（那台工程
+Screen 报 1080x1920、Game View 只有 1754x1299，逐帧截图次次被拒，实测四轮录像 0 帧）。
+一轮超时漏一个钩子，几轮下来同时好几个 —— GPU 就是这么被拖垮的。
+
+**修法**（三处，都在"让钩子不可能无人值守地活着"）：
+
+1. 编辑器侧熔断（`cs_record_start`）：尝试次数上限（4× 帧数）+ **连续失败 20 次自动退订**
+   并把原因写进 SessionState；`cs_record_stop` 回传原因，运行输出里能看到"录像提前结束 ——
+   逐帧截图连续失败 20 次：…"。
+2. 挂钩子前**先试一帧**（`_CS_CAPTURE_PROBE`）：截不到就不挂，直接告诉用例"录像不可用 +
+   为什么"，而不是挂上去白刷几万次。
+3. 平台兜底收尾（`unity_service._salvage_recording`）：runner 留一个 `.recording` 标记，
+   被超时杀掉时父进程补发一次 `record_stop`（顺带把已采到的帧合成录像）。
+4. 顺带：跑用例期间用 `SetThreadExecutionState` **禁止系统睡眠** —— 待机唤醒本身就是
+   一手"设备丢失"。
+
+## 22bis. 域重载卡死编辑器 + D3D11 设备丢失（2026-09-23 凌晨，整机断电级）
+
+**用户诉求**："平台智能体跑自动化脚本的过程中我把会话中断了，但 Unity 好像还在被驱动，
+然后 GPU 崩溃、界面全卡死，只能重启电脑" → "找到根本原因" → "全部修改，不要再出现这么
+严重的问题"。
+
+### 22bis.1 现场（全部来自日志，不是推测）
+
+- `Editor-prev.log` 最后一行是 `Begin MonoManager ReloadAssembly`（卡在域重载里），
+  它的前两行是 `RefreshV2(ForceUpdate)` 与 `[ScriptCompilation] Requested script
+  compilation because: Requested through public api`；`Editor.log`（01:38:15 用户重启的
+  那次会话）最后是 44 行 `d3d11: failed to create buffer ... [0x887A0005]`
+  （`0x887A0005` = DXGI_ERROR_DEVICE_REMOVED）。
+- `logs/unity-mcp.log`：**01:37:50** `refresh_unity: Connection lost during compile
+  (expected - domain reload triggered)` → 60s 后 `Timed out after 60s waiting for
+  editor to become ready` → 之后 `No Unity plugin reconnected within 20.00s` 刷了 17 次
+  （插件再没回来）。当刻有一次 adhoc 用例运行在飞（`unity-auto/adhoc/20260923_013731_adhoc`，
+  steps.jsonl 为空）。
+- 系统日志：01:43:09 未正常关机 + Kernel-Power 41；**没有** TDR(4101)、**没有** Unity
+  crash dump —— 整机卡死后被强制断电，不是驱动报错重启。
+
+### 22bis.2 根因：我们自己注入的 prelude 踩了"会被桥重编译"的工具
+
+链条（每一环都有源码/日志证据）：
+
+1. 平台给每次用例执行注入的 prelude 里，"记起跑线"那段调了 `u.active_scene()`
+   → 桥的 `_OP_TOOLS["scene"]` → **`manage_scene`**。
+2. `manage_scene` 在桥内部带 `preflight(refresh_if_dirty=True)`：工程被判"有未导入的
+   外部改动"（`external_changes_dirty`，一个 **latch**）时，**桥自己**会发
+   `refresh_unity(mode="if_dirty", scope="all", compile="request", wait_for_ready=True)`
+   （`services/tools/preflight.py`），插件落地就是 `AssetDatabase.Refresh(ForceUpdate|
+   ForceSynchronousImport)` + `CompilationPipeline.RequestScriptCompilation()`
+   （`MCPForUnity/Editor/Tools/RefreshUnity.cs`）——**注意 `if_dirty` 在插件里等同 force**。
+3. 平台的护栏（那 8 个闸内工具、脏就拒发）本身是有的，但脏检查是 **5 秒缓存 + 读失败即
+   放行**：缓存里还是"干净"、或被放行的那一刻刚变脏，这一记就漏过去了。
+4. 于是一次**强制同步刷新 + 请求重编译**落在 **Play Mode** 里 = 域重载 →
+   编辑器卡在 Reloading Domain；插件 WebSocket 1005 掉线后再没重连；GPU 设备随后被移除。
+5. "中断了还在被驱动"：平台的停止是**检查点式取消**，已经在飞的工具调用不会被抢占；
+   用例跑在独立子进程（`run_unity_script` → `sys.executable case.py`）里、自己连桥，
+   命令发出去就照样执行（中断后仍有 01:46/01:49/01:50 三次运行，最后一次真的点了 Unity）。
+   另外 runner 被**硬杀**时子进程 atexit 不执行，而收尾只写在 `except TimeoutError` 分支
+   （`asyncio.CancelledError` 分支以前漏了）—— 这正是 09-22 那版钩子残留的同一个洞。
+
+### 22bis.3 修法
+
+**A. 让"桥替我们重编译"这件事不可能发生**
+
+1. 闸门改**严格**（`unity_bridge._gate_state` + `_refuse_if_project_dirty`）：代发那 8 个
+   工具前**不吃缓存地**读一次状态；读不到 → **拒绝**（fail-closed，以前是放行）；
+   脏 + Play → 拒绝并明说"Play 中重载会毁掉这一局、实测卡死编辑器"。
+   （问都问不了的方言 —— 平台没有它的状态资源模板 —— 才按"不脏"放行，否则换服务器即不可用。）
+2. **读路径不许有写风险**：prelude 的起跑线快照改走新增的 `u.active_scene_path()`
+   （execute_code），不再碰 `manage_scene`。
+3. 脏标记的清理有了专用安全通道 `unity_sync_assets`
+   （`refresh_unity(compile="none", wait_for_ready=False)`：只刷新、不重编译、不 pump
+   PlayerLoop）：**仅非 Play 可用**，清完再读一次状态如实回报。agent 工具
+   `unity_sync_assets` + REST `POST /unity-auto/sync-assets` + `/unity-auto` 页按钮。
+   拒绝文案里写清"Ctrl+R 清不掉这个 latch"，不再让用户白刷。
+4. `unity_status` 增加 `editor_stale` / `can_run_gated_tools` / `advice`：编辑器正在重载
+   或掉线时如实说出来，而不是只报一句"未连接"让人瞎试。
+
+**B. 中断/异常路径都要能把编辑器拉回干净状态**
+
+5. `run_unity_script` 的 `except asyncio.CancelledError` 分支补 `_salvage_recording`
+   （用 `asyncio.shield` 保证收尾跑完）——中断与超时一视同仁。
+6. 新增急停：`unity_service.stop_all_runs()`（取消所有在跑的用例 + 卸掉帧录像/手动录制
+   两个钩子）+ agent 工具 `unity_emergency_stop` + `POST /unity-auto/stop-all` + 页面按钮。
+7. 帧钩子再加两道保险：**墙上时钟上限**（= 执行预算，见第 9 条）与**退出 Play 自动退订**
+   （挂钩子时在 Play 才管这条）；fps 从 6 调成 **5**（看清交互，写盘/GPU 回读只有
+   10fps 的一半）。
+8. 编辑器侧截图不再有"永久改道"（同日按用户口径改回，见 22bis.4）：主路径换成文件版
+   `ScreenCapture.CaptureScreenshot(path)`，每次调用都从最好的路开始试，连败只在**当次**
+   留一句说明。原先"连败 2 次就永久改道相机截图"的代价是：一次瞬时失败（切场景、
+   刚重编译）就把这条路封死到会话结束，而 Play 下截图必须**一直可用**。
+9. **执行预算变成一等设置**（同日追加，用户要求"改成 1800s、帧数 5"）：单次执行的墙钟
+   预算从"裸 `os.environ` 读一次（默认 420s）"改成 `settings.unity_run_timeout_s`
+   （默认 **1800s**，`.env` 的 `UNITY_RUN_TIMEOUT_S`，两条执行路径都读得到 —— 裸 env 只有
+   langgraph 进程 load_dotenv 进过 `os.environ`，FastAPI 读不到，这是上个版本埋的坑）。
+   **三处常量一起联动**，不再各写一套：僵死判定 `run_stale_after_s()` = 预算 + 180s
+   （以前硬编码 600，预算一放到 30 分钟就会把正在跑的记录标成"僵死"还能删）；
+   录像上限 `record_budget(fps)` = fps × 预算（以前写死 300s，长流程的录像会莫名少半段）。
+
+回归：`tests/test_unity_reload_guard.py`（闸门三态 + sync_assets 契约）、
+`tests/test_unity_recording.py::TestReloadSafetyGuards`（prelude 不许调 `u.active_scene()`、
+10fps 默认值、钩子三道保险、中断走 salvage、急停取消 + 卸钩子）。
+
+### 22bis.4 「Play 下截图一直可用」+ 探索打转必须截图 + 显卡设备丢失熔断（同日 11:00）
+
+用户口径两条：「**Play 的情况下截图要一直可用**」「模型遇到问题的纯探索没有结论的情况下，
+要**进行截图判断，不要硬找**」。加上当天上午第二次死机（10:26 D3D11 设备丢失 → 10:31 长按
+电源；10:38 又一次 → 10:40 BSOD `0x1E`），平台侧又补了三件事。
+
+**A. 截图路径（`unity_bridge._capture_overlay`）**
+
+1. 主路径换**文件版** `ScreenCapture.CaptureScreenshot(path)`：实测（1080x1920 的移动端工程）
+   `CaptureScreenshotAsTexture()` 从 `EditorApplication.update` 里调**直接返回 null** ——
+   旧文案"录像不可用：ERROR: CaptureScreenshotAsTexture 返回 null"就是这么来的，
+   于是"截一张看一眼"这条最该好用的路整个失效。文件版由 Unity 自己排到 end-of-frame 写，
+   从哪儿调都能出图，**也不需要场景里有相机**，Overlay UI 照收（实测 1MB PNG，剧情页
+   血条/按钮/文字全在）。落盘是"下一帧才写"，所以判据是"文件存在且大小连续两次一样"。
+2. **去掉永久熔断**：`_overlay_state` 不再有 `off`；连败只在结果里留一句 `note`，
+   下一次照样从文件版开始。截图是低频动作，重试代价只是一次往返；"永久改道"的代价是
+   截不到图到会话结束。
+3. 编辑模式下失败给**可执行的**报错（`_translate_shot_error`）：Unity 原话
+   "No camera found in the scene…" 翻译成"编辑器现在**不在 Play**（没有帧可截），
+   而这个场景编辑模式下也没有相机 → 要么让用户点 Play，要么改用
+   `unity_hierarchy` / `unity_find_by_text` / `unity_object_text` 读结构"，并明说
+   **别反复重试截图**。（顺带纠一个当时的误判：那句报错与 `manage_camera` 是否被闸门拦住无关，
+   `manage_camera` 本来就不在那 8 个带 preflight 的工具里。）
+
+**B. 探索打转 → 先截图（新中间件 `exploration_nudge`）**
+
+`ExplorationNudgeMiddleware` 数"连续多少个 Unity 探索类工具调用没有截图"（默认 8，
+`AGENT_EXPLORE_NUDGE_AFTER`）：到点就在消息末尾追加一条系统提醒（截图看现场 / 图看不了就
+把路径交给用户 / 然后给结论），**每 8 次重复一次**，出现人工消息或截图即复位。
+与视觉门（`vision_gate`）配合：读不了图的模型会拿到一段占位符，里面写明"把 path 贴给用户，
+别假装看过图"。工具文档（`unity_screenshot`）与技能（`unity-ui-test/SKILL.md`）同步了
+"Play 才有画面 / 连续探索 8 次先截图 / 读不了图就交给用户"三条。
+
+**C. 显卡设备丢失熔断（`unity_bridge` GPU alarm）**
+
+第二次死机的现场**不是平台造成的**，但暴露了平台缺一条"停手"通道：
+
+- 时间线：10:25:56 那次会话的 run 正常结束（`run_exec_ms` 1071s，Background run succeeded）
+  → 10:26:10 游戏退 Play 时 Unity 报 **85 条**
+  `D3D11: Failed to create RenderTexture (828 x 1472 …)，error 0x887a0005` 紧跟
+  `Failed to present D3D11 swapchain due to device reset/removed … the editor will shut down`
+  → 10:29:23 整个 Python 侧报 `OSError [WinError 10055]`（系统 socket 缓冲区耗尽）
+  → 10:31:12 `Kernel-Power 41`（`LongPowerButtonPressDetected=true`，就是长按电源）
+  → 10:34 Unity 重新起来 → 10:38 又死 → 10:40:22 `Kernel-Power 41` 带
+  **`BugcheckCode=30`（0x1E KMODE_EXCEPTION_NOT_HANDLED，P1=0xC0000005 访问违例）**。
+  **后一次 BSOD 时平台进程根本没在运行**（服务全在前一次重启后停着，Unity 还在启动阶段）。
+- 硬件侧证据（`Get-WinEvent`，不是推测）：`WHEA-Logger 17`「已更正的硬件错误 / PCI Express
+  Advanced Error Reporting」累计 **738 条，最早 2025-01-27**（19 个月前），出错的设备是
+  `PCI\VEN_10DE&DEV_2786` = **RTX 4070 及其音频功能**；每次死机前后都有三连条。
+  `Display 4101`（TDR）全天历史 **0 条**。机器上还装着三个虚拟显示适配器（ToDesk /
+  GameViewer / MuMu）与 Intel 核显，NVIDIA 驱动是 2025-02 的 572.42。
+  → 倾向**硬件/驱动级**（GPU 的 PCIe 链路或供电），不是任何一次工具调用能修好的东西。
+- 平台侧所以做的是"**停手 + 喊出来**"：`_GPU_LOSS_MARKS`（`0x887a0005` /
+  `dxgi_error_device_removed` / `device reset/removed` / `failed to present d3d11 swapchain` /
+  `d3d11: failed to create`）扫描所有工具结果与异常文本 → 置熔断 →
+  ① `_guard_call` **一律拒绝**后续调用（急停/卸钩子/同步资源三条不收影响，它们不走这条漏斗）；
+  ② `record_start` 直接拒（不再往坏显卡上挂每帧截图的钩子）、`run_unity_script` 不开局
+  （返回 `environment` 失败，压根不落 `case.py`）；③ `unity_status` 报
+  `gpu_device_lost` + `gpu_evidence` + 置顶的 `advice`，`/unity-auto` 页出红色卡片 +
+  急停/解除按钮（`POST /unity-auto/clear-gpu-alarm`）。
+  熔断**会在检测到新的 Unity 实例时自动解除**（判据是实例指纹变化，不是"过了多久"；
+  读不到实例时保持熔断），另有手动解除兜底。
+
+回归：`tests/test_unity_gpu_alarm.py`（16 条：签名识别 / base64 大块里也能找到 /
+熔断后底层函数一次都不被调用 / 结果与异常两条置位路径 / 换实例自动解除 / 读不到实例保持熔断 /
+录像与开局被拦 / 状态页与手动解除 / 截图主路径不含被插件安检拦下的 API）、
+`tests/test_exploration_nudge.py`（6 条）。
+
+**D. 顺带挖出来的真 bug：录像链路从探针到钩子全是坏的（同日 11:35 实测）**
+
+用户看到的那句 `录像不可用：ERROR: CaptureScreenshotAsTexture 返回 null` 不是偶发 ——
+**逐帧录像在这台工程上从来没成功过**，因为探针和帧钩子都用了
+`ScreenCapture.CaptureScreenshotAsTexture()`：
+
+- 实测（Unity 2022.3.23f1c1 + 该工程，Play 中）：从 `execute_code` 调 → `NULL`；
+  从 `EditorApplication.update` 钩子调 → **也是 `NULL`**（第 3 帧再试仍是）。那个 API
+  只能在 end-of-frame 调，而插件的命令队列与帧回调都不是。
+- 对照实测：同一钩子里 `ScreenCapture.CaptureScreenshot(path)` **成功落盘 1 157 745 字节**。
+- 所以：`record_start` 的试拍永远失败 → 用例每次都收到"录像不可用"（被 prelude 吞成
+  一行 WARN，用例照样判过，于是没人发现）；就算绕过探针，钩子也会每帧抛异常、
+  连续失败到自熔断。
+
+改法（全部走文件版，且顺手把"请求/落盘隔一拍"当成正式契约）：
+
+1. 探针改成**两步**：`_CS_CAPTURE_PROBE_ARM` 挂一次性钩子试拍 → `_CS_CAPTURE_PROBE_READ`
+   读 `SessionState` 里的结果；`probe_capture_ok()` 每 0.4s 问一次、最多 12 次。
+   钩子**给足 ~180 帧（约 3 秒）的耐心**再判死 —— `CaptureScreenshot` 是异步的，
+   只给一两帧的耐心会让录像是"有时能开始、有时报不可用"（第一版实测踩到）。
+2. 帧钩子改成：**每一拍先验收上一拍请求的那一帧**（文件存在且非空 → 帧数 +1、失败清零），
+   同时用文件版请求下一帧。帧率不降（验收与请求在同一拍），且不再有"每帧抛异常"。
+3. 帧文件从 `f_%05d.jpg` 变 `f_%05d.png`：`_frames_in` 两代都认，`stitch_video` 的
+   `-i f_%05d<扩展名>` 跟着实际帧走（老录像重合成不会读一半就断）。
+4. `cs_record_stop` 只在**钩子自己退订**过时才回 `reason`：平台主动停的那次，钩子最后
+   发出的一帧还没来得及验收，残留的"连续失败 1 次"会盖在一段正常录像上报成
+   `WARN: 录像提前结束`（实测 44 帧 / 10.8s 的正常录像被这么播过）。
+5. 截图主路径里那句"先删同名文件"（`System.IO.File.Delete`）撞上插件安检的
+   `Blocked pattern`：整段代码被原样拒绝，于是每次都静默退到**相机截图**（看不见
+   Overlay UI），而 note 里只看得到 texture 版那句 null —— 现在改成"毫秒 + Guid 命名、
+   不做任何删除"，并且**两条路的错误都报出来**（`_capture_overlay` 的 `errors` 列表）。
+
+端到端实测（Play 中，平台自检用例）：`录像已开始 -> …/rec_20260923_113649`、
+`录像 -> …/run.mp4 (18 帧 / 3.4s)`，连跑两次稳定；截图 3/3 走编辑器侧文件版
+（1080x1920、约 0.4s、含 Overlay UI 的游戏界面）。
+
+### 22.2 复位：从"平台自动做"改成"人做、平台只检查"
+
+复位是**改被测对象状态**的动作：做了之后没人分得清"游戏本来就这样"还是"平台点成这样"，
+而且自动复位会让失败多出一类说不清的理由。现在：
+
+- **平台侧**：`Unity.reset` / `_reset_lua` / `_CS_LUA_INJECT` / `_CS_RELOAD_SCENE` /
+  `unity_service.reset` 全部删除；`unity_reset` 工具换成只读的 `unity_start_line`
+  （看当前在不在起跑线，不在就把 `instruction` 给用户）；设置页的「Lua 复位入口 / 复位代码」
+  两个字段一并删除（它们只服务于复位）。
+- **执行时**：prelude 只在输出里打**一行提示**（"这条用例要求从哪个场景/界面开始；平台
+  不复位、不检查，请自行确认"），然后照常往下跑 —— 第一版是"不在起跑线就 exit 3 /
+  `needs_reset` 拦下来"，用户当天就要求去掉："不要强制验证，全靠用户自觉"。拦下来的
+  那一下代价是每次都要有人点确认，而起点对不对本来就是用户自己的事。
+- **用例侧**：`RESET = {"scene": …, "wait_for": …}` 语义变成"起跑线的**声明/标注**"；
+  入库时自动在文件头写一行 `# 起跑线（人工复位）：场景=…；标志物=…`（幂等，起跑线改了会更新），
+  用例列表新增「起跑线（需人工复位）」一列，接口也带 `start_line` / `start_line_note`。
+  没写 RESET 的用例仍用"上次跑通时记下的现场"兜一份说明。
+
+单测：删除 6 条复位行为用例，新增 6 条（"必须没有复位入口" / 起跑线检查只读 /
+不在起跑线也照跑（只提示不拦） / 标注幂等 …）；`tests/` 全量 **646 通过**（另有 4 条与本改动
+无关的环境性失败：3 条 Windows 符号链接、`test_stdio_transport` 在改动前就是红的）。
+### 22.3 跑不通 = 改用例再跑，不是"执行不了"（同日追加）
+
+**用户诉求**："平台智能体执行自动化脚本的时候，判断如果走不通，不是直接不执行，
+而是优化用例，然后再执行保存。"
+
+落到三处（都是让这句话变成**事实**，而不只是提示词里的一句话）：
+
+1. **失败摘要 + 分类**（`unity_service.failure_digest`）：`unity_run_script` 的返回值
+   多了 `failure`：`kind`（`case` / `environment` / `timeout`）、挂在哪一步（轨迹里
+   最后一个 `ok:false` 的步骤）、证据文件路径（`failure.txt` / `failure.png` /
+   `steps.jsonl` / `case.py`）、环境类失败时附 `ERROR:`/`WARN:` 原文。exit 1 但报错里
+   带环境指纹（掉线/未连接/工程脏被门禁/不在 Play）会被改判成 `environment` ——
+   这类失败**改用例是白改**，得先修环境。智能体照 `kind` 决定下一步，不用啃 30k 输出。
+2. **"已验证才入库"变成真的**：跑通一次就把这份内容的指纹记进台账
+   （`workspace/default/unity-auto/.passed.json`，忽略平台自己写的起跑线标注行）；
+   `save_script` 请求 `active` 但指纹不在台账里 → 落 `draft`，`unity_save_script`
+   返回 `verified=false` + hint。于是"改用例 → 跑通 → 保存"是顺序上的硬约束，
+   而不是工具 docstring 里的一句自述。
+3. **提示词/技能同步**：`skills/unity-ui-test/SKILL.md` 增「跑不通怎么办：改用例，
+   不是放弃」一节（三种 kind 怎么办 + 三条纪律：改法必须来自证据 / **不许为了变绿
+   放宽或删掉断言** / 同一份改 3 轮不过就停下报结论）；能力提示词、`assembly.json`、
+   记忆种子与**已落盘的** `workspace/default/memory/MEMORY.md`（含 .snapshot）一并更新
+   —— 记忆里原来还写着"复位走 Lua、hard 已禁用"，留着会让智能体读到自相矛盾的规则。
+
+单测：`tests/test_unity_bridge.py` 91 通过（新增失败分类、"已验证"指纹忽略标注、
+未验证落 draft 三条）。

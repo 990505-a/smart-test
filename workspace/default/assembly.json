@@ -11,13 +11,15 @@
         "webui",
         "codebase",
         "rag"
-      ]
+      ],
+      "tools": []
     },
     {
       "id": "api",
       "label": "接口智能体",
       "description": "专门进行接口探索扫描",
-      "capabilities": []
+      "capabilities": [],
+      "tools": []
     }
   ],
   "capabilities": [
@@ -58,7 +60,7 @@
       "key": "unity",
       "label": "Unity 自动化",
       "description": "经标准 MCP 操作 Unity：对象查询、控件操作、编辑器控制、任意 C#、用例脚本沉淀与回归。",
-      "domain_prompt": "### Unity 客户端自动化\n\n经**标准 MCP** 操作 Unity（对象查询 / 编辑器控制 / 任意 C#）——与具体游戏无关：\n\"这个游戏怎么登入、按钮叫什么\"靠现场探索、沉淀成用例，不写死在工具里。\n\n- 动手前先 `unity_status`：桥不在（available=false）就如实报告，不要反复重试。\n- 运行时对象只在 Play Mode 存在：`unity_editor(\"play\")` → `unity_wait_for(\"<登录窗/主界面>\")`。\n- **探索顺序（照这个来，别猜对象名）**：\n  1. `unity_hierarchy()` 看全貌 —— 路径 / 是否显示 / 组件 / **界面上的文本**一次摊开；\n     要钻某个面板就 `unity_hierarchy(root=\"MainCanvas/NormalUI\")`。猜名字（\"TalkUI\"/\"UI\"）\n     又慢又容易全落空。\n  2. 中文界面直接用界面上的字找：`unity_find_by_text(\"背包\")` —— 返回写着这句话的对象\n     与**往上最近的可点祖先**（uGUI 按钮的标签挂在子节点上，那个祖先就是要点的东西）。\n  3. 读面板内容用 `unity_object_text(\"BagUIPanel(Clone)\")`（整棵子树的文字）；读单个控件\n     的组件/字段用 `unity_object`。\n  4. 再操作（`unity_click` / `unity_set_text`）→ `unity_wait_for` → 断言。\n  `unity_find_objects` 留着按**组件**找（`component=\"Button\"`）或已知名字精确查。\n- **该看一眼就看一眼**：读组件只能回答\"这个对象在不在、写了什么\"，回答不了\"界面上到底\n  有没有、长什么样\"。不确定有没有入口 / 刚打开一个面板 / 点了没反应 / 断言失败时，\n  `unity_screenshot()` 拿路径 → `read_file(那个路径)` 看图（模型有视觉能力，这条链路是通的）。\n  **图判断\"是不是这样\"，文本（hierarchy / find_by_text）决定\"点哪儿\"** —— 别只用一种。\n- **操作后必看 `unity_console`**：Unity 侧异常不会让调用失败，只会安静地写进\n  Console —— 不读就会把\"点了个寂寞\"当成通过。\n- **复位（回到起点）**：`unity_reset(scene=…, wait_for=…)` = 退 Play → 打开起跑场景 →\n  再进 Play → 等标志物回来。探索走到一半想重来时用它（**别自己拼 stop/play**：少了\n  \"等标志物回来\"这一步，后面全在跟半加载的界面较劲）。\n- 工具面覆盖不到时用 `unity_exec_csharp` 写两行 C#（拖拽/滑动/调业务方法/造前置\n  数据）；服务器换了或升级后包装工具报\"参数不对\"，用 `unity_mcp_tools` 看真实\n  工具与 schema，再 `unity_mcp_call` 直接调 —— 这条路永远不用改平台代码。\n- **沉淀用例要写起跑线**：用例里声明模块级常量\n  `RESET = {\"scene\": \"<起跑场景路径>\", \"wait_for\": \"<起跑线标志物>\"}`（普通游戏就是\n  \"打开哪张地图/哪个界面 + 等哪个对象出现\"）。平台每次执行前自动复位到那儿，\n  用例之间互不污染。不写也能跑：跑通一次后平台会记住当时现场并自动兜底，但显式写\n  下来才算把前置说清楚了（手工前置 —— \"先打开某个场景再进 Play\" —— 应该变成 RESET，\n  而不是写在注释里让人照着做）。\n- 沉淀：跑通的脚本 `unity_save_script` 入库；改库里的用例要先 `unity_get_script`\n  读回源码，验证后带 `script_id` 覆盖，不要新建第二份（否则同一场景两条用例漂移）。\n",
+      "domain_prompt": "### Unity 客户端自动化\n\n经**标准 MCP** 操作 Unity（对象查询 / 编辑器控制 / 任意 C#）——与具体游戏无关：\n\"这个游戏怎么登入、按钮叫什么\"靠现场探索、沉淀成用例，不写死在工具里。\n\n- 动手前先 `unity_status`：桥不在（available=false）就如实报告，不要反复重试。\n- 运行时对象只在 Play Mode 存在：`unity_editor(\"play\")` → `unity_wait_for(\"<登录窗/主界面>\")`。\n- **探索顺序（照这个来，别猜对象名）**：\n  1. `unity_hierarchy()` 看全貌 —— 路径 / 是否显示 / 组件 / **界面上的文本**一次摊开；\n     要钻某个面板就 `unity_hierarchy(root=\"MainCanvas/NormalUI\")`。猜名字（\"TalkUI\"/\"UI\"）\n     又慢又容易全落空。\n  2. 中文界面直接用界面上的字找：`unity_find_by_text(\"背包\")` —— 返回写着这句话的对象\n     与**往上最近的可点祖先**（uGUI 按钮的标签挂在子节点上，那个祖先就是要点的东西）。\n  3. 读面板内容用 `unity_object_text(\"BagUIPanel(Clone)\")`（整棵子树的文字）；读单个控件\n     的组件/字段用 `unity_object`。\n  4. 再操作（`unity_click` / `unity_set_text`）→ `unity_wait_for` → 断言。\n  `unity_find_objects` 留着按**组件**找（`component=\"Button\"`）或已知名字精确查。\n- **该看一眼就看一眼**：读组件只能回答\"这个对象在不在、写了什么\"，回答不了\"界面上到底\n  有没有、长什么样\"。不确定有没有入口 / 刚打开一个面板 / 点了没反应 / 断言失败时，\n  `unity_screenshot()` 拿路径 → `read_file(那个路径)` 看图（模型有视觉能力，这条链路是通的）。\n  **图判断\"是不是这样\"，文本（hierarchy / find_by_text）决定\"点哪儿\"** —— 别只用一种。\n- **操作后必看 `unity_console`**：Unity 侧异常不会让调用失败，只会安静地写进\n  Console —— 不读就会把\"点了个寂寞\"当成通过。\n- **起跑线（平台不复位）**：`unity_start_line(scene=…, wait_for=…)` 是**只读**检查 ——\n  在起跑线就继续；不在就把返回里的 `instruction` **原样告诉用户**（要恢复到哪个场景/\n  界面、等哪个对象出现），等用户确认复位完成再继续。不要自己动手改游戏状态（复位是\n  改被测对象状态的动作，做了就分不清\"游戏本来就这样\"还是\"平台点成这样\"）。\n- 工具面覆盖不到时用 `unity_exec_csharp` 写两行 C#（拖拽/滑动/调业务方法/造前置\n  数据）；服务器换了或升级后包装工具报\"参数不对\"，用 `unity_mcp_tools` 看真实\n  工具与 schema，再 `unity_mcp_call` 直接调 —— 这条路永远不用改平台代码。\n- **跑不通就改用例，别放弃**：`unity_run_script` 返回里的 `failure` 写了这是谁的\n  问题 —— `kind=\"case\"`（对象改名了/等待不够/流程改版）照 `failure.artifacts` 的\n  失败现场改用例，改完**重跑**；`kind=\"environment\"`（掉线/工程脏/不在 Play）\n  **不要动用例**，去请用户处理；`kind=\"timeout\"` 看最后卡在哪一步。同一份用例改\n  3 轮仍不过就停下报结论（别一直重跑烧时间）。**不许为了变绿放宽/删掉断言** ——\n  那是把缺陷藏起来。跑通后 `unity_save_script`（传 `script_id` 覆盖同一条）落库：\n  平台只把跑通过的内容标成 active，没验证过的只会存 draft。\n- **沉淀用例要写起跑线**：用例里声明模块级常量\n  `RESET = {\"scene\": \"<起跑场景路径>\", \"wait_for\": \"<起跑线标志物>\"}`（普通游戏就是\n  \"打开哪张地图/哪个界面 + 等哪个对象出现\"）—— 它是这条用例的**前置说明**：平台不复位、\n  也**不检查**，跑之前只把这一行打出来，在不在由用户自己把握。所以这行声明是写给\n  **人和用例库**的（入库时会自动写成用例顶部的标注）；没写的用例会用\"上次跑通时的\n  现场\"兜一份说明。\n- 沉淀：跑通的脚本 `unity_save_script` 入库；改库里的用例要先 `unity_get_script`\n  读回源码，验证后带 `script_id` 覆盖，不要新建第二份（否则同一场景两条用例漂移）。\n",
       "tools": [
         "src.app.agents.unity.tools:unity_status",
         "src.app.agents.unity.tools:unity_find_objects",
@@ -68,7 +70,7 @@
         "src.app.agents.unity.tools:unity_object",
         "src.app.agents.unity.tools:unity_console",
         "src.app.agents.unity.tools:unity_editor",
-        "src.app.agents.unity.tools:unity_reset",
+        "src.app.agents.unity.tools:unity_start_line",
         "src.app.agents.unity.tools:unity_click",
         "src.app.agents.unity.tools:unity_set_text",
         "src.app.agents.unity.tools:unity_wait_for",

@@ -27,6 +27,7 @@ import {
 import { toast } from "sonner";
 import { Camera, Play, Plus, TerminalSquare, Trash2, Wrench } from "lucide-react";
 import { EvidenceHint, UnityRunDetailDialog } from "@/app/components/unity-auto/RunDetail";
+import { RecordingPanel } from "@/app/components/unity-auto/RecordingPanel";
 
 /** 删掉多少东西要说清楚：磁盘上那些截图/录像才是"删干净了没"的答案。 */
 function deletedHint(r: { runs: number; files: number; bytes: number }): string {
@@ -152,6 +153,7 @@ export default function UnityAutoPage() {
   const [showTools, setShowTools] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<UnityScript | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const statusBadge = unity.data === undefined && !unity.error ? (
     // 首屏还没拿到状态时别先喊"未连接"：加载那一下的红标会让人以为环境挂了
@@ -194,6 +196,48 @@ export default function UnityAutoPage() {
       toast.success("脚本已在后台执行");
       setTimeout(() => scripts.mutate(), 2000);
     } catch (err) { toast.error(err instanceof Error ? err.message : "启动失败"); }
+  };
+
+  // 桥维护两个动作都可能在编辑器很忙时长时间阻塞（刷新要几秒到几十秒），
+  // 所以走 busy 单击锁 + 明确的成功/失败提示，不做乐观更新。
+  const syncAssets = async () => {
+    setBusy(true);
+    try {
+      const res = await apiClient.post<{ dirty_before?: boolean; dirty_after?: boolean }>(
+        "/unity-auto/sync-assets", {});
+      toast.success(res.data.dirty_after === false
+        ? "已清掉「未导入的外部改动」，现在可以继续跑用例"
+        : "刷新已发出，标记仍未清（看下详情）");
+      unity.mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "同步失败");
+    } finally { setBusy(false); }
+  };
+
+  const stopAll = async () => {
+    setBusy(true);
+    try {
+      const res = await apiClient.post<{ cancelled_runs?: string[] }>(
+        "/unity-auto/stop-all", {});
+      const n = res.data.cancelled_runs?.length ?? 0;
+      toast.success(n ? `已取消 ${n} 个在跑的用例，并卸掉录制钩子` : "没有在跑的用例；录制钩子已卸掉");
+      scripts.mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "急停失败");
+    } finally { setBusy(false); }
+  };
+
+  // 显卡熔断正常会在"检测到新 Unity 实例"时自动解除；这个按钮是兜底（同一次会话里显卡
+  // 已经恢复正常、Unity 却没换实例的情况）。
+  const clearGpuAlarm = async () => {
+    setBusy(true);
+    try {
+      await apiClient.post("/unity-auto/clear-gpu-alarm", {});
+      toast.success("已解除显卡熔断，可以继续调用 Unity");
+      unity.mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "解除失败");
+    } finally { setBusy(false); }
   };
 
   const confirmDelete = async () => {
@@ -240,6 +284,58 @@ export default function UnityAutoPage() {
               {unity.data.hint ?? "在启动器启动 unity-mcp（:5016，需 uv）；Unity 工程里装「MCP for Unity」包并指向本机 5016。"}
             </Card>
           )}
+
+          {/* 显卡设备丢失：这条压过其它一切 —— 编辑器随后一定会关，平台已停手。
+              用 destructive 色而不是普通 warning：这不是"工程状态要处理"，是硬件/驱动级故障。 */}
+          {unity.data?.gpu_device_lost && (
+            <Card className="border-destructive/50 bg-destructive/10 p-3 text-sm">
+              <div className="mb-1 font-medium text-destructive">
+                Unity 报了「显卡设备丢失」（DXGI_ERROR_DEVICE_REMOVED / 0x887a0005）
+              </div>
+              <p className="text-destructive/90">
+                平台已停手，不再向 Unity 发任何指令（继续调用等于往已经不在的显卡上叠加负载）。
+                编辑器随时会自行关闭。请先处理显卡：更新驱动、检查供电线 / PCIe 插槽、
+                关掉超频与降压设置，然后重启 Unity —— 检测到新的 Unity 实例后熔断会自动解除。
+              </p>
+              {unity.data.gpu_evidence && (
+                <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 text-xs text-muted-foreground">
+                  {unity.data.gpu_evidence}
+                </pre>
+              )}
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" variant="outline" onClick={stopAll} disabled={busy}>
+                  急停（取消在跑的用例 + 卸录制钩子）
+                </Button>
+                <Button size="sm" variant="outline" onClick={clearGpuAlarm} disabled={busy}>
+                  已确认显卡正常，解除熔断
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* 桥维护：两个"出事时才想起来要找"的按钮，放显眼处 */}
+          {(unity.data?.external_changes_dirty || unity.data?.editor_stale
+            || unity.data?.advice?.length) && (
+            <Card className="border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+              <div className="mb-2 font-medium">注意</div>
+              <ul className="list-disc space-y-1 pl-5">
+                {(unity.data?.advice ?? ["工程状态需要处理一下"]).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" variant="outline" onClick={syncAssets} disabled={busy}>
+                  同步资源（清「未导入改动」，只刷新不重编译）
+                </Button>
+                <Button size="sm" variant="outline" onClick={stopAll} disabled={busy}>
+                  急停（取消在跑的用例 + 卸录制钩子）
+                </Button>
+              </div>
+            </Card>
+          )}
+
+        {/* 手动录制：玩家自己点，平台录成用例（与"智能体自己探索"并列的第二条产线） */}
+        <RecordingPanel onScriptSaved={() => scripts.mutate()} />
 
         {/* C# 快捷执行（通用逃逸口） */}
         <Card className="p-4">
@@ -320,6 +416,7 @@ export default function UnityAutoPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>名称</TableHead><TableHead>模块</TableHead><TableHead>状态</TableHead>
+                  <TableHead>起跑线（跑前自行确认）</TableHead>
                   <TableHead>版本</TableHead><TableHead>更新时间</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
@@ -331,6 +428,15 @@ export default function UnityAutoPage() {
                     <TableCell>{s.module ?? "-"}</TableCell>
                     <TableCell>
                       <StatusBadge status={s.status} />
+                    </TableCell>
+                    {/* 平台不复位、也不检查起跑线：这一列是"跑之前游戏该处于什么状态"，
+                        只作提示 —— 在不在由用户自己把握（跑挂了先怀疑起点不对） */}
+                    <TableCell
+                      className="max-w-[22rem] text-muted-foreground"
+                      title={s.start_line_note ? `跑之前请自行确认：${s.start_line_note}`
+                                               : "这条用例没声明起跑线（平台不复位、不检查）"}
+                    >
+                      {s.start_line_note || <span className="text-xs">未声明</span>}
                     </TableCell>
                     <TableCell>v{s.version}</TableCell>
                     <TableCell className="text-muted-foreground">

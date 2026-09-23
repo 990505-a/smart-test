@@ -113,3 +113,22 @@ def create_excel_attachment(filename="data.xlsx", content=b"fake_excel_content")
         "data": base64.b64encode(content).decode(),
         "metadata": {"filename": filename},
     }
+
+
+@pytest.fixture(autouse=True)
+def _isolate_unity_editor_log(monkeypatch):
+    """测试**不许读这台机器的 Unity Editor.log**。
+
+    2026-09-23 踩到：`scan_editor_log()` 会去读 `%LOCALAPPDATA%/Unity/Editor/Editor.log`
+    判断显卡是不是丢了 —— 而开发机上那份日志**正好真的有过 0x887A0005**（当天真的丢过
+    设备），于是整个测试进程被置上"显卡熔断"，几十条用例一起红成"拒绝调用：显卡设备丢失"。
+    这类"依赖跑测试那台机器状态"的耦合必须在入口处切断。
+    """
+    from src.app.services import unity_bridge
+
+    monkeypatch.setattr(unity_bridge, "editor_log_path", lambda: None)
+    monkeypatch.setattr(unity_bridge, "_editor_log_cache",
+                        {"mtime": 0.0, "size": 0, "evidence": "", "checked": 0.0, "age": None})
+    unity_bridge.clear_gpu_loss("测试前置")
+    yield
+    unity_bridge.clear_gpu_loss("测试收尾")

@@ -67,6 +67,10 @@ export interface UnityScript {
   description: string | null;
   version: number;
   status: string;
+  /** 起跑线（平台不复位）：跑之前游戏该处于什么状态，由用户手动复位落到这里 */
+  start_line?: { scene?: string; wait_for?: string } | null;
+  /** 起跑线的一行标注（"# 起跑线（人工复位）：场景=…；标志物=…"去掉井号那部分） */
+  start_line_note?: string;
   content?: string;
   updated_at: string | null;
   created_at: string | null;
@@ -140,6 +144,21 @@ export interface UnityStatus {
   editor?: { isPlaying?: boolean; isPaused?: boolean; state?: string } | null;
   is_playing?: boolean | null;
   unity_connected?: boolean;
+  /** 工程里有 Unity 还没导入的外部改动（桥内存里的 latch，Ctrl+R 清不掉）。 */
+  external_changes_dirty?: boolean;
+  /** 有实例但读不到编辑器状态：多半正在域重载 / 刚掉线。 */
+  editor_stale?: boolean;
+  /** 那批"桥会自己刷新+重编译"的工具现在能不能发（脏了/在 Play 都不能）。 */
+  can_run_gated_tools?: boolean;
+  gated_tools?: string[];
+  /** 编辑器报了**显卡设备丢失**（DXGI_ERROR_DEVICE_REMOVED）：平台已停手不再发指令。 */
+  gpu_device_lost?: boolean;
+  /** 那条报错的原话（给用户看现场）。 */
+  gpu_evidence?: string;
+  /** 编辑器日志多久没写过了（只在已经熔断时给）：>60s 往往是编辑器卡死而不是掉线。 */
+  editor_log_age_s?: number | null;
+  /** 照着做就行的下一步（没问题时为空/缺省）。 */
+  advice?: string[];
 }
 
 export interface UnityMcpTool {
@@ -235,6 +254,67 @@ export function useUnityStatus() {
 
 export function useUnityTools() {
   return useSWR("/unity-auto/tools", () => fetcher<UnityTools>("/unity-auto/tools"));
+}
+
+// --- Unity 手动录制（玩家自己点，平台录成用例）-------------------------------
+
+export interface UnityRecording {
+  id: string;
+  name: string;
+  /** recording = 正在录；recorded = 已停止待生成用例 */
+  status: "recording" | "recorded" | string;
+  events: number;
+  steps: number;
+  scene: string;
+  created_at: string;
+  duration_s: number | null;
+  script_file: string | null;
+  stopped_reason: string;
+}
+
+export interface UnityRecordStatus {
+  active: string | null;
+  on: boolean;
+  events: number;
+  hb_age?: number;
+  reason?: string;
+  rearmed?: boolean;
+  rearm_error?: string;
+  error?: string;
+}
+
+export interface UnityRecordingEvent {
+  t?: number;
+  type: string;
+  path?: string;
+  comp?: string;
+  label?: string;
+  panels?: string;
+  kind?: string;
+  text?: string;
+  key?: string;
+  from?: string;
+  to?: string;
+  name?: string;
+  value?: boolean | string;
+}
+
+export function useUnityRecordings() {
+  return useSWR("/unity-auto/recordings",
+    () => fetcher<{ recordings: UnityRecording[] }>("/unity-auto/recordings")
+      .then((d) => d.recordings ?? []));
+}
+
+/**
+ * 录制状态轮询：只在"正在录"时刷新（2s）——它顺带做心跳自愈
+ * （域重载把 Unity 侧钩子清掉后，后端会用同一个目录重挂）。
+ */
+export function useUnityRecordStatus(active: boolean) {
+  return useSWR(
+    active ? "/unity-auto/record/status" : null,
+    () => fetcher<UnityRecordStatus>("/unity-auto/record/status"),
+    { refreshInterval: 2000, revalidateOnFocus: false },
+  );
 }
 
 /** Unity 产物直链（后端给的就是带签名的 URL，这里只补 API 前缀）。 */

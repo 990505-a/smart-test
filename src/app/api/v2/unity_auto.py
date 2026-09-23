@@ -48,9 +48,10 @@ _MEDIA_TYPES = {
 }
 
 #: 卡在 running 超过这个时长（进程被杀/容器重启）就不该继续显示"运行中"。
-#: 与"删除时判不判正在执行"共用同一个口径（unity_service.RUN_STALE_AFTER_S），
-#: 比 runner 自己的执行上限（unity_service._RUN_TIMEOUT_S）再宽一点。
-_STALE_AFTER_S = unity_service.RUN_STALE_AFTER_S
+#: 口径与"删除时判不判正在执行"共用：unity_service.run_stale_after_s() =
+#: 执行预算 + 180s —— 预算可配，所以这里**每次调用都问函数**，不缓存常量。
+def _stale_after_s() -> float:
+    return unity_service.run_stale_after_s()
 
 
 def _media_type(path: Path) -> str:
@@ -78,10 +79,27 @@ class ExecCSharpRequest(BaseModel):
     code: str
 
 
+# --- 手动录制（玩家自己点，平台录成用例）--------------------------------------
+
+class RecordStartRequest(BaseModel):
+    name: str = ""
+
+
+class RecordToScriptRequest(BaseModel):
+    name: str | None = None
+    #: False 只预览脚本；True 同时落库成 draft 用例
+    save: bool = False
+
+
 def _script_dict(s: UnityScript, *, full: bool = False) -> dict:
+    # 起跑线（人工复位）：平台不复位，执行前只检查 —— 这条信息得跟着用例走，
+    # 列表和详情都要看得见（它不是运行期才有的，是这条用例的固有前置）。
+    plan = unity_service.start_line(s.content or "", str(s.id))
     data = {
         "id": str(s.id), "name": s.name, "module": s.module,
         "description": s.description, "version": s.version, "status": s.status,
+        "start_line": plan,
+        "start_line_note": unity_service.start_line_note(plan),
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
     }
@@ -157,7 +175,7 @@ def _steps_of(run: UnityScriptRun) -> list[dict]:
 def _run_dict(r: UnityScriptRun) -> dict:
     artifacts = _artifacts(r)
     age_s = unity_service.run_age_s(r)
-    stale = r.status == "running" and age_s > _STALE_AFTER_S
+    stale = r.status == "running" and age_s > _stale_after_s()
     return {
         "id": str(r.id), "script_id": str(r.script_id), "status": r.status,
         "exit_code": r.exit_code, "output": r.output,
@@ -211,6 +229,101 @@ async def unity_screenshot(user: CurrentUserDep, save_path: str | None = None):
 @router.post("/exec-csharp", response_model=SuccessResponse, summary="执行 C# 语句")
 async def exec_csharp(data: ExecCSharpRequest, user: CurrentUserDep):
     return SuccessResponse(success=True, data=await unity_service.exec_csharp(data.code))
+
+
+@router.post("/sync-assets", response_model=SuccessResponse,
+             summary="清掉「未导入的外部改动」标记（只刷新、不重编译）")
+async def sync_assets(user: CurrentUserDep):
+    """那个标记是桥进程内存里的 latch，Ctrl+R 清不掉；脏着时一批工具发不出去。
+
+    仅非 Play 可用（刷新会打断这一局）；不带 ``compile=request``，因此不产生域重载。
+    """
+    result = await unity_service.sync_assets()
+    if not result.get("success"):
+        raise HTTPException(status_code=409, detail=result.get("error") or "同步失败")
+    return SuccessResponse(success=True, data=result)
+
+
+@router.post("/stop-all", response_model=SuccessResponse,
+             summary="急停：取消在跑的用例 + 卸掉编辑器上的录制钩子")
+async def stop_all(user: CurrentUserDep):
+    """给"我中断了，Unity 还在被驱动"准备的：用例跑在子进程里、录制钩子挂在编辑器上，
+    单停一轮对话拦不住它们。不动 Play Mode。"""
+    return SuccessResponse(success=True, data=await unity_service.stop_all_runs())
+
+
+@router.post("/clear-gpu-alarm", response_model=SuccessResponse,
+             summary="解除「显卡设备丢失」熔断（确认 Unity 已重启 / 显卡已恢复后再点）")
+async def clear_gpu_alarm(user: CurrentUserDep):
+    """熔断本来会在检测到**新的 Unity 实例**时自动解除；这个按钮是手动兜底：
+    有时 Unity 没换实例（比如同一次会话里显卡恢复）却已经能正常调用。"""
+    return SuccessResponse(success=True, data=unity_service.clear_gpu_alarm())
+
+
+# --- 手动录制（玩家自己点，平台录成用例）--------------------------------------
+#
+# 玩法：Unity 里点 Play -> 平台点「开始录制」-> 正常玩 -> 「停止并保存」->
+# 「生成用例」得到 draft 脚本 -> 跑一遍验证 -> 通过后按既有契约转 active。
+
+@router.post("/record/start", response_model=SuccessResponse, summary="开始录制（需已在 Play Mode）")
+async def record_start(data: RecordStartRequest, user: CurrentUserDep):
+    result = await unity_service.record_ui_start(data.name)
+    if not result.get("success"):
+        # 环境不满足（桥断/未连接/不在 Play）与"已有录制在进行"都是 409：
+        # 前端把 error/hint 原样显示，用户照着做就行
+        raise HTTPException(status_code=409, detail=result.get("error") or "开始录制失败")
+    return SuccessResponse(success=True, data=result)
+
+
+@router.get("/record/status", response_model=SuccessResponse, summary="录制状态（含心跳自愈）")
+async def record_status(user: CurrentUserDep):
+    return SuccessResponse(success=True, data=await unity_service.record_ui_status())
+
+
+@router.post("/record/stop", response_model=SuccessResponse, summary="停止录制并取回事件")
+async def record_stop(user: CurrentUserDep):
+    result = await unity_service.record_ui_stop()
+    if not result.get("success"):
+        raise HTTPException(status_code=409, detail=result.get("error") or "停止录制失败")
+    return SuccessResponse(success=True, data=result)
+
+
+@router.get("/recordings", response_model=SuccessResponse, summary="录制记录列表")
+async def list_recordings(user: CurrentUserDep):
+    return SuccessResponse(success=True, data={"recordings": unity_service.list_recordings()})
+
+
+@router.get("/recordings/{rec_id}", response_model=SuccessResponse, summary="录制详情（含事件与脚本）")
+async def get_recording(rec_id: str, user: CurrentUserDep):
+    try:
+        return SuccessResponse(success=True, data=unity_service.get_recording(rec_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/recordings/{rec_id}/to-script", response_model=SuccessResponse,
+             summary="录制生成用例脚本（save=true 时落库成 draft）")
+async def recording_to_script(rec_id: str, data: RecordToScriptRequest,
+                              user: CurrentUserDep, db: DbSessionDep):
+    try:
+        result = await unity_service.recording_to_script(
+            rec_id, name=data.name, save=data.save, db=db)
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 409,
+                            detail=str(exc))
+    return SuccessResponse(success=True, data=result)
+
+
+@router.delete("/recordings/{rec_id}", response_model=SuccessResponse, summary="删除录制")
+async def delete_recording(rec_id: str, user: CurrentUserDep):
+    try:
+        return SuccessResponse(success=True, data=unity_service.delete_recording(rec_id))
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 # --- 用例 CRUD + 执行 ---------------------------------------------------------
