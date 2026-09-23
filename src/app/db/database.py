@@ -155,11 +155,15 @@ async def init_db() -> None:
         for stmt in (
             "ALTER TABLE thread_infos ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE thread_infos ADD COLUMN agent VARCHAR(64) NOT NULL DEFAULT ''",
+            # 会话级前端设置（权限/思考强度/模型预设/智能体/仓库）持久化
+            "ALTER TABLE thread_infos ADD COLUMN config TEXT NOT NULL DEFAULT ''",
             # 代码图谱：增量影响分析（commit 基线 + 每仓库参与开关）
             "ALTER TABLE codebase_repos ADD COLUMN last_commit VARCHAR(64)",
             "ALTER TABLE codebase_repos ADD COLUMN auto_analyze BOOLEAN NOT NULL DEFAULT 0",
             # Unity 执行记录：运行目录（执行中读实时产物与步骤轨迹用）
             "ALTER TABLE unity_script_runs ADD COLUMN workdir TEXT",
+            # 对话消息：每条 AI 回复的 token 用量（对话页展示用）
+            "ALTER TABLE thread_messages ADD COLUMN usage_metadata TEXT",
         ):
             try:
                 await conn.execute(text(stmt))

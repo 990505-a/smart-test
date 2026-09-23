@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from "rehype-sanitize";
 import { cn } from "@/lib/utils";
+import { rewriteLocalImages } from "@/lib/rewriteLocalImages";
 
 interface MarkdownContentProps {
   content: string;
@@ -575,11 +576,15 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
       () => cn(PROSE_CLASS, className),
       [className],
     );
+    // 本地路径图片（E:\…、workspace/…）先改写成 /files 端点 URL：必须在
+    // ReactMarkdown/sanitize 之前做——rehype-sanitize 的协议白名单会把
+    // "E:" 当非法 scheme 剥掉 src，事后改写就晚了。
+    const processed = useMemo(() => rewriteLocalImages(content), [content]);
 
     if (streaming) {
       return (
         <div className={containerClassName}>
-          <StreamingMarkdownContent content={content} />
+          <StreamingMarkdownContent content={processed} />
         </div>
       );
     }
@@ -592,7 +597,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
           rehypePlugins={[rehypeRaw, [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA]]}
           components={markdownComponents}
         >
-          {content}
+          {processed}
         </ReactMarkdown>
       </div>
     );

@@ -19,7 +19,9 @@ graph 能服务不同工作区的会话，与权限档位一样按 run 生效。
 
 from __future__ import annotations
 
+import dataclasses
 import logging
+import re
 from pathlib import Path
 
 from deepagents.backends import FilesystemBackend
@@ -34,6 +36,50 @@ _WORKSPACE_KEYS = ("workspace_path", "repo_path")
 
 #: 平台产物的路由前缀。必须与 ``CompositeBackend(artifacts_root=...)`` 一致。
 ARTIFACTS_ROUTE = "/artifacts/"
+
+#: 文件工具 not-found 报错的路径提示。真实路径语义（``virtual_mode=False``）
+#: 一直支持绝对路径，但模型常犯两个错：拿 ``/logs/...``（POSIX 风格，Windows
+#: 上解析到盘根）或仓库相对路径（按工作区解析）去读工作区之外的文件，失败后
+#: 又看到 /skills/、/artifacts/ 两个虚拟路由，就推断"文件工具只支持映射过的
+#: 虚拟路径"并绕道 execute——报错里直接把正确写法说出来，堵住这条歧路。
+_PATH_HINT = (
+    "。路径提示：'/' 开头是虚拟路由（/skills/、/artifacts/）或文件系统根，"
+    "不是项目相对路径；读其他位置的文件请用操作系统绝对路径"
+    "（Windows 用 'E:/...' 正斜杠形式）；相对路径按当前工作区解析：{cwd}"
+)
+
+#: read_file 读到图片时的压缩参数。为什么必须压：read_file 返回二进制图片是
+#: **整个 base64 进对话**——Unity 的 1080p 截图 PNG 约 3MB，几条就把消息/数据库
+#: 撑到几 MB，前端渲染 3MB 的 JSON 直接卡死页面（2026-09-21 实测）。
+#: 输出仍存成 PNG（工具链路按**文件后缀**推断 mime_type，换成 JPEG 会 mime
+#: 与数据不符）。1280 边 + 调色板量化对 UI 截图几乎无损，体积缩 5-10 倍。
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
+_IMAGE_COMPRESS_MIN_B64 = 300_000  # base64 长度阈值（约 220KB 原始数据）
+_IMAGE_MAX_EDGE = 1280
+
+
+def _compress_image_b64(b64: str) -> str | None:
+    """压缩大图（保持 PNG）。压不动/失败返回 None，调用方回退原图。"""
+    try:
+        import base64
+        import io
+
+        from PIL import Image
+
+        raw = base64.b64decode(b64)
+        image = Image.open(io.BytesIO(raw))
+        image.thumbnail((_IMAGE_MAX_EDGE, _IMAGE_MAX_EDGE))
+        if image.mode not in ("P", "L"):
+            image = image.convert("RGBA").convert(
+                "P", palette=Image.ADAPTIVE, colors=256)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG", optimize=True)
+        packed = buffer.getvalue()
+        if len(packed) >= len(raw) * 0.7:  # 省不到三成就不折腾
+            return None
+        return base64.b64encode(packed).decode()
+    except Exception:  # noqa: BLE001 — 压缩失败不该拦住读文件
+        return None
 
 
 def artifacts_backend() -> FilesystemBackend:
@@ -113,3 +159,92 @@ class WorkspaceShellBackend(LocalShellBackend):
     @cwd.setter
     def cwd(self, value: Path | str) -> None:
         self.__dict__["_fallback_dir"] = Path(value)
+
+    # -- not-found 报错附路径提示（见 _PATH_HINT） ---------------------------
+
+    def _with_path_hint(self, result, path: str):
+        error = getattr(result, "error", None)
+        # read 报 "File 'x' not found"，ls 报 "Path 'x': path_not_found"，两种都接；
+        # 路径本身已是盘符绝对路径（正确形式）时不附提示——那时文件是真不存在，
+        # 再说"请用绝对路径"反而会把模型带偏。
+        if (
+            not error
+            or _WIN_DRIVE.match(path)
+            or not any(token in str(error).lower() for token in ("not found", "not_found"))
+        ):
+            return result
+        try:
+            return dataclasses.replace(
+                result, error=f"{error}{_PATH_HINT.format(cwd=self.cwd)}")
+        except TypeError:  # 非 dataclass 的结果类型：原样返回，别为提示拦住正路
+            return result
+
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000):
+        result = super().read(file_path, offset=offset, limit=limit)
+        result = self._with_path_hint(result, file_path)
+        return self._with_compressed_image(result, file_path)
+
+    def _with_compressed_image(self, result, file_path: str):
+        """大图压缩后再交给模型/落库（见 _IMAGE_* 处的说明）。"""
+        data = getattr(result, "file_data", None)
+        if not isinstance(data, dict) or data.get("encoding") != "base64":
+            return result
+        suffix = Path(file_path).suffix.lower()
+        content = data.get("content") or ""
+        if suffix not in _IMAGE_SUFFIXES or len(content) <= _IMAGE_COMPRESS_MIN_B64:
+            return result
+        packed = _compress_image_b64(content)
+        if not packed:
+            return result
+        try:
+            return dataclasses.replace(result, file_data={**data, "content": packed})
+        except TypeError:
+            return result
+
+    def ls(self, path: str):
+        result = super().ls(path)
+        return self._with_path_hint(result, path)
+
+
+# ---------------------------------------------------------------------------
+# deepagents 工具层的 Windows 路径补丁
+#
+# 上游 ``validate_path``（backends/utils.py）是虚拟路径世界的设计：一律拒绝
+# 盘符绝对路径（``E:/...``、``E:\\...``）。而 FilesystemMiddleware 的每个文件
+# 工具在调 backend 前都先过它，于是真实路径语义（``virtual_mode=False``）下
+# 模型按系统提示给的绝对路径调用 read_file/write_file 会被整批拒绝——agent
+# 只能得出"文件工具不支持真实路径"的结论并绕道 execute。
+#
+# 补丁：盘符开头的绝对路径原样放行（backend 本来就按原样使用）。安全性不
+# 降级：读本来就不设沙箱（真实路径语义的设计意图），写/删的越界审批由平台
+# permission_gate 负责（``_resolve_write_target`` 能正确解析盘符路径并按
+# ``_allowed_write_roots`` 判界），不依赖这层校验。
+# ---------------------------------------------------------------------------
+
+_WIN_DRIVE = re.compile(r"^[a-zA-Z]:[/\\]")
+
+
+def _patch_deepagents_validate_path() -> None:
+    """让 validate_path 放行 Windows 盘符绝对路径（幂等，import 时执行）。"""
+    import deepagents.backends.utils as _da_utils
+    import deepagents.middleware._fs_interrupt as _fs_interrupt
+    import deepagents.middleware.filesystem as _fs_mw
+
+    original = _da_utils.validate_path
+    if getattr(original, "_platform_realpath_patch", False):
+        return
+
+    def validate_path(path: str, *, allowed_prefixes=None):  # noqa: ANN001
+        if _WIN_DRIVE.match(path):
+            return path  # 真实路径语义：backend 原样使用
+        return original(path, allowed_prefixes=allowed_prefixes)
+
+    validate_path._platform_realpath_patch = True  # type: ignore[attr-defined]
+    # 三个引用点都要换：定义处 + 两个 from-import 的工具/审批模块
+    _da_utils.validate_path = validate_path
+    _fs_mw.validate_path = validate_path
+    _fs_interrupt.validate_path = validate_path
+    logger.debug("deepagents validate_path 已打真实路径补丁（Windows 盘符路径放行）")
+
+
+_patch_deepagents_validate_path()

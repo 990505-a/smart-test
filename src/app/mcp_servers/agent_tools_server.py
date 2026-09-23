@@ -311,9 +311,13 @@ async def unity_mcp_tools(refresh: bool = False) -> dict:
 
 
 @mcp.tool
-async def unity_mcp_call(tool: str, args: str = "{}") -> dict:
-    """原样调用 Unity MCP 服务器上的任意工具（args 为 JSON 字符串）。"""
-    return await unity_tools.unity_mcp_call.ainvoke({"tool": tool, "args": args})
+async def unity_mcp_call(tool: str, arguments: str = "{}") -> dict:
+    """原样调用 Unity MCP 服务器上的任意工具（arguments 为 JSON 字符串）。
+
+    参数名不叫 args：会撞 pydantic 的可变参数保留名 v__args，schema 与签名
+    对不上、调用必炸（见 unity/tools.py 同名工具处的说明）。
+    """
+    return await unity_tools.unity_mcp_call.ainvoke({"tool": tool, "arguments": arguments})
 
 
 @mcp.tool

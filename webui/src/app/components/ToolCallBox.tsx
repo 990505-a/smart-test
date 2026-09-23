@@ -183,11 +183,19 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                       结果
                     </h4>
                     <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-border bg-muted/40 p-2 font-mono text-xs leading-6 text-foreground">
-                      {typeof result === "string"
-                        ? result.length > 500
-                          ? result.slice(0, 500) + "…"
-                          : result
-                        : JSON.stringify(result, null, 2)}
+                      {(() => {
+                        // 截断是硬要求：工具结果可能是几 MB 的数组（例如 read_file
+                        // 读回 base64 截图），直接 pretty-print 进 DOM 会把页面卡死。
+                        // 字符串 500 字、结构化结果先 stringify 再截 2000 字。
+                        const text =
+                          typeof result === "string"
+                            ? result
+                            : JSON.stringify(result, null, 2);
+                        const limit = typeof result === "string" ? 500 : 2000;
+                        return text.length > limit
+                          ? text.slice(0, limit) + "…（内容过大已截断）"
+                          : text;
+                      })()}
                     </pre>
                   </div>
                 )}

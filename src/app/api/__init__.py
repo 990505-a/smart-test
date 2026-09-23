@@ -14,6 +14,7 @@ from src.app.api.v2 import (
     eval as eval_api,
     extract_pdf,
     feishu,
+    files,
     integrations,
     mcp,
     memories,
@@ -28,6 +29,7 @@ from src.app.api.v2 import (
 api_router = APIRouter(prefix="/api/v2")
 api_router.include_router(case_docs.router, tags=["Case Docs (用例 MD 文档)"])
 api_router.include_router(messages.router, tags=["Messages"])
+api_router.include_router(files.router, tags=["Files (工作区文件服务)"])
 api_router.include_router(extract_pdf.router, tags=["PDF Extraction"])
 api_router.include_router(memories.router, tags=["Memories"])
 

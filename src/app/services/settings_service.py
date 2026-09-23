@@ -20,6 +20,8 @@ MODEL_KEYS: dict[str, str] = {
     "llm_base_url": "LLM_BASE_URL",
     "llm_api_key": "LLM_API_KEY",
     "llm_context_window": "LLM_CONTEXT_WINDOW",
+    "llm_max_output_tokens": "LLM_MAX_OUTPUT_TOKENS",
+    "llm_supports_vision": "LLM_SUPPORTS_VISION",
     "llm_reasoning_effort": "LLM_REASONING_EFFORT",
     "deepseek_api_key": "DEEPSEEK_API_KEY",
     "deepseek_model": "DEEPSEEK_MODEL",
@@ -53,6 +55,7 @@ PLATFORM_KEYS: dict[str, str] = {
     "unity_mcp_transport": "UNITY_MCP_TRANSPORT",
     "unity_mcp_command": "UNITY_MCP_COMMAND",
     "unity_mcp_server": "UNITY_MCP_SERVER",
+    # Lua 复位钩子（见 core/config.py 的说明）：游戏自带 Lua 热更时用它做秒级复位
     "memory_enabled": "MEMORY_ENABLED",
     "api_auto_max_repair": "API_AUTO_MAX_REPAIR",
 }
@@ -156,7 +159,15 @@ class SettingsService:
             if key in stored:
                 merged[key] = stored[key]
             else:
-                merged[key] = str(getattr(env_settings, key, "") or "")
+                raw = getattr(env_settings, key, "")
+                # 布尔归一化为小写：前端下拉框的值是 "true"/"false"，
+                # str(False) 的 "False" 匹配不上会显示成空。
+                if raw is True:
+                    merged[key] = "true"
+                elif raw is False:
+                    merged[key] = "false"
+                else:
+                    merged[key] = str(raw or "")
         return merged
 
     async def _effective(self, namespace: str, keys: dict[str, str]) -> dict[str, str]:

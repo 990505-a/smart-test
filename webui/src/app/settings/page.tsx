@@ -70,6 +70,43 @@ const MODEL_FIELDS: SettingField[] = [
     placeholder: "https://api.siliconflow.cn/v1（留空用 DeepSeek 官方端点）",
   },
   { key: "llm_api_key", label: "API Key", secret: true, placeholder: "留空使用 .env 中的 DeepSeek Key" },
+  {
+    key: "llm_context_window",
+    label: "上下文窗口（token）",
+    heading: "Token 预算",
+    placeholder: "128000",
+    hint: (
+      <>
+        模型的实际上下文长度。对话超过它的 85% 时平台自动压缩早期历史——填得比
+        模型真实窗口大，长对话会在压缩前就溢出报错。默认 128000。
+      </>
+    ),
+  },
+  {
+    key: "llm_max_output_tokens",
+    label: "单次最大输出（token）",
+    placeholder: "留空 / 0 = 不限制（跟随模型默认）",
+    hint: (
+      <>
+        每次回复最多生成的 token 数（思考型模型含推理部分）。留空表示不发送
+        max_tokens，由模型自己决定；超长输出会把整轮上下文顶爆时再调小它，默认 0。
+      </>
+    ),
+  },
+  {
+    key: "llm_supports_vision",
+    label: "模型支持读图",
+    select: [
+      { value: "false", label: "不支持（截图/图片自动换成文字说明，防止请求被拒）" },
+      { value: "true", label: "支持（多模态模型：图片正常发给模型）" },
+    ],
+    hint: (
+      <>
+        纯文本模型（如 deepseek-v4-flash）收到图片会被服务端直接拒绝、对话中断；
+        默认关闭时平台会把图片块替换为占位说明（截图文件路径仍在）。换了能读图的模型再打开。
+      </>
+    ),
+  },
 ];
 
 const LANGFUSE_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string;
@@ -115,7 +152,7 @@ const JUDGE_FIELDS: { key: string; label: string; secret?: boolean; placeholder?
   { key: "judge_api_key", label: "API Key", secret: true, placeholder: "留空 = 继承主 LLM 的 Key（留空表示不修改）" },
 ];
 
-const PLATFORM_FIELDS: { key: string; label: string; secret?: boolean; placeholder?: string }[] = [  { key: "feishu_folder_token", label: "飞书目录（每次导出自动新建思维导图）", placeholder: "目录 URL 中 drive/folder/ 后面的 token" },
+const PLATFORM_FIELDS: SettingField[] = [  { key: "feishu_folder_token", label: "飞书目录（每次导出自动新建思维导图）", placeholder: "目录 URL 中 drive/folder/ 后面的 token" },
   { key: "feishu_mindnote_id", label: "飞书思维导图 ID（固定追加模式）", placeholder: "用例保存目标 mindnote id；配置目录后此项不生效" },
   { key: "feishu_mindnote_parent_node", label: "固定导图的父节点（可选）", placeholder: "追加模式下整棵树挂到哪个节点下；留空挂根节点" },
   { key: "feishu_template_mindnote_id", label: "思维导图样式模板 ID（可选）", placeholder: "一张调好连线风格、只留根节点的干净导图；填了走「复制模板」写出，留空回退 OPML 导入（连线为默认曲线）" },
@@ -128,6 +165,8 @@ const PLATFORM_FIELDS: { key: string; label: string; secret?: boolean; placehold
   { key: "unity_mcp_transport", label: "桥传输方式 (http/stdio)", placeholder: "http" },
   { key: "unity_mcp_command", label: "stdio 启动命令（留空用默认）", placeholder: "uvx --from mcpforunityserver==10.2.0 mcp-for-unity --transport stdio" },
   { key: "unity_mcp_server", label: "工具名方言 (auto/coplay/ivan/generic)", placeholder: "auto" },
+  // 「Lua 复位入口 / 复位代码」两个设置已移除：平台不再做复位（2026-09-22 起）——
+  // 复位一律由用户在 Unity 里手动完成，用例只用 RESET / 起跑线标注描述该从哪儿开始。
   { key: "api_auto_max_repair", label: "接口脚本自修复次数上限" },
 ];
 

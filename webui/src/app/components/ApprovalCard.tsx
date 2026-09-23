@@ -14,7 +14,7 @@ import type { PendingApproval } from "@/app/hooks/useChat";
  */
 interface ApprovalCardProps {
   interrupt: PendingApproval;
-  onDecide: (decision: "approve" | "reject") => void;
+  onDecide: (decision: "approve" | "reject" | "always") => void;
   className?: string;
 }
 
@@ -66,13 +66,28 @@ export function ApprovalCard({ interrupt, onDecide, className }: ApprovalCardPro
             JSON.stringify(interrupt.args, null, 2)}
         </pre>
       )}
-      <div className="mt-3 flex justify-end gap-2">
-        <Button type="button" size="sm" variant="outline" onClick={() => onDecide("reject")}>
-          拒绝
-        </Button>
-        <Button type="button" size="sm" onClick={() => onDecide("approve")}>
-          {multiple ? "全部允许一次" : "允许一次"}
-        </Button>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <span className="text-[11px] leading-4 text-muted-foreground">
+          始终允许 = 本会话内同类操作自动放行
+          （命令按程序名 / 写入按目录）
+        </span>
+        <div className="flex shrink-0 justify-end gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => onDecide("reject")}>
+            拒绝
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onDecide("always")}
+            title="本会话内不再为同类操作弹窗：命令按程序名放行，文件写入按所在目录放行"
+          >
+            {multiple ? "全部始终允许" : "始终允许"}
+          </Button>
+          <Button type="button" size="sm" onClick={() => onDecide("approve")}>
+            {multiple ? "全部允许一次" : "允许一次"}
+          </Button>
+        </div>
       </div>
     </div>
   );

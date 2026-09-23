@@ -13,9 +13,19 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { AGENT_CONFIG, DEFAULT_AGENT_KEY, agentKeyForGraph, AgentKey } from "@/app/types/types";
+import type { ThreadConversationConfig } from "@/app/hooks/useThreads";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { ThreadList } from "@/app/components/ThreadList";
 import { Assistant } from "@langchain/langgraph-sdk";
+
+/** 会话级选择器的默认值（与 ChatInterface 里各 useQueryState 的默认一致）。 */
+const CONVERSATION_DEFAULTS = {
+  permission: "workspace_write",
+  effort: "high",
+  model: "",
+  agentId: "",
+  repo: "",
+} as const;
 
 // ---------------------------------------------------------------------------
 // HomePageInner — slim top bar + resizable [threads | chat] panels.
@@ -31,6 +41,15 @@ function HomePageInner() {
   const [activeAgent, setActiveAgent] = useQueryState("agent", {
     defaultValue: DEFAULT_AGENT_KEY,
   });
+  // 会话级选择器（权限/思考强度/模型预设/智能体/仓库）：值跟随每个会话的
+  // 持久化配置（thread_infos.config）——切换会话时在这里统一恢复，没存过的
+  // 键回落默认值。没有这一步，这些选择只活在 URL 里，重启或从别的页面
+  // 回来就全部回落默认（2026-09-22 修复）。
+  const [, setPermission] = useQueryState("permission", { defaultValue: CONVERSATION_DEFAULTS.permission });
+  const [, setEffort] = useQueryState("effort", { defaultValue: CONVERSATION_DEFAULTS.effort });
+  const [, setModel] = useQueryState("model", { defaultValue: CONVERSATION_DEFAULTS.model });
+  const [, setAgentId] = useQueryState("agentId", { defaultValue: CONVERSATION_DEFAULTS.agentId });
+  const [, setRepo] = useQueryState("repo", { defaultValue: CONVERSATION_DEFAULTS.repo });
 
   // Thread list mutation callback
   const mutateThreadsRef = useRef<(() => void) | null>(null);
@@ -43,24 +62,44 @@ function HomePageInner() {
     mutateThreadsRef.current?.();
   }, []);
 
+  const resetConversationSelectors = useCallback(() => {
+    setPermission(CONVERSATION_DEFAULTS.permission);
+    setEffort(CONVERSATION_DEFAULTS.effort);
+    setModel(CONVERSATION_DEFAULTS.model);
+    setAgentId(CONVERSATION_DEFAULTS.agentId);
+    setRepo(CONVERSATION_DEFAULTS.repo);
+  }, [setPermission, setEffort, setModel, setAgentId, setRepo]);
+
   // 点开会话时把模式切回这条会话自己的 agent：历史会话记着旧的单能力 graph，
   // 要回到它才能续跑；新会话（无记录或记录为通用智能体）一律走通用智能体。
+  // 会话级选择器同时按 thread_infos.config 恢复（没存的键回默认值）——
+  // 这些 setter 与 setThreadId 在同一次点击里批量提交，ChatInterface 的
+  // 持久化 effect 看到 threadId 变化时五个参数都已就位，不会把旧值
+  // 误写进新会话。
   const handleThreadSelect = useCallback(
-    (id: string, threadAgent?: string) => {
+    (id: string, threadAgent?: string, config?: ThreadConversationConfig | null) => {
       const match = agentKeyForGraph(threadAgent);
       if (match && match !== activeAgent) {
         setActiveAgent(match);
       }
+      setPermission((config?.permission_mode ?? CONVERSATION_DEFAULTS.permission) || CONVERSATION_DEFAULTS.permission);
+      // effort 的空串是合法值（思考：关），不能 || 成默认
+      setEffort(config?.llm_reasoning_effort ?? CONVERSATION_DEFAULTS.effort);
+      setModel(config?.model_preset ?? CONVERSATION_DEFAULTS.model);
+      setAgentId(config?.agent_id ?? CONVERSATION_DEFAULTS.agentId);
+      setRepo(config?.repo_id ?? CONVERSATION_DEFAULTS.repo);
       setThreadId(id);
     },
-    [setThreadId, setActiveAgent, activeAgent],
+    [setThreadId, setActiveAgent, activeAgent, setPermission, setEffort, setModel, setAgentId, setRepo],
   );
 
   const handleNewChat = useCallback(() => {
     setThreadId(null);
     // 新对话回到通用智能体 —— 否则旧会话的模式会一直粘着
     setActiveAgent(DEFAULT_AGENT_KEY);
-  }, [setThreadId, setActiveAgent]);
+    // 会话级选择器同样回默认值：新对话不该继承上一条会话的完全访问/模型
+    resetConversationSelectors();
+  }, [setThreadId, setActiveAgent, resetConversationSelectors]);
 
   // Construct activeAssistant from agent config
   const currentConfig = AGENT_CONFIG[activeAgent as AgentKey] ?? AGENT_CONFIG[DEFAULT_AGENT_KEY];

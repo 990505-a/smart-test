@@ -187,3 +187,81 @@ async def test_sync_with_real_state_still_prunes(db_factory, monkeypatch):
 
     assert out["pruned"] == 1
     assert (await messages_api.get_thread_messages(tid, 20, None))["messages"][-1]["id"] == "a"
+
+
+# ---------------------------------------------------------------------------
+# 会话级设置持久化（thread_infos.config，2026-09-22）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_update_thread_persists_config(db_factory):
+    """PATCH /threads/{id} 的 config 整包覆盖存储；list_threads 回读为 dict。"""
+    tid = "thread-" + uuid.uuid4().hex
+    async with db_factory() as session:
+        session.add(ThreadInfo(thread_id=tid, title="t"))
+        await session.commit()
+    # 列表只返回有消息的会话（可见性由内容决定）
+    await _add_message(db_factory, tid, "m1", 1)
+
+    config = {
+        "permission_mode": "full_access",
+        "llm_reasoning_effort": "high",
+        "model_preset": "",
+        "agent_id": "",
+        "repo_id": "repo-1",
+    }
+    out = await messages_api.update_thread(tid, messages_api.ThreadUpdateRequest(config=config))
+    assert out["success"] is True
+
+    listed = await messages_api.list_threads(limit=10, offset=0, exclude_agent=None)
+    row = next(t for t in listed["threads"] if t["thread_id"] == tid)
+    assert row["config"] == config
+
+    # 覆盖更新：新快照整体替换旧值（不留残留键）
+    out = await messages_api.update_thread(
+        tid, messages_api.ThreadUpdateRequest(config={"permission_mode": "workspace_write"})
+    )
+    assert out["success"] is True
+    listed = await messages_api.list_threads(limit=10, offset=0, exclude_agent=None)
+    row = next(t for t in listed["threads"] if t["thread_id"] == tid)
+    assert row["config"] == {"permission_mode": "workspace_write"}
+
+
+@pytest.mark.asyncio
+async def test_save_messages_seeds_config(db_factory):
+    """首条消息保存带 config：thread_infos 建行时一并落库。"""
+    tid = "thread-" + uuid.uuid4().hex
+    request = messages_api.SaveMessagesRequest(
+        messages=[messages_api.MessageInput(
+            id="m1", type="human", content="你好",
+        )],
+        agent="smart_test_agent",
+        config={"permission_mode": "full_access", "repo_id": ""},
+    )
+    out = await messages_api.save_thread_messages(tid, request)
+    assert out["saved"] == 1
+
+    async with db_factory() as session:
+        info = (await session.execute(
+            select(ThreadInfo).where(ThreadInfo.thread_id == tid)
+        )).scalar_one()
+    assert info.agent == "smart_test_agent"
+    assert "full_access" in info.config
+
+    listed = await messages_api.list_threads(limit=10, offset=0, exclude_agent=None)
+    row = next(t for t in listed["threads"] if t["thread_id"] == tid)
+    assert row["config"]["permission_mode"] == "full_access"
+
+
+@pytest.mark.asyncio
+async def test_list_threads_config_dirty_data_returns_none(db_factory):
+    """config 列里的脏数据（非 JSON）不炸列表，返回 None 即可。"""
+    tid = "thread-" + uuid.uuid4().hex
+    async with db_factory() as session:
+        session.add(ThreadInfo(thread_id=tid, title="t", config="{not-json"))
+        await session.commit()
+    await _add_message(db_factory, tid, "m1", 1)
+
+    listed = await messages_api.list_threads(limit=10, offset=0, exclude_agent=None)
+    row = next(t for t in listed["threads"] if t["thread_id"] == tid)
+    assert row["config"] is None

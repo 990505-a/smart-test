@@ -147,6 +147,15 @@ export interface FileItem {
   content: string;
 }
 
+/** Token usage recorded on AI messages (langchain usage_metadata shape). */
+export interface TokenUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  input_token_details?: Record<string, unknown>;
+  output_token_details?: Record<string, unknown>;
+}
+
 /** Message shape returned by the paginated backend endpoint. */
 export interface PaginatedMessage {
   id: string;
@@ -155,6 +164,8 @@ export interface PaginatedMessage {
   additional_kwargs?: Record<string, unknown>;
   tool_calls?: Array<{ name: string; args?: Record<string, unknown>; id?: string }>;
   name?: string;
+  tool_call_id?: string;
+  usage_metadata?: TokenUsage | null;
 }
 
 /** Response shape from GET /api/v2/threads/{threadId}/messages */

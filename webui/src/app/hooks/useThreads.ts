@@ -10,6 +10,17 @@ export interface ThreadItem {
   description: string;
   /** LangGraph assistant id（这个会话用哪个智能体模式）；旧会话可能为空 */
   agent: string;
+  /** 会话级设置快照（权限/思考强度/模型预设/智能体/仓库）；旧会话可能为空 */
+  config?: ThreadConversationConfig | null;
+}
+
+/** thread_infos.config 的键（与 run configurable 对齐）。 */
+export interface ThreadConversationConfig {
+  permission_mode?: string;
+  llm_reasoning_effort?: string;
+  model_preset?: string;
+  agent_id?: string;
+  repo_id?: string;
 }
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -43,6 +54,8 @@ export function useThreads() {
             updated_at: string;
             /** 后端 GET /api/v2/threads 会带上会话的模式；旧数据可能为空 */
             agent?: string;
+            /** 会话级设置快照；旧会话可能为空 */
+            config?: ThreadConversationConfig | null;
           }) => ({
             id: t.thread_id,
             updatedAt: new Date(t.updated_at),
@@ -50,6 +63,7 @@ export function useThreads() {
             description: t.description || "",
             // 必须透传给 ThreadList：会话列表的模式徽标 + 点开会话时切回模式
             agent: t.agent || "",
+            config: t.config ?? null,
           })
         ),
         total: data.total || 0,

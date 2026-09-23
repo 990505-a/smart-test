@@ -26,7 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import type { ThreadItem } from "@/app/hooks/useThreads";
+import type { ThreadConversationConfig, ThreadItem } from "@/app/hooks/useThreads";
 import { useThreads } from "@/app/hooks/useThreads";
 import { getFastapiUrl } from "@/lib/config";
 
@@ -92,7 +92,11 @@ function EmptyState() {
 }
 
 interface ThreadListProps {
-  onThreadSelect: (id: string, agent?: string) => void;
+  onThreadSelect: (
+    id: string,
+    agent?: string,
+    config?: ThreadConversationConfig | null,
+  ) => void;
   onMutateReady?: (mutate: () => void) => void;
 }
 
@@ -336,7 +340,7 @@ export function ThreadList({
                           >
                             <button
                               type="button"
-                              onClick={() => onThreadSelect(thread.id, thread.agent)}
+                              onClick={() => onThreadSelect(thread.id, thread.agent, thread.config)}
                               className="flex min-w-0 flex-1 items-center gap-2 text-left"
                             >
                               <span

@@ -140,7 +140,7 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export default function RagPage() {
+function RagPageInner() {
   // 选哪个库放在 URL 上：刷新/分享链接不会跳回默认库（多项目环境里这很要紧）
   const [kbKey, setKbKey] = useQueryState("kb", parseAsString.withDefault(""));
   const [page, setPage] = useState(1);
@@ -529,5 +529,15 @@ export default function RagPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// useQueryState（nuqs 底层是 useSearchParams）在静态预渲染时必须包 Suspense，
+// 否则 next build 在 /rag 直接失败（平台平时跑 next dev 不触发，一跑 build 就炸）。
+export default function RagPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <RagPageInner />
+    </React.Suspense>
   );
 }

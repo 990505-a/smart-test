@@ -161,18 +161,26 @@ _UNITY_DOMAIN = """\
   **图判断"是不是这样"，文本（hierarchy / find_by_text）决定"点哪儿"** —— 别只用一种。
 - **操作后必看 `unity_console`**：Unity 侧异常不会让调用失败，只会安静地写进
   Console —— 不读就会把"点了个寂寞"当成通过。
-- **复位（回到起点）**：`unity_reset(scene=…, wait_for=…)` = 退 Play → 打开起跑场景 →
-  再进 Play → 等标志物回来。探索走到一半想重来时用它（**别自己拼 stop/play**：少了
-  "等标志物回来"这一步，后面全在跟半加载的界面较劲）。
+- **起跑线（平台不复位）**：`unity_start_line(scene=…, wait_for=…)` 是**只读**检查 ——
+  在起跑线就继续；不在就把返回里的 `instruction` **原样告诉用户**（要恢复到哪个场景/
+  界面、等哪个对象出现），等用户确认复位完成再继续。不要自己动手改游戏状态
+  （复位是改被测对象状态的动作，做了就分不清"游戏本来就这样"还是"平台点成这样"）。
 - 工具面覆盖不到时用 `unity_exec_csharp` 写两行 C#（拖拽/滑动/调业务方法/造前置
   数据）；服务器换了或升级后包装工具报"参数不对"，用 `unity_mcp_tools` 看真实
   工具与 schema，再 `unity_mcp_call` 直接调 —— 这条路永远不用改平台代码。
+- **跑不通就改用例，别放弃**：`unity_run_script` 返回里的 `failure` 写了这是谁的
+  问题 —— `kind="case"`（对象改名了/等待不够/流程改版）照 `failure.artifacts` 的
+  失败现场改用例，改完**重跑**；`kind="environment"`（掉线/工程脏/不在 Play）
+  **不要动用例**，去请用户处理；`kind="timeout"` 看最后卡在哪一步。同一份用例改
+  3 轮仍不过就停下报结论（别一直重跑烧时间）。**不许为了变绿放宽/删掉断言** ——
+  那是把缺陷藏起来。跑通后 `unity_save_script`（传 `script_id` 覆盖同一条）落库：
+  平台只把跑通过的内容标成 active，没验证过的只会存 draft。
 - **沉淀用例要写起跑线**：用例里声明模块级常量
   `RESET = {"scene": "<起跑场景路径>", "wait_for": "<起跑线标志物>"}`（普通游戏就是
-  "打开哪张地图/哪个界面 + 等哪个对象出现"）。平台每次执行前自动复位到那儿，
-  用例之间互不污染。不写也能跑：跑通一次后平台会记住当时现场并自动兜底，但显式写
-  下来才算把前置说清楚了（手工前置 —— "先打开某个场景再进 Play" —— 应该变成 RESET，
-  而不是写在注释里让人照着做）。
+  "打开哪张地图/哪个界面 + 等哪个对象出现"）—— 它是这条用例的**前置说明**：
+  平台不复位、也**不检查**，跑之前只把这一行打出来，在不在由用户自己把握。所以这行
+  声明是写给**人和用例库**的（入库时会自动写成用例顶部的标注）；没写的用例会用
+  "上次跑通时的现场"兜一份说明。
 - 沉淀：跑通的脚本 `unity_save_script` 入库；改库里的用例要先 `unity_get_script`
   读回源码，验证后带 `script_id` 覆盖，不要新建第二份（否则同一场景两条用例漂移）。
 """
@@ -276,7 +284,7 @@ CAPABILITIES: tuple[Capability, ...] = (    Capability(
             "src.app.agents.unity.tools:unity_object",
             "src.app.agents.unity.tools:unity_console",
             "src.app.agents.unity.tools:unity_editor",
-            "src.app.agents.unity.tools:unity_reset",
+            "src.app.agents.unity.tools:unity_start_line",
             "src.app.agents.unity.tools:unity_click",
             "src.app.agents.unity.tools:unity_set_text",
             "src.app.agents.unity.tools:unity_wait_for",

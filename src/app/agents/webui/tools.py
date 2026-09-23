@@ -99,7 +99,7 @@ async def webui_screenshot(url: str, device: str | None = None,
 
 
 @tool
-async def webui_cli(args: list[str]) -> dict:
+async def webui_cli(arguments: list[str]) -> dict:
     """执行 playwright CLI 的**专用**子命令（白名单：install / pdf / cr）。
 
     这是给"没有专用工具的能力"留的口子：
@@ -107,8 +107,11 @@ async def webui_cli(args: list[str]) -> dict:
     - `["cr", "<url>", "out.ts"]` 生成 codegen 脚本骨架。
     版本查询用 `webui_runner_status`，截图用 `webui_screenshot`，跑用例用
     `webui_run_spec`——它们返回结构化结果，比读 CLI stdout 可靠。
+
+    参数名不叫 `args` 是刻意的：langchain 生成 schema 时会把名为 `args` 的
+    参数转成 pydantic 保留名 `v__args`，schema 与函数签名对不上，调用必炸。
     """
-    return await playwright_service.run_cli([str(a) for a in args])
+    return await playwright_service.run_cli([str(a) for a in arguments])
 
 
 @tool

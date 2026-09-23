@@ -64,6 +64,16 @@ class ThreadMessage(Base, UUIDMixin):
         comment="Tool calls (JSON-serialized list)",
     )
 
+    # Token usage (JSON-serialized): {input_tokens, output_tokens, total_tokens}
+    # 来自流式消息的 usage_metadata；对话页据此显示每条回复的 token 用量与
+    # 会话累计。与 tool_call_id 一样独立成列（塞 additional_kwargs 会和
+    # 展示层断言"additional_kwargs 里只有可展示内容"打架）。
+    usage_metadata: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Token usage (JSON-serialized)",
+    )
+
     # Tool name (for tool messages)
     name: Mapped[str | None] = mapped_column(
         String(256),

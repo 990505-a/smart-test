@@ -18,6 +18,12 @@ import {
   pruneTombstones,
   shouldCancelAbortedRun,
 } from "@/app/hooks/cancellation";
+import {
+  addAlwaysAllowRules,
+  allActionsMatch,
+  loadAlwaysAllowRules,
+  rulesFromActions,
+} from "@/app/hooks/alwaysAllow";
 
 /** Extract a readable message from a LangGraph stream error event payload. */
 function streamErrorMessage(data: unknown): string {
@@ -30,11 +36,48 @@ function streamErrorMessage(data: unknown): string {
       if (typeof m === "string" && m) return m;
     }
   }
+  let text = "";
   try {
-    return JSON.stringify(data);
+    text = JSON.stringify(data);
   } catch {
-    return "未知错误";
+    text = "";
   }
+  // 服务端把错误序列化成空对象时（langgraph 的 error 事件偶发如此），
+  // 裸显示 "{}" 没有任何诊断价值——给一句能指路的说明。
+  if (!text || text === "{}" || text === "null" || text === "undefined") {
+    return "服务端运行出错但未返回详情（常见于工具/模型调用异常）。"
+      + "可在服务端 logs/langgraph.log 查看具体报错。";
+  }
+  return text;
+}
+
+/**
+ * run 以失败收尾（error 事件 / run 状态 error）——交给发送侧的重试循环，
+ * 不再直接弹窗打扰用户（见 sendMessage 的自动重试，2026-09-22）。
+ */
+class StreamRunFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StreamRunFailedError";
+  }
+}
+
+/** 模型接口断连时自动重试的上限；超过后在对话流里留一条提示。 */
+const MAX_STREAM_AUTO_RETRIES = 10;
+
+/** 可被中止打断的等待（「停止」按钮按下后立刻结束退避，不再重试）。 */
+function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }
 
 /** How many stream events between incremental saves to SQLite. */
@@ -416,7 +459,7 @@ export function useChat({
   const saveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
 
   const saveMessagesToLocalStore = useCallback(
-    async (tid: string, msgs: Message[], opts?: { final?: boolean }) => {
+    async (tid: string, msgs: Message[], opts?: { final?: boolean; config?: Record<string, unknown> }) => {
       if (!tid || msgs.length === 0) return;
       const previous = saveQueueRef.current.get(tid) ?? Promise.resolve();
       const current = previous.catch(() => {}).then(async () => {
@@ -440,6 +483,9 @@ export function useChat({
             // 读 ref 而不是闭包里的 assistantId：本回调依赖为空，闭包值会
             // 是首个模式，切模式后保存会一直写旧模式（见 assistantIdRef）
             agent: assistantIdRef.current,
+            // 会话级设置快照（权限/思考强度/模型预设/智能体/仓库）：随保存
+            // 落库，切回会话时恢复（ChatInterface 的 PATCH 负责后续增量更新）
+            config: opts?.config ?? null,
             messages: toSend.map((m) => {
               const attachmentMetadataByMessage = attachmentMetadataRef.current.get(tid);
               const existingAdditional =
@@ -461,6 +507,10 @@ export function useChat({
                 name: (m as Message & { name?: string }).name ?? null,
                 tool_call_id:
                   (m as Message & { tool_call_id?: string }).tool_call_id ?? null,
+                // token 用量（流式最后一块才出现）：随消息落库，刷新后
+                // 对话页仍能显示每条回复的消耗
+                usage_metadata:
+                  (m as Message & { usage_metadata?: unknown }).usage_metadata ?? null,
               };
             }),
           };
@@ -821,12 +871,17 @@ export function useChat({
     ) => {
       let eventCount = 0;
       let lastSaveTime = 0;
+      // 本轮流以失败收尾时的原因（error 事件记在这里，循环结束后抛给重试循环）。
+      // 不能在事件分支里直接 throw —— 外层 try/catch 是"跳过畸形事件"的兜底，
+      // 会把异常吞掉。
+      let runFailed: string | null = null;
       for await (const event of stream) {
         if (abortController.signal.aborted) break;
 
         const eventType = event.event;
         const eventData = event.data;
-        if (!eventData) continue;
+        // error 事件可能连载荷都是空的（服务端序列化失败），不能因此漏判失败
+        if (!eventData && eventType !== "error") continue;
 
         try {
           if (
@@ -873,14 +928,18 @@ export function useChat({
             if (meta.thread_id) {
               setThreadId(meta.thread_id);
             }
-          } else if (eventType === "error" && eventData) {
-            console.error("[useChat] Stream error event:", eventData);
-            toast.error(`对话请求失败：${streamErrorMessage(eventData)}`);
+          } else if (eventType === "error") {
+            // 不弹窗：这条在 dev overlay 里也降成 warning（此前用 console.error
+            // 会把 Next 的红色报错浮层顶出来，用户看到的就是那个红框）。
+            console.warn("[useChat] Stream error event:", eventData);
+            runFailed = streamErrorMessage(eventData);
           }
         } catch {
           // Skip malformed events
         }
       }
+      // 循环结束（含 break）后再抛：交给 sendMessage 的重试循环决定重试/放弃
+      if (runFailed) throw new StreamRunFailedError(runFailed);
     },
     [upsertStreamMessage, scheduleStreamRender, saveMessagesToLocalStore, setThreadId, bumpSubagentVersion],
   );
@@ -938,7 +997,7 @@ export function useChat({
    */
   const sendMessage = useCallback(
     async (content: string, contentBlocks?: ContentBlock[],
-           context?: { workspacePath?: string; agentId?: string }) => {
+           context?: { workspacePath?: string; agentId?: string; repoId?: string }) => {
       const imageBlocks =
         contentBlocks?.filter((b) => b.type === "image") ?? [];
       const fileBlocks =
@@ -1054,10 +1113,15 @@ export function useChat({
           try {
             await client.threads.get(currentThreadId);
           } catch {
-            // Thread lost from LangGraph — recreate it
+            // Thread lost from LangGraph — recreate it. 静默重建会让用户以为
+            // "输入继续却开了个新会话"——明确说一句，并说明新会话不记得旧上下文。
             const recreated = await client.threads.create({
               metadata: { agent: assistantId },
             });
+            toast.warning(
+              "原会话的服务端状态已不存在（服务重启或缓存被清），已新建会话继续；"
+              + "历史消息仍可查看，但智能体不再记得之前的上下文。",
+            );
             // If the new thread has a different ID, we need to update
             // But LangGraph allows creating with specific metadata, so just use the same ID approach
             // Actually we can't force a thread_id with LangGraph SDK, so update our tracking
@@ -1101,6 +1165,16 @@ export function useChat({
           ...(modelPreset ? { model_preset: modelPreset } : {}),
         };
 
+        // 会话级设置快照（thread_infos.config）：与 run configurable 同源，
+        // 但键面向"切回会话时恢复 UI"，含 repo_id（URL ?repo= 的值）。
+        const threadConfigSnapshot: Record<string, string> = {
+          permission_mode: permissionMode,
+          llm_reasoning_effort: reasoningEffort || "",
+          model_preset: modelPreset || "",
+          agent_id: context?.agentId || "",
+          repo_id: context?.repoId || "",
+        };
+
         // 竞态预检：用户可能在 run 创建前就点了停止（发送后立即停止）。
         // 不起 run——本地已保存的用户消息由 finally 的 finalizeStream 落盘。
         if (abortController.signal.aborted) {
@@ -1109,8 +1183,12 @@ export function useChat({
 
         // 立即持久化用户消息：懒创建下这也是会话列表条目的诞生点——
         // 保存触发后端 _upsert_thread_info 建行+推导标题，成功后刷新
-        // 列表让新会话在流式期间就出现在侧栏（useThreads 无轮询）
-        saveMessagesToLocalStore(streamingThreadId, [newMessage])
+        // 列表让新会话在流式期间就出现在侧栏（useThreads 无轮询）。
+        // 会话级设置快照一并落库：新会话（PATCH 还没有 threadId 可写）
+        // 的初始权限/模型/思考强度从这条路径持久化。
+        saveMessagesToLocalStore(streamingThreadId, [newMessage], {
+          config: threadConfigSnapshot,
+        })
           .then(() => scheduleHistoryRevalidate())
           .catch(() => {});
 
@@ -1128,34 +1206,91 @@ export function useChat({
           }
         };
 
-        const stream = client.runs.stream(
-          streamingThreadId,
-          assistantId,
-          {
-            input: { messages: [newMessage] },
-            config: {
-              recursion_limit: 1000,
-              configurable: lastRunConfigRef.current,
-            },
-            // 只要 messages，**不要 tasks**。实测（最小对话、36 个事件、103,805
-            // 字节）tasks 占 93.6%（97,193 字节），而 noteTaskEvent 只从里面取两个
-            // 小字段（task.id 与 input.tool_call.id）——代价是每个任务事件都携带该
-            // 节点的**完整输入**，模型节点的输入就是整段对话，于是随对话变长呈二次
-            // 增长：一次 20 分钟的长会话把 231 MB 推给了浏览器。
-            // 子代理面板不依赖它也能工作：consume() 会用 messages/metadata 的
-            // namespace 自行推导 pregelId → callId（subagentActivity.ts:218-221），
-            // 这也正是重连路径（joinStream 不透传 subgraphs）已经在用的降级方式。
-            streamMode: ["messages"],
-            streamSubgraphs: true,
-            onRunCreated,
-            // SDK 实现层透传 signal（类型未声明，见 client/runs/index.js）：
-            // 本地 abort 立即掐断 SSE 连接，而不是等下一个事件才检查标志
-            ...({ signal: abortController.signal }),
-          },
-        );
+        // 模型接口断连的自动重试（2026-09-22）：不再弹窗打扰，同一条流的位置
+        // 连续重试；超过上限才在对话流里留一条「模型无法连通」的提示。
+        const noticeId = `model-unreachable-${streamingThreadId}`;
+        let attempt = 0;
 
-        // Process SSE events - updates streamDataRef for this specific thread
-        await processStreamEvents(stream, streamingThreadId, abortController);
+        const startStream = () => {
+          // 上一轮已成功创建过 run → 用户消息已经进了图状态，续跑用 null
+          // input 从检查点继续（SDK 语义），否则会把同一条用户消息再插一遍；
+          // 若连 run 都没创建起来（请求就没通），消息还没进状态，原样重发。
+          const resume = attempt > 0 && myRunId !== null;
+          myRunId = null; // 每轮重新记录；finally 的取消只针对最后一轮的 run
+          return client.runs.stream(
+            streamingThreadId,
+            assistantId,
+            {
+              input: resume ? null : { messages: [newMessage] },
+              config: {
+                recursion_limit: 1000,
+                configurable: lastRunConfigRef.current,
+              },
+              // 只要 messages，**不要 tasks**。实测（最小对话、36 个事件、103,805
+              // 字节）tasks 占 93.6%（97,193 字节），而 noteTaskEvent 只从里面取两个
+              // 小字段（task.id 与 input.tool_call.id）——代价是每个任务事件都携带该
+              // 节点的**完整输入**，模型节点的输入就是整段对话，于是随对话变长呈二次
+              // 增长：一次 20 分钟的长会话把 231 MB 推给了浏览器。
+              // 子代理面板不依赖它也能工作：consume() 会用 messages/metadata 的
+              // namespace 自行推导 pregelId → callId（subagentActivity.ts:218-221），
+              // 这也正是重连路径（joinStream 不透传 subgraphs）已经在用的降级方式。
+              streamMode: ["messages"],
+              streamSubgraphs: true,
+              onRunCreated,
+              // SDK 实现层透传 signal（类型未声明，见 client/runs/index.js）：
+              // 本地 abort 立即掐断 SSE 连接，而不是等下一个事件才检查标志
+              ...({ signal: abortController.signal }),
+            },
+          );
+        };
+
+        for (;;) {
+          try {
+            // Process SSE events - updates streamDataRef for this specific thread
+            await processStreamEvents(startStream(), streamingThreadId, abortController);
+            // 有些失败形态不发 error 事件、流就那么结束了：用 run 的真实状态
+            // 兜底判失败。interrupted 是等审批，绝不能当失败重试。
+            if (myRunId) {
+              const run = await client.runs
+                .get(streamingThreadId, myRunId)
+                .catch(() => null);
+              const status = (run as unknown as { status?: string } | null)?.status;
+              if (status === "error" || status === "timeout") {
+                throw new StreamRunFailedError(`run 状态 ${status}`);
+              }
+            }
+            break;
+          } catch (err: unknown) {
+            if (
+              abortController.signal.aborted ||
+              (err instanceof Error && err.name === "AbortError")
+            ) {
+              break; // 用户点了停止，不重试
+            }
+            attempt += 1;
+            if (attempt > MAX_STREAM_AUTO_RETRIES) {
+              console.warn(
+                `[useChat] 模型接口连续 ${MAX_STREAM_AUTO_RETRIES} 次重试仍失败，停止自动重试`,
+              );
+              upsertStreamMessage(streamingThreadId, {
+                id: noticeId,
+                type: "ai",
+                content:
+                  `⚠️ 模型接口连续 ${MAX_STREAM_AUTO_RETRIES} 次重试仍无法连通，已停止自动重试。`
+                  + "请检查网络或模型端点后重新发送。",
+              } as Message);
+              scheduleStreamRender(streamingThreadId);
+              break;
+            }
+            const delayMs = Math.min(2 + 2 * attempt, 15) * 1000;
+            console.warn(
+              `[useChat] 流中断（第 ${attempt} 次），${Math.round(delayMs / 1000)}s 后自动重试:`,
+              err instanceof Error ? err.message : err,
+            );
+            await sleepUnlessAborted(delayMs, abortController.signal);
+            if (abortController.signal.aborted) break;
+          }
+        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
           // User aborted, not an error
@@ -1226,17 +1361,26 @@ export function useChat({
   /**
    * Answer a pending approval interrupt (dsh: allowed-once / rejected) and
    * continue the paused run on the same thread with the original config.
+   *
+   * "always"（始终允许）：先把本次全部动作的放行规则记进本会话的
+   * 「始终允许」名单（命令按程序名 / 写入按目录，见 alwaysAllow.ts），
+   * 再按 approve 继续本批调用。
    */
   const resumeInterrupt = useCallback(
-    async (decision: "approve" | "reject", reason?: string) => {
+    async (decision: "approve" | "reject" | "always", reason?: string) => {
       const tid = interrupt?.threadId ?? threadId;
       if (!tid || !interrupt || !assistantId) return;
+      if (decision === "always") {
+        addAlwaysAllowRules(tid, rulesFromActions(interrupt.actions));
+      }
+      const effectiveDecision: "approve" | "reject" =
+        decision === "reject" ? "reject" : "approve";
       // 一条 decision 对应一个挂起的 tool call。并行调用时必须按个数补齐，
       // 否则服务端 HumanInTheLoopMiddleware 直接 ValueError、run 整个失败
       // （见 PendingApproval.actions）。这里对本次中断里的所有调用用同一个决策。
       const pendingCount = Math.max(1, interrupt.actions?.length ?? 0);
       const decisions = Array.from({ length: pendingCount }, () => ({
-        type: decision,
+        type: effectiveDecision,
         ...(reason ? { message: reason } : {}),
       }));
       setInterrupt(null);
@@ -1268,6 +1412,16 @@ export function useChat({
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
           // User aborted, not an error
+        } else if (err instanceof StreamRunFailedError) {
+          // 模型接口断连（与发送流同策略）：不弹窗，对话里留一条提示。
+          // 审批续跑不做自动重试——用户点「允许」是显式动作，失败就如实说。
+          console.warn("[useChat] Resume stream failed:", err.message);
+          upsertStreamMessage(tid, {
+            id: `model-unreachable-${tid}`,
+            type: "ai",
+            content: "⚠️ 模型接口无法连通，操作未完成。请检查网络或模型端点后重试。",
+          } as Message);
+          scheduleStreamRender(tid);
         } else {
           console.error("[useChat] Resume error:", err);
           toast.error("恢复对话失败，请重试");
@@ -1284,6 +1438,28 @@ export function useChat({
     },
     [interrupt, threadId, assistantId, client, workspaceId, processStreamEvents, finalizeStream, bumpLoadingIfViewed, cancelThreadRuns],
   );
+
+  // 「始终允许」自动放行：新中断到达时，若其全部动作都命中本会话已授权的
+  // 规则（命令按程序名 / 写入按目录），直接按 approve 续跑，不再弹卡片。
+  // key 防同一批动作在 StrictMode 双触发或重渲染里重复放行；拒绝永不自动
+  // 放行——规则只在用户点「始终允许」时写入。
+  const autoApproveKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!interrupt) {
+      autoApproveKeyRef.current = null;
+      return;
+    }
+    const key = `${interrupt.threadId}#${interrupt.actions
+      .map((a) => `${a.name}:${a.command}:${String(a.args?.file_path ?? "")}`)
+      .join("|")}`;
+    if (autoApproveKeyRef.current === key) return;
+    const rules = loadAlwaysAllowRules(interrupt.threadId);
+    if (allActionsMatch(interrupt.actions, rules)) {
+      autoApproveKeyRef.current = key;
+      toast.info("已按「始终允许」自动放行该操作");
+      resumeInterrupt("approve");
+    }
+  }, [interrupt, resumeInterrupt]);
 
   /** 子智能体活动 feed（task 调用 id -> 事件列表）；subagentVersion 变化时刷新 */
   const getSubAgentFeed = useCallback(

@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentBlock, ToolCall, SubAgent } from "@/app/types/types";
 import { PIPELINE_STAGES } from "@/app/types/types";
 import { cn } from "@/lib/utils";
-import { File, ChevronDown, ChevronUp, Brain, Square } from "lucide-react";
+import { formatTokenCount } from "@/lib/formatTokens";
+import { File, ChevronDown, ChevronUp, Brain, Square, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToolResultCard, parseSaveResults, stripSaveResultMarkers } from "@/app/components/ToolResultCard";
 import { ToolCallBox } from "@/app/components/ToolCallBox";
@@ -42,6 +43,14 @@ interface ChatMessageProps {
       args?: Record<string, unknown>;
       id?: string;
     }>;
+    /** langchain usage_metadata（流式最后一块 / 历史消息落库后都有） */
+    usage_metadata?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      total_tokens?: number;
+      input_token_details?: Record<string, unknown>;
+      output_token_details?: Record<string, unknown>;
+    } | null;
   };
   toolCalls?: ToolCall[];
   isStreaming?: boolean;
@@ -378,6 +387,35 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                     <Square size={9} className="shrink-0 fill-current" />
                     <span>已停止</span>
+                  </div>
+                )}
+
+                {/* Token 用量（usage_metadata）：流式最后一块才带上；历史消息
+                    落库后刷新仍能显示。↑=输入（含历史重发） ↓=输出 */}
+                {message.usage_metadata && !isStreaming && (
+                  <div
+                    className="mt-1.5 flex w-fit items-center gap-1.5 text-[11px] leading-none text-muted-foreground/70"
+                    title={
+                      `本回合 tokens：输入 ${(message.usage_metadata.input_tokens ?? 0).toLocaleString()}`
+                      + ` / 输出 ${(message.usage_metadata.output_tokens ?? 0).toLocaleString()}`
+                      + ` / 共 ${(message.usage_metadata.total_tokens ?? 0).toLocaleString()}`
+                      + (
+                          message.usage_metadata.input_token_details &&
+                          typeof message.usage_metadata.input_token_details === "object" &&
+                          (message.usage_metadata.input_token_details as { cache_read?: number }).cache_read
+                            ? `（含缓存命中 ${(message.usage_metadata.input_token_details as { cache_read: number }).cache_read.toLocaleString()}）`
+                            : ""
+                        )
+                    }
+                  >
+                    <Gauge size={11} className="shrink-0" />
+                    <span>
+                      共 {formatTokenCount(message.usage_metadata.total_tokens ?? (message.usage_metadata.input_tokens ?? 0) + (message.usage_metadata.output_tokens ?? 0))}
+                      <span className="opacity-80">
+                        &nbsp;· ↑ {formatTokenCount(message.usage_metadata.input_tokens)} / ↓{" "}
+                        {formatTokenCount(message.usage_metadata.output_tokens)}
+                      </span>
+                    </span>
                   </div>
                 )}
 

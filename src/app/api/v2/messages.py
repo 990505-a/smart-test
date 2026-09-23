@@ -54,6 +54,20 @@ class ThreadUpdateRequest(BaseModel):
     title: str | None = None
     description: str | None = None
     agent: str | None = None
+    #: 会话级前端设置（权限档位/思考强度/模型预设/智能体/仓库）。整包覆盖：
+    #: 前端每次发送选择器变化后的完整快照，NULL 表示本次不动它。
+    config: dict[str, Any] | None = None
+
+
+def _thread_config_dict(raw: Any) -> dict[str, Any] | None:
+    """thread_infos.config（JSON 字符串）→ dict；空串/脏数据返回 None。"""
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _iso_utc(dt: Any) -> str | None:
@@ -149,6 +163,7 @@ async def list_threads(
                     "title": t.title,
                     "description": t.description,
                     "agent": getattr(t, "agent", "") or "",
+                    "config": _thread_config_dict(getattr(t, "config", "")),
                     "created_at": _iso_utc(t.created_at),
                     "updated_at": _iso_utc(t.updated_at),
                 }
@@ -199,6 +214,8 @@ async def update_thread(thread_id: str, request: ThreadUpdateRequest) -> dict[st
             info.description = request.description
         if request.agent is not None:
             info.agent = request.agent.strip()
+        if request.config is not None:
+            info.config = json.dumps(request.config, ensure_ascii=False)
         await session.commit()
         return {"success": True, "thread_id": thread_id}
 
@@ -309,14 +326,21 @@ class MessageInput(BaseModel):
     # tool 消息的关联 id：不存它，历史加载后工具结果无法关联回工具调用，
     # 前端会永远显示「执行中」。落库时并入 additional_kwargs JSON（免加列）。
     tool_call_id: str | None = None
+    # AI 消息的 token 用量（langchain usage_metadata）：对话页展示每条回复
+    # 消耗。流式消息自带，落库独立成列（见 ThreadMessage.usage_metadata）。
+    usage_metadata: dict[str, Any] | None = None
 
 
 class SaveMessagesRequest(BaseModel):
     """Request body for saving messages after streaming."""
+
     messages: list[MessageInput]
     #: 本次保存所属的智能体（前端在保存消息时带上）。首条消息落库时写进
     #: thread_infos.agent，会话列表与历史恢复都靠它知道"这是哪个模式的会话"。
     agent: str | None = None
+    #: 会话级前端设置快照（权限/思考强度/模型预设/智能体/仓库）。随首条
+    #: 消息落库，之后由选择器变化的 PATCH 增量更新；NULL 不动存量值。
+    config: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +377,13 @@ def _row_to_dict(row: ThreadMessage) -> dict[str, Any]:
     if isinstance(additional_kwargs, dict):
         tool_call_id = additional_kwargs.pop("tool_call_id", None)
 
+    usage_metadata = None
+    if row.usage_metadata:
+        try:
+            usage_metadata = json.loads(row.usage_metadata)
+        except (json.JSONDecodeError, ValueError):
+            usage_metadata = None
+
     return {
         "id": row.message_id,
         "type": row.msg_type,
@@ -361,6 +392,7 @@ def _row_to_dict(row: ThreadMessage) -> dict[str, Any]:
         "tool_calls": tool_calls,
         "name": row.name,
         "tool_call_id": tool_call_id,
+        "usage_metadata": usage_metadata,
     }
 
 
@@ -373,9 +405,11 @@ def _serialize_message(msg: Any) -> dict[str, Any]:
     if isinstance(msg, dict):
         additional_kwargs = dict(msg.get("additional_kwargs") or {})
         tool_call_id = msg.get("tool_call_id")
+        usage_metadata = msg.get("usage_metadata")
     else:
         additional_kwargs = dict(getattr(msg, "additional_kwargs", {}) or {})
         tool_call_id = getattr(msg, "tool_call_id", None)
+        usage_metadata = getattr(msg, "usage_metadata", None)
     if tool_call_id:
         additional_kwargs["tool_call_id"] = tool_call_id
 
@@ -387,6 +421,7 @@ def _serialize_message(msg: Any) -> dict[str, Any]:
             "additional_kwargs": additional_kwargs,
             "tool_calls": msg.get("tool_calls"),
             "name": msg.get("name"),
+            "usage_metadata": usage_metadata,
         }
 
     return {
@@ -396,6 +431,7 @@ def _serialize_message(msg: Any) -> dict[str, Any]:
         "additional_kwargs": additional_kwargs,
         "tool_calls": getattr(msg, "tool_calls", None),
         "name": getattr(msg, "name", None),
+        "usage_metadata": usage_metadata,
     }
 
 
@@ -453,7 +489,8 @@ def _derive_thread_title(messages: list[MessageInput]) -> str | None:
 
 
 async def _upsert_thread_info(session: Any, thread_id: str, messages: list[MessageInput],
-                              agent: str | None = None) -> bool:
+                              agent: str | None = None,
+                              config: dict[str, Any] | None = None) -> bool:
     """Ensure a live ThreadInfo row exists; return False for a tombstone.
 
     Defense in depth: the conversation list (GET /threads) only reads
@@ -480,7 +517,9 @@ async def _upsert_thread_info(session: Any, thread_id: str, messages: list[Messa
         stmt = (
             sqlite_insert(ThreadInfo)
             .values(thread_id=thread_id, title=title or "无标题对话",
-                      agent=(agent or "").strip())
+                    agent=(agent or "").strip(),
+                    **({"config": json.dumps(config, ensure_ascii=False)}
+                       if config is not None else {}))
             .on_conflict_do_nothing(index_elements=["thread_id"])
         )
         await session.execute(stmt)
@@ -502,6 +541,9 @@ async def _upsert_thread_info(session: Any, thread_id: str, messages: list[Messa
     # 旧会话（agent 为空）在下次保存时补齐；已有值不被覆盖（会话模式是它的身份）
     if agent and not getattr(info, "agent", ""):
         info.agent = agent.strip()
+    # 会话级设置：前端每次保存带的是"当前选择器"的完整快照，直接覆盖
+    if config is not None:
+        info.config = json.dumps(config, ensure_ascii=False)
     info.updated_at = func.now()
     return True
 
@@ -528,7 +570,9 @@ async def save_thread_messages(
     updated_count = 0
 
     async with async_session_factory() as session:
-        if not await _upsert_thread_info(session, thread_id, request.messages, request.agent):
+        if not await _upsert_thread_info(
+            session, thread_id, request.messages, request.agent, request.config
+        ):
             await session.rollback()
             return {"saved": 0, "updated": 0, "total": 0, "ignored": True}
 
@@ -553,6 +597,11 @@ async def save_thread_messages(
                 if msg.tool_calls
                 else None
             )
+            usage_metadata_str = (
+                json.dumps(msg.usage_metadata, ensure_ascii=False, default=str)
+                if msg.usage_metadata
+                else None
+            )
 
             # Allocate an ordering slot for a new message.  The sequence index
             # is intentionally not unique; concurrent requests may share a
@@ -569,6 +618,7 @@ async def save_thread_messages(
                 "content": content_str,
                 "additional_kwargs": additional_kwargs_str,
                 "tool_calls": tool_calls_str,
+                "usage_metadata": usage_metadata_str,
                 "name": msg.name,
                 "seq_index": max_idx + 1,
             }
@@ -582,6 +632,7 @@ async def save_thread_messages(
                     "content": values["content"],
                     "additional_kwargs": values["additional_kwargs"],
                     "tool_calls": values["tool_calls"],
+                    "usage_metadata": values["usage_metadata"],
                     "name": values["name"],
                 },
             )
@@ -1030,6 +1081,10 @@ async def _backfill_local_store(
                     "tool_calls": (
                         json.dumps(msg.get("tool_calls"), ensure_ascii=False, default=str)
                         if msg.get("tool_calls") else None
+                    ),
+                    "usage_metadata": (
+                        json.dumps(msg.get("usage_metadata"), ensure_ascii=False, default=str)
+                        if msg.get("usage_metadata") else None
                     ),
                     "name": msg.get("name"),
                     "seq_index": index,

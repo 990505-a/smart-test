@@ -28,6 +28,7 @@ from dotenv import dotenv_values
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.outputs import ChatGenerationChunk
 from langchain_openai import ChatOpenAI
 
 # 全仓统一用 "src.app.*" 这一种导入前缀。过去这里是个 try/except 双别名
@@ -109,6 +110,35 @@ class ReasoningChatOpenAI(ChatOpenAI):
                     )
         return result
 
+    async def _astream(self, *args, **kwargs):
+        """底层流：剥掉逐段 usage，流末补挂最后一段。
+
+        opencode 网关对推理型模型（deepseek-v4-flash）把一次流式回复拆成
+        若干段，**每段的 chunk 都带 usage 块，值恒为完整请求体**（实测约
+        20k tokens/段）。langchain 的 AIMessageChunk 合并把各段 usage 逐字段
+        相加，最终 usage_metadata.input_tokens = 段数 × 请求体——几百 token
+        的回复能"累计"出 30 万+，对话页的 token 展示与上下文窗口完全对不上。
+
+        处理：透传时剥掉 chunk 消息上的 usage_metadata（防累加），流结束时
+        补一个只含**最后一段** usage 的空 chunk——合并结果即最后一段（真实
+        单次请求体），Langfuse 监控/对话页拿到的都是同一份修正后的值。
+        对普通端点（usage 只在最后一块出现，OpenAI 标准）净效果为零。
+        """
+        last_usage = None
+        async for generation in super()._astream(*args, **kwargs):
+            message = getattr(generation, "message", None)
+            usage = getattr(message, "usage_metadata", None)
+            if usage is not None:
+                last_usage = usage
+                if isinstance(message, AIMessageChunk) and generation is not None:
+                    stripped = message.model_copy(update={"usage_metadata": None})
+                    generation = generation.model_copy(update={"message": stripped})
+            yield generation
+        if last_usage is not None:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(content="", usage_metadata=last_usage)
+            )
+
 # ---------------------------------------------------------------------------
 # Live reload: the FastAPI settings page persists model changes to .env; the
 # LangGraph agent process watches that file and rebuilds models on the fly
@@ -129,6 +159,8 @@ _ENV_REFRESH_KEYS: dict[str, str] = {
     "llm_base_url": "LLM_BASE_URL",
     "llm_api_key": "LLM_API_KEY",
     "llm_context_window": "LLM_CONTEXT_WINDOW",
+    "llm_max_output_tokens": "LLM_MAX_OUTPUT_TOKENS",
+    "llm_supports_vision": "LLM_SUPPORTS_VISION",
     "llm_reasoning_effort": "LLM_REASONING_EFFORT",
     "deepseek_api_key": "DEEPSEEK_API_KEY",
     "deepseek_model": "DEEPSEEK_MODEL",
@@ -139,15 +171,17 @@ _ENV_REFRESH_KEYS: dict[str, str] = {
     "feishu_folder_token": "FEISHU_FOLDER_TOKEN",
     "memory_enabled": "MEMORY_ENABLED",
 }
-_INT_FIELDS = {"llm_context_window"}
+_INT_FIELDS = {"llm_context_window", "llm_max_output_tokens"}
 # 布尔字段要显式转换：pydantic 默认不在赋值时校验，把字符串 "false" 直接 setattr
 # 进去会变成**真值**（非空字符串），总闸就永远关不掉。
-_BOOL_FIELDS = {"memory_enabled"}
+# llm_supports_vision 不进 _SIG_FIELDS：它由 vision_gate 中间件每次调用现读，
+# 换它不需要重建模型（省一次模型缓存失效）。
+_BOOL_FIELDS = {"memory_enabled", "llm_supports_vision"}
 
 # Fields that produce a different built model (cache signature)
 _SIG_FIELDS = (
     "llm_model", "llm_base_url", "llm_api_key",
-    "llm_reasoning_effort", "llm_context_window",
+    "llm_reasoning_effort", "llm_context_window", "llm_max_output_tokens",
     "deepseek_api_key", "deepseek_model",
 )
 
@@ -216,7 +250,8 @@ def build_model_from_values(values: dict, effort: str = "",
     Args:
         values: ``MODEL_KEYS`` 形状的映射（``llm_model`` / ``llm_base_url`` /
             ``llm_api_key`` / ``deepseek_model`` / ``deepseek_api_key`` /
-            ``llm_context_window`` / ``llm_reasoning_effort``）。
+            ``llm_context_window`` / ``llm_max_output_tokens`` /
+            ``llm_reasoning_effort``）。
         effort: 本次调用的 reasoning effort；非法或为空时回落到 values 里的配置。
         context_window / max_retries / request_timeout: 显式覆盖，None 表示沿用全局。
     """
@@ -245,6 +280,16 @@ def build_model_from_values(values: dict, effort: str = "",
     }
     if effective_effort:
         kwargs["reasoning_effort"] = effective_effort
+
+    # 最大输出上限：0 / 空 = 不发送（跟随模型自身默认）。推理型模型输出计数
+    # 包含思考 token，所以这里的值是"回复总量"而非纯正文长度。
+    raw_max_output = str(values.get("llm_max_output_tokens") or "").strip()
+    try:
+        max_output = int(raw_max_output) if raw_max_output else settings.llm_max_output_tokens
+    except ValueError:
+        max_output = settings.llm_max_output_tokens
+    if max_output and max_output > 0:
+        kwargs["max_tokens"] = max_output
 
     if base_url:
         if not api_key:
@@ -302,6 +347,7 @@ def build_chat_model(effort: str = "", context_window: int | None = None,
             "deepseek_model": settings.deepseek_model,
             "deepseek_api_key": settings.deepseek_api_key,
             "llm_context_window": settings.llm_context_window,
+            "llm_max_output_tokens": settings.llm_max_output_tokens,
             "llm_reasoning_effort": settings.llm_reasoning_effort,
         },
         effort=effort,

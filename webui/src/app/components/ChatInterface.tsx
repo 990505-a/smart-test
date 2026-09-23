@@ -10,9 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, ChevronUp, FlaskConical, Brain, ShieldAlert, FolderGit2, Bot, Cpu, Loader } from "lucide-react";
+import { ArrowUp, Square, Plus, CheckCircle, Clock, Circle, ChevronUp, FlaskConical, Brain, ShieldAlert, FolderGit2, Bot, Cpu, Loader, Gauge } from "lucide-react";
 import useSWR from "swr";
-import { useCbmRepos, useModelPresets } from "@/lib/api/useNewModules";
+import { useCbmRepos, useModelPresets, useModelSettings } from "@/lib/api/useNewModules";
 import { apiClient } from "@/lib/api-client";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { ApprovalCard } from "@/app/components/ApprovalCard";
@@ -20,6 +20,8 @@ import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
+import { formatTokenCount, pickLatestContextUsage } from "@/lib/formatTokens";
+import { countRunSteps, progressFingerprint, runHud } from "@/lib/runProgress";
 
 import { useFileUpload } from "@/app/hooks/useFileUpload";
 import { useTodos } from "@/app/hooks/useTodos";
@@ -124,6 +126,39 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
   }, [permissionMode, setPermissionMode]);
   // 切到完全访问需要二次确认（dsh: RiskConfirmation）
   const [fullAccessConfirmOpen, setFullAccessConfirmOpen] = useState(false);
+
+  // === 会话级设置持久化 ===
+  // 选择器以前只活在 URL 参数里：重启 / 从别的页面回来 / 换台机器，点开
+  // 会话就全部回落默认（"设置了完全访问再切回来又没了"）。现在变化后防抖
+  // PATCH 到 thread_infos.config，切换会话时由 chat 页统一恢复。
+  // 刚切进一个会话的那次触发不回写（那时值是恢复值/默认值，不是用户改动），
+  // 否则会把旧会话的设置误写进新会话。
+  const persistedConfigRef = useRef<{ threadId: string; serialized: string } | null>(null);
+  useEffect(() => {
+    if (!currentThreadId) return;
+    const config = {
+      permission_mode: permissionMode,
+      llm_reasoning_effort: reasoningEffort,
+      model_preset: modelPreset,
+      agent_id: agentKey,
+      repo_id: repoId,
+    };
+    const serialized = JSON.stringify(config);
+    const persisted = persistedConfigRef.current;
+    if (!persisted || persisted.threadId !== currentThreadId) {
+      // 首次见到这个会话：记住当前快照作为基线，不回写
+      persistedConfigRef.current = { threadId: currentThreadId, serialized };
+      return;
+    }
+    if (persisted.serialized === serialized) return;
+    const timer = window.setTimeout(() => {
+      persistedConfigRef.current = { threadId: currentThreadId, serialized };
+      apiClient
+        .patch(`/threads/${currentThreadId}`, { config })
+        .catch(() => {/* 持久化失败不打扰：URL 参数里仍有当前值，下次变化重试 */});
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [currentThreadId, permissionMode, reasoningEffort, modelPreset, agentKey, repoId]);
   // 飞书检索开关已移除（2026-09）：它默认就该开着，摆个开关只会让人忘了开。
   // 智能体现在默认被允许用 lark-cli 只读检索飞书需求（写操作仍走审批门）。
 
@@ -181,6 +216,47 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
   // 场景。审批挂起时 run 停在等用户决策（不是在干活），不能继续转。
   const showGenerating = isLoading && !approvalPending;
 
+  // 运行状态条：这一轮跑了多久、第几步、还在不在动。
+  //
+  // 为什么需要它：这一轮跑到哪儿以前界面上没有任何地方说得清，于是"跑很久"只能靠
+  // 一个**模型调用次数上限**（120 次就硬收尾）来兜——那个闸误伤长探索，收尾还只留
+  // 一句英文报错。现在改成看得见 + 随时能停：计时 + 步数 + 静默 90s 提示。
+  const [hudNow, setHudNow] = useState(() => Date.now());
+  const runStartedAtRef = useRef<number | null>(null);
+  const lastProgressAtRef = useRef<number>(Date.now());
+  // 指纹只在"真的多了一条消息 / 文本又长了 / 多了一个工具调用"时才变 —— 用它判断
+  // 还在不在动，比"最近有没有 token"准（模型思考与长工具调用期间本来就没有 token）。
+  const progressKey = useMemo(
+    () => progressFingerprint(messages ?? []),
+    [messages],
+  );
+  useEffect(() => {
+    if (isLoading) {
+      if (runStartedAtRef.current === null) {
+        runStartedAtRef.current = Date.now();
+        lastProgressAtRef.current = Date.now();
+      }
+      return;
+    }
+    runStartedAtRef.current = null;
+  }, [isLoading]);
+  useEffect(() => {
+    lastProgressAtRef.current = Date.now();
+  }, [progressKey]);
+  useEffect(() => {
+    if (!isLoading) return;
+    const timer = window.setInterval(() => setHudNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isLoading]);
+  const hud = useMemo(() => {
+    if (!isLoading || runStartedAtRef.current === null) return null;
+    return runHud({
+      elapsedMs: hudNow - runStartedAtRef.current,
+      silentMs: hudNow - lastProgressAtRef.current,
+      steps: countRunSteps(messages ?? []),
+    });
+  }, [isLoading, hudNow, messages, progressKey]);
+
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       if (e) {
@@ -209,11 +285,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
         // 只在边界上（目录被改过）才暴露的不一致。目录没加载出来时仍留空，
         // 交给后端按默认智能体解析。
         agentId: effectiveAgent?.id,
+        // 会话级配置持久化需要仓库 id（URL 上的 ?repo=），useChat 落库用
+        repoId,
       });
       setInput("");
       clearContentBlocks();
     },
-    [input, contentBlocks, isLoading, isUploading, approvalPending, sendMessage, submitDisabled, clearContentBlocks, selectedRepo, effectiveAgent],
+    [input, contentBlocks, isLoading, isUploading, approvalPending, sendMessage, submitDisabled, clearContentBlocks, selectedRepo, effectiveAgent, repoId],
   );
 
   const handleKeyDown = useCallback(
@@ -229,6 +307,30 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
 
   // Extract tool calls from messages (shared with the codebase analysis panel)
   const processedMessages = useProcessedMessages(messages, isLoading, subagentVersion);
+
+  // 当前上下文占用：取**最后一次模型调用**的 total_tokens。它的 input 就是
+  // 本轮发给模型的完整对话（含全部历史），total ≈ 当前上下文真实水位。
+  // 旧实现把各条 AI 回复的 total_tokens 累加——每轮 input 都重发全部历史，
+  // 长会话会虚高出数倍（实测 460 万），刷新/切会话后数值"乱跳"即此因。
+  const latestUsage = useMemo(
+    () => pickLatestContextUsage(messages ?? []),
+    [messages],
+  );
+  const sessionTokens = latestUsage?.used ?? 0;
+
+  // 占上下文窗口的百分比：分母是设置页的「上下文窗口」（与后端
+  // SummarizationMiddleware 的 85% 压缩触发点同一个口径）。设置页与就绪
+  // 中心读的是同一个 SWR key，这里不会再多打一次请求。
+  const { data: modelSettings } = useModelSettings();
+  const contextWindow = useMemo(() => {
+    const parsed = parseInt(String(modelSettings?.llm_context_window ?? ""), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 128_000;
+  }, [modelSettings]);
+  const sessionTokenPct =
+    contextWindow > 0 ? Math.round((sessionTokens / contextWindow) * 1000) / 10 : 0;
+
+  // 跟随设置时的实际模型名（模型选择器直接显示它，而不是笼统的「默认」）
+  const defaultModelName = String(modelSettings?.llm_model ?? "").trim();
 
 
   // 面板显示的子智能体实时化：点击传入的是当时的快照（status/output 停在
@@ -538,6 +640,25 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
               blocks={contentBlocks}
               onRemove={removeContentBlock}
             />
+            {hud && (
+              <div
+                className={cn(
+                  "flex flex-wrap items-center gap-2 border-b border-border px-4 py-1.5 text-xs",
+                  hud.stalled ? "text-warning" : "text-muted-foreground",
+                )}
+                title={"这一轮的进度。长时间没有新事件时会在这里说出来 —— 平台不再按"
+                  + "「模型调用次数上限」硬收尾，跑多久由你看着决定（右上停止按钮随时可用）。"}
+              >
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    hud.stalled ? "bg-warning" : "animate-pulse bg-success",
+                  )}
+                />
+                <span>{hud.text}</span>
+                {hud.hint && <span className="text-muted-foreground">{hud.hint}</span>}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
@@ -665,14 +786,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
                         className="h-7 max-w-[200px] gap-1 border border-border bg-transparent px-1.5 text-xs text-foreground"
                         title={selectedPreset
                           ? `本次对话用预设「${selectedPreset.name}」的模型与端点（${selectedPreset.values.llm_model ?? "默认模型名"}）；只影响本会话`
-                          : "本次对话用哪个模型：候选是「设置」页里存的模型预设；留空跟随设置页的全局模型"}
+                          : `本次对话跟随设置页的全局模型${defaultModelName ? `（当前：${defaultModelName}）` : ""}`}
                       >
-                        <SelectValue placeholder="模型：默认">
-                          {selectedPreset ? selectedPreset.name : "模型：默认"}
+                        <SelectValue placeholder="模型">
+                          {selectedPreset
+                            ? selectedPreset.name
+                            : (defaultModelName || "跟随设置")}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">模型：默认（跟随设置）</SelectItem>
+                        <SelectItem value="">
+                          {defaultModelName
+                            ? `跟随设置（${defaultModelName}）`
+                            : "跟随设置（未配置）"}
+                        </SelectItem>
                         {modelPresets.map((p) => (
                           <SelectItem key={p.name} value={p.name}>
                             {p.name}{p.values.llm_model ? `（${p.values.llm_model}）` : ""}
@@ -681,6 +808,26 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({
                       </SelectContent>
                     </Select>
                   </div>
+                  {/* Token 用量（只读，当前上下文占用 + 占窗口百分比）：取最后一次
+                      模型调用的 total_tokens（其 input 即当前完整对话）。达到窗口
+                      85% 时后端会自动压缩早期历史，届时占比会回落——正常现象。 */}
+                  {sessionTokens > 0 && (
+                    <div
+                      className={cn(
+                        "flex shrink-0 items-center gap-1 border-l border-border pl-4 text-xs text-muted-foreground",
+                        sessionTokenPct >= 85 && "text-destructive",
+                      )}
+                      title={`当前上下文占用 ${sessionTokens.toLocaleString()} tokens`
+                        + `（最近一轮：输入 ${(latestUsage?.input ?? 0).toLocaleString()} / 输出 ${(latestUsage?.output ?? 0).toLocaleString()}）`
+                        + `，占上下文窗口 ${contextWindow.toLocaleString()} 的 ${sessionTokenPct}%。`
+                        + `超过 85% 时平台自动压缩早期历史`}
+                    >
+                      <Gauge size={14} className="shrink-0" />
+                      <span className="whitespace-nowrap">
+                        上下文 {formatTokenCount(sessionTokens)} ({sessionTokenPct}%)
+                      </span>
+                    </div>
+                  )}
                   {/* 代码图谱仓库（per conversation, ?repo=）—— 挂上哪个，代码分析就作用于它。
                       候选来自「代码图谱」页注册的仓库；挂上后写它仍需审批（只读分析对象）。
                       叫「代码图谱仓库」而不是「仓库」：这里的仓库只有一个来源、也只服务

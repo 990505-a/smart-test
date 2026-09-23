@@ -28,11 +28,17 @@ def memory_root(tmp_path: Path, monkeypatch) -> Path:
     要同时补**两处**：``memory_service.memory_root``（list_modules / ensure_seeded
     用它）和 ``memory_injection.memory_root``（中间件模块里是 ``from ... import
     memory_root`` 的模块级名字，改前者不会影响它）。
+
+    还要把**总开关显式打开**：它是**本机 .env / 设置页**的状态
+    （``MEMORY_ENABLED``），用户关掉记忆后这些"注入机制"用例会集体变红——
+    那是环境差异不是代码缺陷。测开关本身的用例（test_global_switch_*）自己
+    再 monkeypatch 成 False，晚于本 fixture 生效，不受影响。
     """
     root = tmp_path / "memory"
     root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(memory_service, "memory_root", lambda space_id="default": root)
     monkeypatch.setattr(memory_injection, "memory_root", lambda space_id="default": root)
+    monkeypatch.setattr(memory_injection.settings, "memory_enabled", True)
     yield root
 
 
