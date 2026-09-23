@@ -528,16 +528,38 @@ async def unity_get_script(script_id: str) -> dict:
 
 @tool
 async def unity_list_scripts() -> dict:
-    """列出已入库的 Unity 用例（id / 名称 / 模块 / 状态 / 版本，只有元数据）。"""
+    """列出已入库的 Unity 用例（id / 名称 / 模块 / 状态 / 版本 + **上次运行摘要**）。
+
+    为什么带上"上次运行"：用户说"接着上次跑 / 继续跑"时，这里就能回答"上次跑到哪、
+    为什么挂"，**不用去观测活着的游戏界面**（2026-09-23 实测：一次会话为此扫了 7000+
+    个对象、花掉 8 分钟）。``last_run.env_suspect`` 为真表示上次失败像环境问题
+    （``failure_hint`` 是命中的指纹）—— 那一类**改用例是白改**。
+    """
+    from sqlalchemy import desc, select
+
     from src.app.db.database import async_session_factory
+    from src.app.db.models.unity_script import UnityScriptRun
 
     async with async_session_factory() as db:
         rows = await unity_service.list_scripts(db)
-        return {"success": True, "scripts": [
-            {"id": str(r.id), "name": r.name, "module": r.module,
-             "status": r.status, "version": r.version}
-            for r in rows
-        ]}
+        scripts = []
+        for r in rows:
+            item = {"id": str(r.id), "name": r.name, "module": r.module,
+                    "status": r.status, "version": r.version}
+            last = (await db.execute(
+                select(UnityScriptRun).where(UnityScriptRun.script_id == r.id)
+                .order_by(desc(UnityScriptRun.created_at)).limit(1))).scalars().first()
+            if last is not None:
+                hint = unity_service.env_failure_hint(last.output or "")
+                item["last_run"] = {
+                    "at": (last.created_at.isoformat(timespec="seconds")
+                           if last.created_at else None),
+                    "status": last.status, "exit_code": last.exit_code,
+                    "duration_ms": last.duration_ms,
+                    "env_suspect": bool(hint), "failure_hint": hint,
+                }
+            scripts.append(item)
+        return {"success": True, "scripts": scripts}
 
 
 # ---------------------------------------------------------------------------

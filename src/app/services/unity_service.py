@@ -72,8 +72,16 @@ def run_stale_after_s() -> float:
 # ===========================================================================
 
 async def status() -> dict:
-    """桥 / 服务器 / 编辑器状态。"""
-    return await unity_bridge.status()
+    """桥 / 服务器 / 编辑器状态。
+
+    额外带 ``run_timeout_s``：单次执行的墙钟预算。智能体判断"这条用例能不能一次
+    跑完"时必须知道它 —— 否则只能去翻 `.env`（2026-09-23 实测它就是这么干的，
+    一次会话为此读了配置文件、平台源码，还 grep 了全仓）。
+    """
+    out = await unity_bridge.status()
+    if isinstance(out, dict):
+        out.setdefault("run_timeout_s", settings.unity_run_timeout_s)
+    return out
 
 
 async def editor_action(action: str) -> dict:
@@ -296,7 +304,25 @@ _ENV_FAILURE_MARKERS = (
     "连不上 Unity MCP 桥", "Unity 编辑器未连接", "编辑器未连接",
     "拒绝调用", "no_unity_session", "session disconnected",
     "不在 Play Mode", "设备丢失", "ECONNREFUSED", "Connection refused",
+    # 被测程序**自己那一侧**的环境失败：客户端拉不到远端配置、连不上它自己的本地
+    # 服务。2026-09-23 实测：这类失败是当天三次运行的全部原因，却因为不在上面那批
+    # 指纹里被算成 `case` —— 脚本被标 broken，智能体被指去"改一份本来正确的用例"。
+    # 它们和桥的问题同类：**改用例是白改**。
+    "尝试获远端配置失败", "获取服务器时间失败", "Fail to get remote text",
+    "ConnectionError",
 )
+
+
+def env_failure_hint(output: str) -> str:
+    """输出里命中的环境指纹（没有则空串）。
+
+    两处用它：``failure_digest`` 判 kind；``unity_list_scripts`` 回答"上次那次
+    失败像不像环境问题"（用户说"接着上次跑"时，先看这个，别去观测游戏界面）。
+    """
+    for mark in _ENV_FAILURE_MARKERS:
+        if mark in (output or ""):
+            return mark
+    return ""
 
 
 def _content_key(content: str) -> str:

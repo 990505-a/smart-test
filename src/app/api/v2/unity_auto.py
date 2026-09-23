@@ -402,7 +402,13 @@ async def _execute_run(script_id: str, run_id: str, name: str, content: str) -> 
             run.duration_ms = result["duration_ms"]
             run.screenshots = result.get("screenshots")
             if script is not None:
-                script.status = "active" if result["status"] == "passed" else "broken"
+                if result["status"] == "passed":
+                    script.status = "active"
+                elif (result.get("failure") or {}).get("kind") != "environment":
+                    # 环境问题（桥掉线、工程脏、被测程序自己连不上服务商）不该把用例
+                    # 标成 broken：那会让界面和智能体都以为"用例坏了"、去改一份本来
+                    # 正确的用例。这类失败只记在执行历史里，用例状态保持不变。
+                    script.status = "broken"
         except Exception as exc:  # noqa: BLE001
             run.status = "error"
             run.exit_code = -2
